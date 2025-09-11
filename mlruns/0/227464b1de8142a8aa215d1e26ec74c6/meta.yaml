@@ -1,0 +1,14 @@
+artifact_uri: file:///Users/eriknielsen/Documents/UNITN/PHD/AIDA/A22/crack-detection/mlruns/0/227464b1de8142a8aa215d1e26ec74c6/artifacts
+end_time: 1757430335504
+entry_point_name: ''
+experiment_id: '0'
+lifecycle_stage: active
+run_id: 227464b1de8142a8aa215d1e26ec74c6
+run_name: casual-crab-833
+source_name: ''
+source_type: 4
+source_version: ''
+start_time: 1757429588593
+status: 3
+tags: []
+user_id: eriknielsen

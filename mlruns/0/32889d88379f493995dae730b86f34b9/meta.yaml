@@ -1,0 +1,14 @@
+artifact_uri: file:///Users/eriknielsen/Documents/UNITN/PHD/AIDA/A22/crack-detection/mlruns/0/32889d88379f493995dae730b86f34b9/artifacts
+end_time: 1757493641324
+entry_point_name: ''
+experiment_id: '0'
+lifecycle_stage: active
+run_id: 32889d88379f493995dae730b86f34b9
+run_name: upset-smelt-814
+source_name: ''
+source_type: 4
+source_version: ''
+start_time: 1757493636115
+status: 4
+tags: []
+user_id: eriknielsen

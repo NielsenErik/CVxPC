@@ -1,0 +1,14 @@
+artifact_uri: file:///Users/eriknielsen/Documents/UNITN/PHD/AIDA/A22/crack-detection/mlruns/0/07a065d20a83463cb53d5f0fc0b5d715/artifacts
+end_time: 1757504013601
+entry_point_name: ''
+experiment_id: '0'
+lifecycle_stage: active
+run_id: 07a065d20a83463cb53d5f0fc0b5d715
+run_name: funny-bear-378
+source_name: ''
+source_type: 4
+source_version: ''
+start_time: 1757504005026
+status: 3
+tags: []
+user_id: eriknielsen

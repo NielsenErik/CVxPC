@@ -1,0 +1,14 @@
+artifact_uri: file:///Users/eriknielsen/Documents/UNITN/PHD/AIDA/A22/crack-detection/mlruns/0/aa6de282d33b49498141b2fe01000ac4/artifacts
+end_time: 1757511672652
+entry_point_name: ''
+experiment_id: '0'
+lifecycle_stage: active
+run_id: aa6de282d33b49498141b2fe01000ac4
+run_name: sedate-hog-375
+source_name: ''
+source_type: 4
+source_version: ''
+start_time: 1757511642669
+status: 3
+tags: []
+user_id: eriknielsen

@@ -1,0 +1,14 @@
+artifact_uri: file:///Users/eriknielsen/Documents/UNITN/PHD/AIDA/A22/crack-detection/mlruns/0/ab23c60bf87646a896ca7879fdf72ba0/artifacts
+end_time: 1757342469740
+entry_point_name: ''
+experiment_id: '0'
+lifecycle_stage: active
+run_id: ab23c60bf87646a896ca7879fdf72ba0
+run_name: wistful-dog-135
+source_name: ''
+source_type: 4
+source_version: ''
+start_time: 1757342469637
+status: 4
+tags: []
+user_id: eriknielsen

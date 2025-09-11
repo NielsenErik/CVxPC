@@ -1,0 +1,14 @@
+artifact_uri: file:///Users/eriknielsen/Documents/UNITN/PHD/AIDA/A22/crack-detection/mlruns/0/b8b99395720e46b69e7e57ea4a9822e3/artifacts
+end_time: 1757511612195
+entry_point_name: ''
+experiment_id: '0'
+lifecycle_stage: active
+run_id: b8b99395720e46b69e7e57ea4a9822e3
+run_name: nebulous-moose-237
+source_name: ''
+source_type: 4
+source_version: ''
+start_time: 1757511609460
+status: 4
+tags: []
+user_id: eriknielsen

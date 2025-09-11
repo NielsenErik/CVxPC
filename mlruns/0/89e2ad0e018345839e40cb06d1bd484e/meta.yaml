@@ -1,0 +1,14 @@
+artifact_uri: file:///Users/eriknielsen/Documents/UNITN/PHD/AIDA/A22/crack-detection/mlruns/0/89e2ad0e018345839e40cb06d1bd484e/artifacts
+end_time: 1757412087210
+entry_point_name: ''
+experiment_id: '0'
+lifecycle_stage: active
+run_id: 89e2ad0e018345839e40cb06d1bd484e
+run_name: upbeat-boar-17
+source_name: ''
+source_type: 4
+source_version: ''
+start_time: 1757412083976
+status: 4
+tags: []
+user_id: eriknielsen

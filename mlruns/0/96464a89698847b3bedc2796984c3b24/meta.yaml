@@ -1,0 +1,14 @@
+artifact_uri: file:///Users/eriknielsen/Documents/UNITN/PHD/AIDA/A22/crack-detection/mlruns/0/96464a89698847b3bedc2796984c3b24/artifacts
+end_time: 1757422107989
+entry_point_name: ''
+experiment_id: '0'
+lifecycle_stage: active
+run_id: 96464a89698847b3bedc2796984c3b24
+run_name: polite-bass-164
+source_name: ''
+source_type: 4
+source_version: ''
+start_time: 1757422097841
+status: 4
+tags: []
+user_id: eriknielsen

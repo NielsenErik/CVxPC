@@ -1,0 +1,14 @@
+artifact_uri: file:///Users/eriknielsen/Documents/UNITN/PHD/AIDA/A22/crack-detection/mlruns/0/65573a6b9778465897dd704b21a23c25/artifacts
+end_time: 1757419344776
+entry_point_name: ''
+experiment_id: '0'
+lifecycle_stage: active
+run_id: 65573a6b9778465897dd704b21a23c25
+run_name: crawling-loon-548
+source_name: ''
+source_type: 4
+source_version: ''
+start_time: 1757419339923
+status: 4
+tags: []
+user_id: eriknielsen

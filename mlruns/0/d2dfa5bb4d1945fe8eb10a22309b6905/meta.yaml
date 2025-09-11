@@ -1,0 +1,14 @@
+artifact_uri: file:///Users/eriknielsen/Documents/UNITN/PHD/AIDA/A22/crack-detection/mlruns/0/d2dfa5bb4d1945fe8eb10a22309b6905/artifacts
+end_time: 1757493384880
+entry_point_name: ''
+experiment_id: '0'
+lifecycle_stage: active
+run_id: d2dfa5bb4d1945fe8eb10a22309b6905
+run_name: caring-smelt-682
+source_name: ''
+source_type: 4
+source_version: ''
+start_time: 1757493346756
+status: 3
+tags: []
+user_id: eriknielsen

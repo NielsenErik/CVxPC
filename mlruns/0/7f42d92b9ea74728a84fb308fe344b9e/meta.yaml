@@ -1,0 +1,14 @@
+artifact_uri: file:///Users/eriknielsen/Documents/UNITN/PHD/AIDA/A22/crack-detection/mlruns/0/7f42d92b9ea74728a84fb308fe344b9e/artifacts
+end_time: 1757493738116
+entry_point_name: ''
+experiment_id: '0'
+lifecycle_stage: active
+run_id: 7f42d92b9ea74728a84fb308fe344b9e
+run_name: enchanting-fawn-770
+source_name: ''
+source_type: 4
+source_version: ''
+start_time: 1757493707017
+status: 4
+tags: []
+user_id: eriknielsen

@@ -1,0 +1,14 @@
+artifact_uri: file:///Users/eriknielsen/Documents/UNITN/PHD/AIDA/A22/crack-detection/mlruns/0/382a7b7fc0aa4c6b8085d37e4c9d4822/artifacts
+end_time: 1757507525815
+entry_point_name: ''
+experiment_id: '0'
+lifecycle_stage: active
+run_id: 382a7b7fc0aa4c6b8085d37e4c9d4822
+run_name: serious-rook-241
+source_name: ''
+source_type: 4
+source_version: ''
+start_time: 1757507513477
+status: 3
+tags: []
+user_id: eriknielsen

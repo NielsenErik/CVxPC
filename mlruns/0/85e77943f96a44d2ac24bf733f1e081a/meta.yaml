@@ -1,0 +1,14 @@
+artifact_uri: file:///Users/eriknielsen/Documents/UNITN/PHD/AIDA/A22/crack-detection/mlruns/0/85e77943f96a44d2ac24bf733f1e081a/artifacts
+end_time: 1757497554645
+entry_point_name: ''
+experiment_id: '0'
+lifecycle_stage: active
+run_id: 85e77943f96a44d2ac24bf733f1e081a
+run_name: stately-stoat-250
+source_name: ''
+source_type: 4
+source_version: ''
+start_time: 1757497212688
+status: 3
+tags: []
+user_id: eriknielsen

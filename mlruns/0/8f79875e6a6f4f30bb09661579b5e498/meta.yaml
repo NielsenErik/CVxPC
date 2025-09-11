@@ -1,0 +1,14 @@
+artifact_uri: file:///Users/eriknielsen/Documents/UNITN/PHD/AIDA/A22/crack-detection/mlruns/0/8f79875e6a6f4f30bb09661579b5e498/artifacts
+end_time: 1757510923351
+entry_point_name: ''
+experiment_id: '0'
+lifecycle_stage: active
+run_id: 8f79875e6a6f4f30bb09661579b5e498
+run_name: capable-crane-299
+source_name: ''
+source_type: 4
+source_version: ''
+start_time: 1757510907963
+status: 3
+tags: []
+user_id: eriknielsen

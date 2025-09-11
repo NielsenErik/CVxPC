@@ -1,0 +1,14 @@
+artifact_uri: file:///Users/eriknielsen/Documents/UNITN/PHD/AIDA/A22/crack-detection/mlruns/0/b61f9f655fab499698e83cddf4f4e2a7/artifacts
+end_time: 1757491095660
+entry_point_name: ''
+experiment_id: '0'
+lifecycle_stage: active
+run_id: b61f9f655fab499698e83cddf4f4e2a7
+run_name: agreeable-elk-452
+source_name: ''
+source_type: 4
+source_version: ''
+start_time: 1757490867853
+status: 3
+tags: []
+user_id: eriknielsen

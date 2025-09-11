@@ -1,0 +1,14 @@
+artifact_uri: file:///Users/eriknielsen/Documents/UNITN/PHD/AIDA/A22/crack-detection/mlruns/0/916a33ac200e495b8e5be5921f7cf96b/artifacts
+end_time: 1757424497500
+entry_point_name: ''
+experiment_id: '0'
+lifecycle_stage: active
+run_id: 916a33ac200e495b8e5be5921f7cf96b
+run_name: painted-chimp-606
+source_name: ''
+source_type: 4
+source_version: ''
+start_time: 1757424311686
+status: 3
+tags: []
+user_id: eriknielsen

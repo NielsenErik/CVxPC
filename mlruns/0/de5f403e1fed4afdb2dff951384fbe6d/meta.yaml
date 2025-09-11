@@ -1,0 +1,14 @@
+artifact_uri: file:///Users/eriknielsen/Documents/UNITN/PHD/AIDA/A22/crack-detection/mlruns/0/de5f403e1fed4afdb2dff951384fbe6d/artifacts
+end_time: 1757426629632
+entry_point_name: ''
+experiment_id: '0'
+lifecycle_stage: active
+run_id: de5f403e1fed4afdb2dff951384fbe6d
+run_name: silent-goat-899
+source_name: ''
+source_type: 4
+source_version: ''
+start_time: 1757426398960
+status: 4
+tags: []
+user_id: eriknielsen

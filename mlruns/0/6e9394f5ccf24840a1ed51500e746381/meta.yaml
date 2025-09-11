@@ -1,0 +1,14 @@
+artifact_uri: file:///Users/eriknielsen/Documents/UNITN/PHD/AIDA/A22/crack-detection/mlruns/0/6e9394f5ccf24840a1ed51500e746381/artifacts
+end_time: 1757430728674
+entry_point_name: ''
+experiment_id: '0'
+lifecycle_stage: active
+run_id: 6e9394f5ccf24840a1ed51500e746381
+run_name: skittish-owl-215
+source_name: ''
+source_type: 4
+source_version: ''
+start_time: 1757430470309
+status: 3
+tags: []
+user_id: eriknielsen

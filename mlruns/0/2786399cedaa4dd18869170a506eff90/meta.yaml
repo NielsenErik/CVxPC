@@ -1,0 +1,14 @@
+artifact_uri: file:///Users/eriknielsen/Documents/UNITN/PHD/AIDA/A22/crack-detection/mlruns/0/2786399cedaa4dd18869170a506eff90/artifacts
+end_time: 1757508823249
+entry_point_name: ''
+experiment_id: '0'
+lifecycle_stage: active
+run_id: 2786399cedaa4dd18869170a506eff90
+run_name: tasteful-calf-120
+source_name: ''
+source_type: 4
+source_version: ''
+start_time: 1757508823090
+status: 4
+tags: []
+user_id: eriknielsen

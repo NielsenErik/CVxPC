@@ -1,0 +1,14 @@
+artifact_uri: file:///Users/eriknielsen/Documents/UNITN/PHD/AIDA/A22/crack-detection/mlruns/0/c260b48b6448452fa79d9c3d8b40f5d1/artifacts
+end_time: 1757430916675
+entry_point_name: ''
+experiment_id: '0'
+lifecycle_stage: active
+run_id: c260b48b6448452fa79d9c3d8b40f5d1
+run_name: invincible-cat-260
+source_name: ''
+source_type: 4
+source_version: ''
+start_time: 1757430860539
+status: 3
+tags: []
+user_id: eriknielsen

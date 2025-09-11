@@ -1,0 +1,14 @@
+artifact_uri: file:///Users/eriknielsen/Documents/UNITN/PHD/AIDA/A22/crack-detection/mlruns/0/8ca6af5791d441e8aded11f53ae83c1d/artifacts
+end_time: 1757427623205
+entry_point_name: ''
+experiment_id: '0'
+lifecycle_stage: active
+run_id: 8ca6af5791d441e8aded11f53ae83c1d
+run_name: nimble-koi-985
+source_name: ''
+source_type: 4
+source_version: ''
+start_time: 1757427511672
+status: 3
+tags: []
+user_id: eriknielsen

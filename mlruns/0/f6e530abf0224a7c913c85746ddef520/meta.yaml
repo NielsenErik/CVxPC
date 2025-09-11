@@ -1,0 +1,14 @@
+artifact_uri: file:///Users/eriknielsen/Documents/UNITN/PHD/AIDA/A22/crack-detection/mlruns/0/f6e530abf0224a7c913c85746ddef520/artifacts
+end_time: 1757427114792
+entry_point_name: ''
+experiment_id: '0'
+lifecycle_stage: active
+run_id: f6e530abf0224a7c913c85746ddef520
+run_name: secretive-shark-468
+source_name: ''
+source_type: 4
+source_version: ''
+start_time: 1757427055202
+status: 3
+tags: []
+user_id: eriknielsen

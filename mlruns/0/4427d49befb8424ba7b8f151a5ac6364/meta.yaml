@@ -1,0 +1,14 @@
+artifact_uri: file:///Users/eriknielsen/Documents/UNITN/PHD/AIDA/A22/crack-detection/mlruns/0/4427d49befb8424ba7b8f151a5ac6364/artifacts
+end_time: 1757497161376
+entry_point_name: ''
+experiment_id: '0'
+lifecycle_stage: active
+run_id: 4427d49befb8424ba7b8f151a5ac6364
+run_name: debonair-lynx-295
+source_name: ''
+source_type: 4
+source_version: ''
+start_time: 1757496863729
+status: 3
+tags: []
+user_id: eriknielsen

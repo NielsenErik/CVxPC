@@ -1,0 +1,14 @@
+artifact_uri: file:///Users/eriknielsen/Documents/UNITN/PHD/AIDA/A22/crack-detection/mlruns/0/cd437d5607bd4efcae86e94195d06b28/artifacts
+end_time: 1757511365719
+entry_point_name: ''
+experiment_id: '0'
+lifecycle_stage: active
+run_id: cd437d5607bd4efcae86e94195d06b28
+run_name: judicious-mare-309
+source_name: ''
+source_type: 4
+source_version: ''
+start_time: 1757511233300
+status: 4
+tags: []
+user_id: eriknielsen

@@ -1,0 +1,14 @@
+artifact_uri: file:///Users/eriknielsen/Documents/UNITN/PHD/AIDA/A22/crack-detection/mlruns/0/b402fdd10da94ab3a9c4905e5e56eddf/artifacts
+end_time: 1757424886835
+entry_point_name: ''
+experiment_id: '0'
+lifecycle_stage: active
+run_id: b402fdd10da94ab3a9c4905e5e56eddf
+run_name: masked-worm-306
+source_name: ''
+source_type: 4
+source_version: ''
+start_time: 1757424843765
+status: 4
+tags: []
+user_id: eriknielsen

@@ -1,0 +1,14 @@
+artifact_uri: file:///Users/eriknielsen/Documents/UNITN/PHD/AIDA/A22/crack-detection/mlruns/0/f10916c238a4401dbe436e3555450287/artifacts
+end_time: 1757424718471
+entry_point_name: ''
+experiment_id: '0'
+lifecycle_stage: active
+run_id: f10916c238a4401dbe436e3555450287
+run_name: welcoming-calf-434
+source_name: ''
+source_type: 4
+source_version: ''
+start_time: 1757424517473
+status: 4
+tags: []
+user_id: eriknielsen

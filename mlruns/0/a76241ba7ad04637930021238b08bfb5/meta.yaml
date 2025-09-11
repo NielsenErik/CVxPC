@@ -1,0 +1,14 @@
+artifact_uri: file:///Users/eriknielsen/Documents/UNITN/PHD/AIDA/A22/crack-detection/mlruns/0/a76241ba7ad04637930021238b08bfb5/artifacts
+end_time: 1757507474430
+entry_point_name: ''
+experiment_id: '0'
+lifecycle_stage: active
+run_id: a76241ba7ad04637930021238b08bfb5
+run_name: stately-midge-202
+source_name: ''
+source_type: 4
+source_version: ''
+start_time: 1757504093315
+status: 3
+tags: []
+user_id: eriknielsen

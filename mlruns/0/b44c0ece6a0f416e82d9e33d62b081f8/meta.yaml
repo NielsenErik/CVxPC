@@ -1,0 +1,14 @@
+artifact_uri: file:///Users/eriknielsen/Documents/UNITN/PHD/AIDA/A22/crack-detection/mlruns/0/b44c0ece6a0f416e82d9e33d62b081f8/artifacts
+end_time: 1757419223335
+entry_point_name: ''
+experiment_id: '0'
+lifecycle_stage: active
+run_id: b44c0ece6a0f416e82d9e33d62b081f8
+run_name: caring-kite-174
+source_name: ''
+source_type: 4
+source_version: ''
+start_time: 1757419214386
+status: 4
+tags: []
+user_id: eriknielsen

@@ -1,0 +1,14 @@
+artifact_uri: file:///Users/eriknielsen/Documents/UNITN/PHD/AIDA/A22/crack-detection/mlruns/0/7f51b23e481b49788981afc0b051fce8/artifacts
+end_time: null
+entry_point_name: ''
+experiment_id: '0'
+lifecycle_stage: active
+run_id: 7f51b23e481b49788981afc0b051fce8
+run_name: bald-squid-462
+source_name: ''
+source_type: 4
+source_version: ''
+start_time: 1757509635810
+status: 1
+tags: []
+user_id: eriknielsen

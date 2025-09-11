@@ -1,0 +1,14 @@
+artifact_uri: file:///Users/eriknielsen/Documents/UNITN/PHD/AIDA/A22/crack-detection/mlruns/0/2808ec9a68db4b3896dcd3b6e9504b32/artifacts
+end_time: 1757576428796
+entry_point_name: ''
+experiment_id: '0'
+lifecycle_stage: active
+run_id: 2808ec9a68db4b3896dcd3b6e9504b32
+run_name: painted-mare-299
+source_name: ''
+source_type: 4
+source_version: ''
+start_time: 1757574869055
+status: 3
+tags: []
+user_id: eriknielsen

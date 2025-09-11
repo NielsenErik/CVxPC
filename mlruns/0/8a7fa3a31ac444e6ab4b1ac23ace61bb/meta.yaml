@@ -1,0 +1,14 @@
+artifact_uri: file:///Users/eriknielsen/Documents/UNITN/PHD/AIDA/A22/crack-detection/mlruns/0/8a7fa3a31ac444e6ab4b1ac23ace61bb/artifacts
+end_time: 1757422690058
+entry_point_name: ''
+experiment_id: '0'
+lifecycle_stage: active
+run_id: 8a7fa3a31ac444e6ab4b1ac23ace61bb
+run_name: dashing-sow-866
+source_name: ''
+source_type: 4
+source_version: ''
+start_time: 1757422201323
+status: 4
+tags: []
+user_id: eriknielsen

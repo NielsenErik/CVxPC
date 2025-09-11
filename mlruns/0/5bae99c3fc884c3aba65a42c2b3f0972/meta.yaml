@@ -1,0 +1,14 @@
+artifact_uri: file:///Users/eriknielsen/Documents/UNITN/PHD/AIDA/A22/crack-detection/mlruns/0/5bae99c3fc884c3aba65a42c2b3f0972/artifacts
+end_time: 1757342404033
+entry_point_name: ''
+experiment_id: '0'
+lifecycle_stage: active
+run_id: 5bae99c3fc884c3aba65a42c2b3f0972
+run_name: colorful-seal-518
+source_name: ''
+source_type: 4
+source_version: ''
+start_time: 1757342403973
+status: 4
+tags: []
+user_id: eriknielsen

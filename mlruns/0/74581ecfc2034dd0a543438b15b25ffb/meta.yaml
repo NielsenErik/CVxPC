@@ -1,0 +1,14 @@
+artifact_uri: file:///Users/eriknielsen/Documents/UNITN/PHD/AIDA/A22/crack-detection/mlruns/0/74581ecfc2034dd0a543438b15b25ffb/artifacts
+end_time: 1757425402335
+entry_point_name: ''
+experiment_id: '0'
+lifecycle_stage: active
+run_id: 74581ecfc2034dd0a543438b15b25ffb
+run_name: dazzling-mule-836
+source_name: ''
+source_type: 4
+source_version: ''
+start_time: 1757425137643
+status: 3
+tags: []
+user_id: eriknielsen

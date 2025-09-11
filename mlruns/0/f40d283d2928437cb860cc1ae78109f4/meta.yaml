@@ -1,0 +1,14 @@
+artifact_uri: file:///Users/eriknielsen/Documents/UNITN/PHD/AIDA/A22/crack-detection/mlruns/0/f40d283d2928437cb860cc1ae78109f4/artifacts
+end_time: 1757342797179
+entry_point_name: ''
+experiment_id: '0'
+lifecycle_stage: active
+run_id: f40d283d2928437cb860cc1ae78109f4
+run_name: resilient-sow-640
+source_name: ''
+source_type: 4
+source_version: ''
+start_time: 1757342797064
+status: 4
+tags: []
+user_id: eriknielsen

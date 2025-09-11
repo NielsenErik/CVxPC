@@ -1,0 +1,14 @@
+artifact_uri: file:///Users/eriknielsen/Documents/UNITN/PHD/AIDA/A22/crack-detection/mlruns/0/bbebeb316e0a4a5f857835b0d34ff4ae/artifacts
+end_time: 1757424993377
+entry_point_name: ''
+experiment_id: '0'
+lifecycle_stage: active
+run_id: bbebeb316e0a4a5f857835b0d34ff4ae
+run_name: aged-stork-569
+source_name: ''
+source_type: 4
+source_version: ''
+start_time: 1757424950690
+status: 4
+tags: []
+user_id: eriknielsen

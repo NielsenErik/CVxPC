@@ -1,0 +1,14 @@
+artifact_uri: file:///Users/eriknielsen/Documents/UNITN/PHD/AIDA/A22/crack-detection/mlruns/0/a6b660570ecf48c5b6c11c8807fabf54/artifacts
+end_time: 1757430773882
+entry_point_name: ''
+experiment_id: '0'
+lifecycle_stage: active
+run_id: a6b660570ecf48c5b6c11c8807fabf54
+run_name: stately-snail-698
+source_name: ''
+source_type: 4
+source_version: ''
+start_time: 1757430765417
+status: 3
+tags: []
+user_id: eriknielsen

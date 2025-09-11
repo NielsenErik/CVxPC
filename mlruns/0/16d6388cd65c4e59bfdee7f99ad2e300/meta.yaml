@@ -1,0 +1,14 @@
+artifact_uri: file:///Users/eriknielsen/Documents/UNITN/PHD/AIDA/A22/crack-detection/mlruns/0/16d6388cd65c4e59bfdee7f99ad2e300/artifacts
+end_time: 1757419876367
+entry_point_name: ''
+experiment_id: '0'
+lifecycle_stage: active
+run_id: 16d6388cd65c4e59bfdee7f99ad2e300
+run_name: caring-goat-73
+source_name: ''
+source_type: 4
+source_version: ''
+start_time: 1757419872019
+status: 4
+tags: []
+user_id: eriknielsen

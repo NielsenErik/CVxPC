@@ -1,0 +1,14 @@
+artifact_uri: file:///Users/eriknielsen/Documents/UNITN/PHD/AIDA/A22/crack-detection/mlruns/0/00a966e1a5dd43a0b920be5f34525b6d/artifacts
+end_time: 1757427406010
+entry_point_name: ''
+experiment_id: '0'
+lifecycle_stage: active
+run_id: 00a966e1a5dd43a0b920be5f34525b6d
+run_name: debonair-sow-804
+source_name: ''
+source_type: 4
+source_version: ''
+start_time: 1757427348299
+status: 3
+tags: []
+user_id: eriknielsen

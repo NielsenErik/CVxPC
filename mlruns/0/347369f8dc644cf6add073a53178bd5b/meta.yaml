@@ -1,0 +1,14 @@
+artifact_uri: file:///Users/eriknielsen/Documents/UNITN/PHD/AIDA/A22/crack-detection/mlruns/0/347369f8dc644cf6add073a53178bd5b/artifacts
+end_time: 1757342421196
+entry_point_name: ''
+experiment_id: '0'
+lifecycle_stage: active
+run_id: 347369f8dc644cf6add073a53178bd5b
+run_name: useful-fowl-339
+source_name: ''
+source_type: 4
+source_version: ''
+start_time: 1757342421146
+status: 4
+tags: []
+user_id: eriknielsen
