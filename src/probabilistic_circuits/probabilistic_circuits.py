@@ -4,7 +4,10 @@ from abc import ABC, abstractmethod
 import copy
 import networkx as nx
 import matplotlib.pyplot as plt
-
+from scipy.stats import norm
+from tqdm import trange
+import torch
+import torch.nn.functional as F
 # ---------------- Node definitions ----------------
 class Node(ABC):
     def __init__(self, children=None):
@@ -14,70 +17,117 @@ class Node(ABC):
     def evaluate(self, x):
         pass
 
-class InputNode(Node):
+class ChannelInputNode(Node):
+    def __init__(self, channel_idx, distribution):
+        super().__init__(children=[])
+        self.channel_idx = channel_idx
+        self.distribution = distribution  # torch-based PDF
+
+    def evaluate(self, x):
+        # x shape: (B, C, H, W)
+        vals = x[:, self.channel_idx, :, :]  # (B, H, W)
+        return self.distribution(vals)       # should return (B, H, W)
+    
+class PatchInputNode(Node):
+    def __init__(self, patch_size, distribution):
+        """
+        patch_size: tuple (ph, pw) specifying patch dimensions
+        distribution: callable mapping (B, ph, pw) -> (B,) probabilities
+        """
+        super().__init__(children=[])
+        self.patch_size = patch_size
+        self.distribution = distribution
+        self.mu, self.std = None, None  # to be set during fitting  
+
+    def extract_patches(self, x, patch_size):
+        """
+        x: (B, C, H, W)
+        patch_size: (ph, pw)
+        Returns: patches of shape (B, N, D), where
+                N = H*W, D = C*ph*pw
+        """
+        B, C, H, W = x.shape
+        ph, pw = patch_size
+        patches = F.unfold(x, kernel_size=(ph, pw), padding=(ph//2, pw//2))  # (B, C*ph*pw, H*W)
+        patches = patches.transpose(1, 2)  # (B, H*W, C*ph*pw)
+        return patches
+
+    def fit(self, image_tensor, patch_size):
+        """
+        image_tensor: (B, C, H, W)
+        Returns: mu (D,), std (D,) across all patches in the batch
+        """
+        patches = self.extract_patches(image_tensor, patch_size)  # (B, N, D)
+        patches_flat = patches.reshape(-1, patches.shape[-1])  # (B*N, D)
+        
+        mu = patches_flat.mean(dim=0)
+        std = patches_flat.std(dim=0) + 1e-6  # avoid zero std
+        return mu, std
+
+    def evaluate(self, x):
+        B, C, H, W = x.shape
+        ph, pw = self.patch_size
+        patches = self.extract_patches(x, self.patch_size)  # (B, H*W, D)
+        
+        # Gaussian PDF per patch
+        D = patches.shape[-1]
+        mu = self.mu.view(1, 1, D)
+        std = self.std.view(1, 1, D)
+        
+        diff = patches - mu
+        exponent = -0.5 * (diff / std) ** 2
+        probs = torch.exp(exponent).prod(dim=-1) / (std.prod() * (2 * torch.pi) ** (D/2))
+        
+        return probs.view(B, H, W)
+    
+class TabularInputNode(Node):
     def __init__(self, feature_idx, distribution):
         super().__init__(children=[])
         self.feature_idx = feature_idx
-        self.distribution = distribution  # callable: p(x)
-
+        self.distribution = distribution  # torch-based PDF
     def evaluate(self, x):
         return self.distribution(x[:, self.feature_idx])
+    
+class InputNode(Node):
+    def __init__(self):
+        pass
 
 class SumNode(Node):
-    '''
-    The SumNode
-    class represents a node in a probabilistic circuit that computes a weighted sum of its child nodes' evaluations.
-
-    Here's what each class method does:
-
-    init(self, children, weights=None)
-    : Initializes a 
-    SumNode
-    with a list of child nodes and optional weights. If no weights are provided, it defaults to equal weights for all children.
-    evaluate(self, x)
-    : Evaluates the weighted sum of the child nodes' evaluations for a given input x.
-    set_weights(self, weights)
-    : Sets new weights for the child nodes, ensuring that the weights sum to 1.
-    '''
-    def __init__(self, children, weights=None):
+    def __init__(self, children, weights=None, device="cpu"):
         super().__init__(children)
         self.n_children = len(children)
         if weights is None:
-            weights = np.ones(self.n_children) / self.n_children
-        self.weights = np.array(weights, dtype=float)
-        self.weights /= np.sum(self.weights)
-
-    def evaluate(self, x):
-        child_vals = np.array([child.evaluate(x) for child in self.children])
-        return np.dot(self.weights, child_vals)
+            weights = torch.ones(self.n_children, device=device) / self.n_children
+        self.weights = torch.tensor(weights, dtype=torch.float32, device=device)
+        self.weights /= self.weights.sum()
 
     def set_weights(self, weights):
         assert len(weights) == self.n_children, "Weights length must match number of children"
-        self.weights = np.array(weights, dtype=float)
-        self.weights /= np.sum(self.weights)
+        self.weights = torch.tensor(weights, dtype=torch.float32, device=self.weights.device)
+        self.weights /= self.weights.sum()
+
+    def evaluate(self, x):
+        child_vals = torch.stack([child.evaluate(x) for child in self.children], dim=0)  # (n_children, B, H, W)
+        weighted_sum = torch.tensordot(self.weights, child_vals, dims=([0], [0]))       # (B, H, W)
+        return weighted_sum
 
 class ProductNode(Node):
-    '''
-    The 
-    ProductNode
-    class represents a node in a probabilistic circuit that computes the product of its child nodes' evaluations.
-
-    Here's what each method does:
-
-    init(self, children)
-    :params children (list of Node)
-    : Initializes a 
-    ProductNode
-    with a list of child nodes.
-    evaluate(self, x)
-    : Evaluates the product of the child nodes' evaluations for a given input x, returning the result as a numpy array.
-    '''
     def __init__(self, children):
         super().__init__(children)
 
     def evaluate(self, x):
-        child_vals = np.array([child.evaluate(x) for child in self.children])
-        return np.prod(child_vals, axis=0)
+        child_vals = torch.stack([child.evaluate(x) for child in self.children], dim=0)  # (n_children, B, H, W)
+        return torch.prod(child_vals, dim=0)  # (B, H, W)
+    
+class SoftmaxSumNode(Node):
+    def __init__(self, children):
+        super().__init__(children)
+
+    def evaluate(self, x):
+        child_vals = [child.evaluate(x) for child in self.children]  # list of (B, H, W)
+        logits = torch.stack(child_vals, dim=1)  # (B, n_classes, H, W)
+        probs = torch.softmax(logits, dim=1)
+        return probs
 
 # ---------------- Abstract Graph ----------------
 class AbstractGraph:
@@ -132,92 +182,89 @@ class DirectedAcyclicGraph(AbstractGraph):
         return any(visit(node) for node in self.nodes)
 
 # Probabilistic Circuit
-class ProbabilisticCircuit(DirectedAcyclicGraph):
+class ProbabilisticCircuit:
     """
-    A Probabilistic Circuit built on a Directed Acyclic Graph (DAG).
-    - Nodes: InputNode, SumNode, ProductNode
-    - Supports EM learning of SumNode weights
-    - Can evaluate inputs and apply to images for segmentation
+    Probabilistic Circuit for image segmentation.
+    Evaluates pixel-wise likelihoods for class labels.
     """
-    def __init__(self, root: Node):
-        super().__init__()
-        self.root = root
-        self.add_node(root)
+    def __init__(self, n_classes=2, device="cpu"):
+        self.graph = DirectedAcyclicGraph()
+        self.root = None
+        self.n_classes = n_classes
+        self.device = device
 
-    # ---------------- Inference ----------------
-    def evaluate(self, x: np.ndarray) -> np.ndarray:
-        """
-        Evaluate the circuit likelihood for given inputs.
-        :param x: (n_samples, n_features)
-        :return: likelihoods (n_samples,)
-        """
-        return self.root.evaluate(x)
+    def add_node(self, node):
+        self.graph.add_node(node)
 
-    def log_likelihood(self, x: np.ndarray) -> np.ndarray:
-        """Return log-likelihood to avoid underflow."""
-        return np.log(self.evaluate(x) + 1e-12)
+    def add_edge(self, parent, child):
+        self.graph.add_edge(parent, child)
+        if child not in parent.children:
+            parent.children.append(child)
 
-    # ---------------- EM Training ----------------
-    def e_step(self, x: np.ndarray):
-        """
-        Expectation step: Compute responsibilities for sum nodes.
-        :param x: (n_samples, n_features)
-        :return: dict mapping SumNode -> responsibilities
-        """
-        responsibilities = {}
-        for node in self.nodes:
-            if isinstance(node, SumNode):
-                child_vals = np.array([child.evaluate(x) for child in node.children])  # (n_children, n_samples)
-                weighted = node.weights[:, None] * child_vals
-                norm = np.sum(weighted, axis=0, keepdims=True) + 1e-12
-                resp = weighted / norm  # shape (n_children, n_samples)
-                responsibilities[node] = resp
-        return responsibilities
+    def set_root(self, node):
+        if node not in self.graph.nodes:
+            raise ValueError("Root must be in the graph")
+        self.root = node
 
-    def m_step(self, responsibilities: dict):
+    def evaluate(self, input: torch.Tensor) -> torch.Tensor:
         """
-        Maximization step: Update weights of SumNodes.
+        Evaluate the segmentation PC.
+        image_tensor: torch.Tensor of shape (B, C, H, W)
+        Returns: torch.Tensor of shape (B, n_classes, H, W)
         """
-        for node, resp in responsibilities.items():
-            # Average responsibilities across samples
-            new_weights = resp.mean(axis=1)
-            node.set_weights(new_weights)
+        if self.root is None:
+            raise ValueError("Root not set")
+        return self.root.evaluate(input)
+    
+    def predict_mask(self, image_tensor):
+        """
+        Returns segmentation mask from PC evaluation.
+        """
+        probs = self.evaluate(image_tensor)  # (B, n_classes, H, W)
+        return torch.argmax(probs, dim=2)    # (B, H, W)
+    
+    def get_nodes(self):
+        return self.graph.nodes
 
-    def fit(self, x: np.ndarray, n_iters=10):
-        """
-        EM algorithm to learn SumNode weights.
-        """
-        for _ in range(n_iters):
-            resp = self.e_step(x)
-            self.m_step(resp)
+    def get_edges(self):
+        return [(p, c) for p, children in self.graph.edges.items() for c in children]
 
-import random
-import numpy as np
-import networkx as nx
-import matplotlib.pyplot as plt
+    def visualize(self):
+        """
+        Visualize the circuit using networkx.
+        """
+        G = nx.DiGraph()
+        for node in self.get_nodes():
+            label = node.__class__.__name__
+            if isinstance(node, InputNode):
+                label += f"\n(feature={node.channel_idx})"
+            elif isinstance(node, SumNode):
+                label += f"\n(weights={np.round(node.weights, 2)})"
+            G.add_node(node, label=label)
 
-class PCNet(ProbabilisticCircuit):
-    """
-    Deep Tree-Structured Probabilistic Circuit (PCNet) for supervised segmentation.
-    Alternates Product/Sum layers and allows tree visualization.
-    """
-    def __init__(self, input_nodes: list, input_size: tuple , max_depth: int = 3, max_branching: int = 2):
-        """
-        :param input_nodes: list of InputNodes (leaf distributions)
-        :param input_size: tuple, e.g., (H, W, C) for image inputs
-        :param max_depth: number of alternating Product/Sum layers
-        :param max_branching: max number of children per SumNode
-        """
-        self.input_nodes = input_nodes
-        self.input_size = input_size
+        for parent, child in self.get_edges():
+            G.add_edge(parent, child)
+
+        pos = nx.spring_layout(G)
+        labels = nx.get_node_attributes(G, 'label')
+        nx.draw(G, pos, with_labels=True, labels=labels, node_size=3000, node_color="lightblue")
+        plt.show()
+
+class ProbabilisticCircuitNetwork(ProbabilisticCircuit):
+    def __init__(self, input_size, patch_size=(9,9), n_classes=2, distribution=None, device="cpu", max_depth=4, max_branching=3):
+        
+        super().__init__(n_classes, device)
+        self.input_size = input_size  # (C, H, W)
+        self.patch_size = patch_size  # (ph, pw)
+        self.network = None  # Placeholder for a pc network
+        self.max_depth = None
+        self.max_branching = None
+        self.distribution = distribution
+        self.n_classes = n_classes
+        self.device = device
         self.max_depth = max_depth
         self.max_branching = max_branching
 
-        # Build tree recursively
-        self.root = self.set_next_layer(self.input_nodes, 0)
-        super().__init__(self.root)
-
-    # ---------------- Layer building helpers ----------------
     def pairwise(self, nodes):
         """Group nodes pairwise for ProductNode layer"""
         random.shuffle(nodes)
@@ -261,9 +308,15 @@ class PCNet(ProbabilisticCircuit):
         next_nodes = []
         branches = self.branchwise(current_nodes)
         for branch in branches:
-            sum_node = SumNode(children=list(branch))
+            # Random weights
+            weights = torch.rand(len(branch), device=self.device)
+
+            # Normalize so sum = 1
+            weights = weights / weights.sum()
+            sum_node = SumNode(children=list(branch), weights=weights, device=self.device)
             self.add_node(sum_node)
             for child in branch:
+                self.add_node(child)
                 self.add_edge(sum_node, child)
             next_nodes.append(sum_node)
         return next_nodes
@@ -273,9 +326,12 @@ class PCNet(ProbabilisticCircuit):
         if depth == self.max_depth:
             # If multiple nodes remain, create a root SumNode
             if len(current_nodes) == 1:
-                return current_nodes[0]
+                root = SoftmaxSumNode(current_nodes)
+                self.add_node(root)
+                self.add_edge(root, current_nodes[0])
+                return root
             else:
-                root = SumNode(current_nodes)
+                root = SoftmaxSumNode(current_nodes)
                 self.add_node(root)
                 for child in current_nodes:
                     self.add_edge(root, child)
@@ -286,92 +342,78 @@ class PCNet(ProbabilisticCircuit):
             else:
                 next_nodes = self.sum_layer(current_nodes)
             return self.set_next_layer(next_nodes, depth+1)
+    
+    def initialize_network(self, data):
+        input_nodes = []
+        n_pathces = int(self.input_size[1] * self.input_size[2]/(self.patch_size[0]*self.patch_size[1]))
+        for i in range(n_pathces):
+            in_node = PatchInputNode(self.patch_size, self.distribution)
+            mu, std = in_node.fit(data, self.patch_size)
+            in_node.mu = mu
+            in_node.std = std
+            input_nodes.append(in_node)
+            self.add_node(in_node)
+        # Simple structure: all inputs to a single sum node, then to a product 
+        root = self.set_next_layer(input_nodes, depth=1)
+        self.set_root(root)
+        
 
-    # ---------------- Evaluation ----------------
-    def evaluate(self, x):
-        """Evaluate circuit likelihood for input x"""
-        return super().evaluate(x)
+    def fit(self, data, epochs=10, lr=0.001):
+    # Initialize network if not already done
+        if self.network is None:
+            self.initialize_network(data)
 
-    # ---------------- Tree utilities ----------------
-    def print_tree(self, node=None, level=0):
-        """Print indented tree structure"""
-        if node is None:
-            node = self.root
-        indent = "  " * level
-        node_type = type(node).__name__
-        print(f"{indent}{node_type} (id={id(node)})")
-        for child in node.children:
-            self.print_tree(child, level + 1)
-
-    def export_tree_dict(self, node=None):
-        """Export tree as nested dictionary"""
-        if node is None:
-            node = self.root
-        return {f"{type(node).__name__}_{id(node)}": [self.export_tree_dict(c) for c in node.children]}
-
-    def visualize_tree(self, node=None):
-        """Visualize tree using networkx + matplotlib"""
-        if node is None:
-            node = self.root
-
-        G = nx.DiGraph()
-
-        def add_edges(n):
-            for child in n.children:
-                G.add_edge(f"{type(n).__name__}_{id(n)}", f"{type(child).__name__}_{id(child)}")
-                add_edges(child)
-
-        add_edges(node)
-
-        plt.figure(figsize=(12, 8))
-        pos = nx.spring_layout(G, seed=42)
-        nx.draw(G, pos, with_labels=True, node_size=1000, node_color="lightblue", font_size=8, arrowsize=20)
-        plt.show()
-
-    # ---------------- Supervised training ----------------
-    def fit_supervised(self, X: np.ndarray, y: np.ndarray, n_iters: int = 5):
-        """
-        Train SumNode weights using ground-truth labels (per-pixel or per-patch)
-        :param X: (n_samples, n_features)
-        :param y: (n_samples,) labels
-        """
-        for it in range(n_iters):
-            responsibilities = {}
-            for node in self.nodes:
-                if isinstance(node, SumNode):
-                    resp = np.zeros((len(node.children), X.shape[0]))
-                    for i, label in enumerate(y):
-                        idx = label % len(node.children)  # simple mapping
-                        resp[idx, i] = 1.0
-                    responsibilities[node] = resp
-
-            # M-step: update weights
-            for node, resp in responsibilities.items():
-                new_weights = resp.mean(axis=1)
+        # Initialize weights for SumNodes only if they are uninitialized
+        for node in self.network.nodes():
+            if isinstance(node, SumNode) and node.get_weights() is None:
+                new_weights = torch.rand(len(node.children), device=self.device)
+                new_weights = new_weights / new_weights.sum()  # normalize
                 node.set_weights(new_weights)
 
-""""
-from scipy.stats import norm
+        # EM-like weight update
+        for _ in range(epochs):
+            # E-step: compute responsibilities given current weights
+            probs = self.evaluate(data)  # forward pass to get probabilities
+            responsibilities = self.e_step(data, probs)  # soft assignments
 
-H, W, C = 4, 4, 3  # toy RGB image
+            # M-step: update weights
+            for node, r in zip(self.network.sum_nodes(), responsibilities):
+                # r is the responsibility for this SumNode: shape [num_children]
+                new_weights = r / r.sum()  # normalize to sum=1
+                # Optional: apply learning rate smoothing
+                old_weights = node.get_weights()
+                node.set_weights((1 - lr) * old_weights + lr * new_weights)
 
-# InputNodes = distributions for each pixel-channel
-input_nodes = []
-for i in range(H*W*C):
-    mu = np.random.randint(50, 200)
-    sigma = 20
-    input_nodes.append(InputNode(i % C, lambda v, mu=mu, sigma=sigma: norm.pdf(v, loc=mu, scale=sigma)))
+    def evaluate(self, data):
+        return self.root.evaluate(data)
+    
+    def predict_mask(self, data):
+        probs = self.evaluate(data)
+        return torch.argmax(probs, dim=2)
 
-# Build tree-structured circuit
-tree_pc = TreeProbCircuit(
-    input_nodes=input_nodes,
-    image_shape=(H, W, C),
-    patch_size=(2,2),
-    depth=3,
-    n_sums=2
-)
 
-# Evaluate on one pixel vector
-x = np.random.randint(0, 255, size=(1, C))
-print("Likelihood:", tree_pc.evaluate(x))
-"""
+
+if __name__ == "__main__":
+    pc_net = ProbabilisticCircuitNetwork(input_size=(1, 28, 28), patch_size=(9,9), n_classes=2, distribution=None, device="cpu", max_depth=4, max_branching=3)
+
+    # Dummy data
+    B, C, H, W = 10, 1, 28, 28
+    image = torch.rand(B, C, H, W)
+    pc_net.initialize_network(image)
+    probs = pc_net.evaluate(image)
+    mask = pc_net.predict_mask(image)
+    probs = probs.detach().cpu().numpy()
+    print(mask.shape, probs.shape)
+    breakpoint()
+    plt.subplot(1, 3, 1)
+    plt.imshow(image[0,0].numpy(), cmap='gray')
+    plt.title("Input Image")
+    plt.subplot(1, 3, 2)
+    plt.imshow(mask[0].numpy(), cmap='gray')
+    plt.title("Predicted Segmentation Mask")
+    plt.subplot(1, 3, 3)
+    plt.imshow(probs[0,0], cmap='hot')
+    plt.title("Predicted Probabilities")
+    plt.show()
+
+    pc_net.visualize()

@@ -9,6 +9,7 @@ from torch.utils.data import DataLoader
 from tqdm import trange
 import torch
 import matplotlib.pyplot as plt
+from scipy.stats import norm
 
 
 from crackdata_processing import CrackDataset, CrackAugmentations
@@ -20,6 +21,10 @@ def run_experiment(config):
 
     elif config["algorithm"] == "convae":
         experiment = ConvAEExperiment(config)
+        experiment.run()
+
+    elif config["algorithm"] == "pcnet":
+        experiment = ExperimentPC(config)
         experiment.run()
 
     else:
@@ -55,7 +60,7 @@ class Experiment:
         if test_path is not None:
             self.test_images_path = test_path + "/images/"
             self.test_ground_truth_path = test_path + "/masks/"
-            self.test_data = CrackDataset(self.test_images_path, self.test_ground_truth_path, augmentation_percentage=0.0,sample_size=10, resize_size=(256, 256))
+            self.test_data = CrackDataset(self.test_images_path, self.test_ground_truth_path, augmentation_percentage=0.0,sample_size=10, resize_size=(self.resize_size[0], self.resize_size[1]))
         self.data = CrackDataset(self.images_path, self.ground_truth_path, augmentation_percentage=0.1,sample_size=self.sample_size, resize_size=(self.resize_size[0], self.resize_size[1]))     
 
     @abc.abstractmethod
@@ -388,17 +393,80 @@ class ExperimentPC(Experiment):
     def __init__(self, config):
         super().__init__(config)
         self.model_name = self.config.get("model_name", "unet")
+        self.input_channels = self.config.get("input_channels", 3)
+        self.max_depth = self.config.get("max_depth", 5)
+        self.max_branching = self.config.get("max_branching", 2)
+        self.input_nodes = []
 
     #TODO fix
-    def set_input_nodes(self, input_size):
-        prod = 0 
-        for i in range(len(input_size)):
-            prod *= input_size[i]
-        for i in range(prod):
-            self.input_nodes.append(f'X{i}')
+    def set_input_nodes(self, input_size, input_images):
+        H, W, C = input_size
+        X = np.stack([img.reshape(-1, C) for img in input_images], axis=0)  # (N, H*W, C)
+        X = X.reshape(-1, C)  # (N*H*W, C)
+
+        print("Preparing input nodes...")
+
+        self.input_nodes = []
+        for c in range(C):
+            mu = np.mean(X[:, c])
+            sigma = np.std(X[:, c]) + 1e-6  # avoid 0 std
+            self.input_nodes.append(
+                InputNode(c, lambda v, mu=mu, sigma=sigma: norm.pdf(v, loc=mu, scale=sigma))
+            )
 
     def set_algorithm(self):
-        self.input_size = tuple(self.resize_size[0] * self.resize_size[1], self.input_channels)
-        self.set_input_nodes(self.input_size)
         self.model = PCNet(input_nodes=self.input_nodes, input_size=self.input_size, max_depth=self.max_depth, max_branching=self.max_branching)
+
+    def train(self, model):
+        X = np.array([self.data[i][0] for i in range(len(self.data))])
+        y = np.array([self.data[i][1] for i in range(len(self.data))])
+        model.fit_supervised(X, y, epochs=self.epochs)
+        return model
+    
+    def evaluate(self, model, data, loss_function):
+        for d in data:            
+            probs= model.predict(d[0])
+            print(probs.shape, probs.min(), probs.max(), probs.mean())
+            plt.imshow(probs)
+            plt.show()
+    
+    def show_prediction(self, model, image_list, ground_truth_list):
+
+        for img, gt in zip(image_list, ground_truth_list):
+            probs= model.predict(img)
+            probs = torch.sigmoid(torch.tensor(probs)).numpy()
+            img_np = img.squeeze().permute(1, 2, 0).cpu().numpy()
+            gt_np = gt.squeeze().cpu().numpy()
+            print(probs.shape, probs.min(), probs.max(), probs.mean())
+            plt.figure(figsize=(12,6))
+            plt.subplot(1,3,1)
+            plt.imshow(img_np)
+            plt.title("Input Image")
+            plt.axis("off")
+            plt.subplot(1,3,2)
+            plt.imshow(gt_np, cmap="gray")
+            plt.title("Ground Truth")
+            plt.axis("off")
+            plt.subplot(1,3,3)
+            plt.imshow(probs, cmap="cool")
+            plt.title("Prediction")
+            plt.axis("off")
+            plt.show()
+
+    def finetune(self):
+        pass
+        
+    def run(self):
+        self.set_dataset(self.data_path, self.test_path)
+        print("Dataset size:", len(self.data))
+        self.input_size =[self.resize_size[0], self.resize_size[1], self.input_channels]
+        self.set_input_nodes(self.input_size, [self.data[i][0] for i in range(len(self.data))])
+        self.set_algorithm()
+        self.loss_function = BCEDiceLoss()
+        self.model = self.train(self.model)
+        if self.test_path is not None:
+            images = [self.test_data[i][0] for i in range(len(self.test_data))]
+            gts = [self.test_data[i][1] for i in range(len(self.test_data))]
+            self.show_prediction(self.model, images, gts)
+
         

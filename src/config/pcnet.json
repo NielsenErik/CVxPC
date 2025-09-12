@@ -7,12 +7,14 @@
     "test_path": "data/kaggle/crack_segmentation_dataset/test",
     "save_path": "models/",
 
-    "epochs": 10,
+    "epochs": 20,
     "batch_size": 4,
-    "sample_size": 500,
-    "resize_size": [128, 128],
+    "sample_size": 100,
+    "resize_size": [256, 256],
     "input_channels": 3,
     "n_classes": 1,
+    "max_depth": 10,
+    "max_branching": 3,
 
     "execution_mode": "test"
     
