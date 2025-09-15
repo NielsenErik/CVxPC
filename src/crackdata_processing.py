@@ -7,6 +7,7 @@ from torchvision import transforms
 import mlflow
 from PIL import Image
 import glob
+import matplotlib.pyplot as plt
 
 
 class CrackAugmentations:
@@ -121,7 +122,7 @@ class CrackDataset(Dataset):
     def __getitem__(self, idx):
         img = Image.open(self.img_paths[idx]).convert("RGB")   # 3 channels
         mask = Image.open(self.mask_paths[idx]).convert("L")   # 1 channel (grayscale)
-
+        
         img = self.resize_img(img, self.resize_size[0], self.resize_size[1])
         mask = self.resize_gt(mask, self.resize_size[0], self.resize_size[1])
 

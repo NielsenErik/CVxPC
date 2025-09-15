@@ -398,24 +398,50 @@ class ExperimentPC(Experiment):
         self.max_branching = self.config.get("max_branching", 2)
         self.input_nodes = []
 
-    #TODO fix
-    def set_input_nodes(self, input_size, input_images):
-        H, W, C = input_size
-        X = np.stack([img.reshape(-1, C) for img in input_images], axis=0)  # (N, H*W, C)
-        X = X.reshape(-1, C)  # (N*H*W, C)
+    def tensor_to_features(self, image_tensor):
+        """
+        Convert tensor image to feature matrix with RGB + XY.
+        
+        :param image_tensor: shape (C,H,W) or (H,W,C), tensor or numpy
+        :return: np.ndarray of shape (H*W, C+2)
+        """
+        # Convert to numpy if tensor
+        if not isinstance(image_tensor, np.ndarray):
+            image = image_tensor.cpu().numpy()
+        else:
+            image = image_tensor
 
-        print("Preparing input nodes...")
+        # Handle channel-first
+        if image.ndim == 3 and image.shape[0] <= 4:  # (C,H,W)
+            image = np.transpose(image, (1, 2, 0))   # -> (H,W,C)
 
-        self.input_nodes = []
-        for c in range(C):
-            mu = np.mean(X[:, c])
-            sigma = np.std(X[:, c]) + 1e-6  # avoid 0 std
-            self.input_nodes.append(
-                InputNode(c, lambda v, mu=mu, sigma=sigma: norm.pdf(v, loc=mu, scale=sigma))
-            )
+        H, W, C = image.shape
+
+        # Flatten RGB
+        pixels = image.reshape(-1, C)
+
+        # XY coords normalized
+        yy, xx = np.meshgrid(np.arange(H), np.arange(W), indexing="ij")
+        coords = np.stack([xx.flatten() / W, yy.flatten() / H], axis=1)
+
+        # Final features = [R,G,B,x,y]
+        features = np.concatenate([pixels, coords], axis=1).astype(np.float32)
+        return features
+    def set_input_nodes(self, input_images):
+        input_nodes = []
+        features = self.tensor_to_features(input_images[0])
+        n_features = features.shape[1]
+        print("Number of features:", n_features)
+        for feat_idx in range(n_features):
+            # Start with a generic Gaussian PDF
+            def distribution(v, mu=0.0, sigma=1.0):
+                return norm.pdf(v, loc=mu, scale=sigma+1e-12)
+            node = InputNode(feature_idx=feat_idx, distribution=distribution)
+            input_nodes.append(node)
+        return input_nodes
 
     def set_algorithm(self):
-        self.model = PCNet(input_nodes=self.input_nodes, input_size=self.input_size, max_depth=self.max_depth, max_branching=self.max_branching)
+        self.model = PCNet(n_classes=1, distribution=None, device="cpu", max_depth=4, max_branching=3)
 
     def train(self, model):
         X = np.array([self.data[i][0] for i in range(len(self.data))])
@@ -433,25 +459,38 @@ class ExperimentPC(Experiment):
     def show_prediction(self, model, image_list, ground_truth_list):
 
         for img, gt in zip(image_list, ground_truth_list):
-            probs= model.predict(img)
-            probs = torch.sigmoid(torch.tensor(probs)).numpy()
+            # probs = model.evaluate(img)
+            mask = model.predict_mask(img)
+            probs = torch.sigmoid(torch.tensor(mask)).numpy()
+            print(mask.shape, mask.min(), mask.max(), mask.mean())
+            class_1 = probs[0][0]
+            class_2 = probs[0][1]
+            print("Class 1:", class_1.min(), class_1.max(), class_1.mean())
+            print("Class 2:", class_2.min(), class_2.max(), class_2.mean())
+
+            print(probs.shape, probs.min(), probs.max(), probs.mean())
             img_np = img.squeeze().permute(1, 2, 0).cpu().numpy()
             gt_np = gt.squeeze().cpu().numpy()
-            print(probs.shape, probs.min(), probs.max(), probs.mean())
             plt.figure(figsize=(12,6))
-            plt.subplot(1,3,1)
+            plt.subplot(1,4,1)
             plt.imshow(img_np)
             plt.title("Input Image")
             plt.axis("off")
-            plt.subplot(1,3,2)
+            plt.subplot(1,4,2)
             plt.imshow(gt_np, cmap="gray")
             plt.title("Ground Truth")
             plt.axis("off")
-            plt.subplot(1,3,3)
-            plt.imshow(probs, cmap="cool")
+            plt.subplot(1,4,3)
+            plt.imshow(probs[0][0], cmap="cool")
+            plt.title("Prediction")
+            plt.axis("off")
+            plt.subplot(1,4,4)
+            plt.imshow(probs[0][1], cmap="cool")
             plt.title("Prediction")
             plt.axis("off")
             plt.show()
+
+        model.visualize()
 
     def finetune(self):
         pass
@@ -459,8 +498,6 @@ class ExperimentPC(Experiment):
     def run(self):
         self.set_dataset(self.data_path, self.test_path)
         print("Dataset size:", len(self.data))
-        self.input_size =[self.resize_size[0], self.resize_size[1], self.input_channels]
-        self.set_input_nodes(self.input_size, [self.data[i][0] for i in range(len(self.data))])
         self.set_algorithm()
         self.loss_function = BCEDiceLoss()
         self.model = self.train(self.model)
