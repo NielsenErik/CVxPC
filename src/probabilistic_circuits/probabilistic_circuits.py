@@ -19,47 +19,6 @@ import torch
 import torchvision.models as models
 import torch.nn.functional as F
 
-class BCEDiceLoss(nn.Module):
-    '''
-    In case of pos_weight, it becomes weighted BCE loss.
-    '''
-    def __init__(self, pos_weight=None):
-        super().__init__()
-        self.bce = nn.BCEWithLogitsLoss(pos_weight=pos_weight)
-    
-    def dice_loss(self, pred, target, smooth=1.0):
-        """Dice loss for binary segmentation"""
-        pred = torch.sigmoid(pred)   # convert logits → probabilities
-        intersection = (pred * target).sum(dim=(2,3))
-        dice = (2. * intersection + smooth) / (pred.sum(dim=(2,3)) + target.sum(dim=(2,3)) + smooth)
-        return 1 - dice.mean()
-
-    def forward(self, pred, target):
-        bce_loss = self.bce(pred, target)
-        d_loss = self.dice_loss(pred, target)
-        return 0.5 * bce_loss + 0.5 * d_loss
-
-class CNNFeatureExtractor(torch.nn.Module):
-    def __init__(self, model_name="resnet18", pretrained=True, layer="avgpool"):
-        super().__init__()
-        backbone = getattr(models, model_name)(pretrained=pretrained)
-
-        # cut at desired layer
-        if layer == "avgpool":
-            self.encoder = torch.nn.Sequential(*list(backbone.children())[:-2])  # keep conv part
-        elif layer == "layer4":
-            self.encoder = torch.nn.Sequential(*list(backbone.children())[:-1])  # up to last conv block
-        else:
-            raise ValueError(f"Unsupported layer {layer}")
-
-    def forward(self, x):
-        """
-        :param x: torch.Tensor (N,3,H,W), values in [0,1]
-        :return: torch.Tensor (N,C,Hf,Wf)
-        """
-        feats = self.encoder(x)  # (N,C,Hf,Wf)
-        return feats
-
 # ---------------- Node definitions ----------------
 class Node(ABC):
     def __init__(self, children=None):
@@ -69,58 +28,104 @@ class Node(ABC):
     def evaluate(self, x):
         pass
     
-class TabularInputNode(Node):
-    def __init__(self, feature_idx, distribution):
-        super().__init__(children=[])
-        self.feature_idx = feature_idx
-        self.distribution = distribution  # torch-based PDF
-    def evaluate(self, x):
-        return self.distribution(x[:, self.feature_idx])
-    
 class InputNode(Node):
-    def __init__(self, feature_idx, mu=0.0, sigma=1.0):
+    def __init__(self, feature_idx, mu=0.0, sigma=1.0, device="cpu"):
         super().__init__(children=[])
         self.feature_idx = feature_idx
-        self.mu = mu
-        self.sigma = sigma
+        self.mu = torch.tensor(mu, dtype=torch.float32, device=device)
+        self.sigma = torch.tensor(sigma, dtype=torch.float32, device=device)
         self.class_params = {}  # {class_label: (mu, sigma)}
+        self.device = device
+        self.feature_name = self.get_feature_names(feature_idx)
+
+    def get_feature_names(self, idx):
+        feature_names = []
+
+        # --- 1. Raw color channels ---
+        feature_names += ["R_channel", "G_channel", "B_channel"]
+
+        # --- 2. Color transforms ---
+        feature_names += ["Lab_L", "Lab_a", "Lab_b"]
+        feature_names += ["HSV_H", "HSV_S", "HSV_V"]
+
+        # --- 3. Edge / texture ---
+        feature_names += ["Sobel_gray", "Laplacian_gray"]
+
+        # --- 4. Gabor filters (4 orientations × 2 outputs: real + imag) ---
+        orientations = [0, 45, 90, 135]
+        for theta in orientations:
+            feature_names.append(f"Gabor_theta_{theta}_real")
+            feature_names.append(f"Gabor_theta_{theta}_imag")
+
+        # --- 5. Convolutional filter bank ---
+        conv_filters = [
+            "Sobel_x", "Sobel_y",
+            "Laplacian", "Sharpen",
+            "Box3", "Box5",
+            "Gaussian3", "Gaussian5", "Gaussian7",
+            "Emboss_NE", "Emboss_SE",
+            "Prewitt_x", "Prewitt_y",
+            "Diagonal_45", "Diagonal_135",
+            "Horizontal_line", "Vertical_line",
+            "Diagonal45_line", "Diagonal135_line",
+            "Gabor_dir_0", "Gabor_dir_45", "Gabor_dir_90", "Gabor_dir_135"
+        ]
+        feature_names += conv_filters
+
+        return feature_names[idx]
 
     def fit_supervised(self, X, y):
         """
-        Fit per-class Gaussians for this feature.
-        :param X: np.ndarray (n_samples, n_features)
-        :param y: np.ndarray (n_samples,) class labels
+        X: np.ndarray (N, C, H, W) features
+        y: np.ndarray (N, H, W) labels
         """
-        for c in tqdm.tqdm(np.unique(y), desc=f"Fitting InputNode feature {self.feature_idx}"):
-            vals = X[y == c, self.feature_idx]
-            mu, sigma = vals.mean(), vals.std() + 1e-6
+        C = X.shape[1]
+        assert self.feature_idx < C, f"Feature idx {self.feature_idx} out of bounds"
 
+        vals = X[:, self.feature_idx, :, :].reshape(-1)   # flatten all pixels for this channel
+        labels = y.reshape(-1)
+
+        for c in np.unique(labels):
+            class_vals = vals[labels == c]
+            mu = np.median(class_vals)
+            sigma = np.mean(np.abs(class_vals - mu)) + 1e-6
             self.class_params[c] = (mu, sigma)
 
+        # default to global parameters if no class chosen
+        self.mu = torch.tensor(mu, dtype=torch.float32, device=self.device)
+        self.sigma = torch.tensor(sigma, dtype=torch.float32, device=self.device)
+
     def evaluate_class(self, X, class_idx):
-        """Evaluate likelihood given class-conditional params."""
-        vals = X[:, self.feature_idx]
+        if isinstance(X, np.ndarray):
+            X = torch.from_numpy(X).float().to(self.device)
+
+        vals = X[:, self.feature_idx, :, :]   # (B,H,W)
+
         mu, sigma = self.class_params[class_idx]
-        return norm.pdf(vals, loc=mu, scale=sigma)
+        mu = torch.tensor(mu, dtype=torch.float32, device=vals.device)
+        sigma = torch.tensor(sigma, dtype=torch.float32, device=vals.device)
 
-    def evaluate(self, X: torch.Tensor) -> torch.Tensor:
-        """
-        X: torch.Tensor (B,C,H,W) or (B,n_features)
-        Returns: torch.Tensor (B,H,W) or (B,)
-        """
-        if isinstance(X, np.ndarray):  # safety: convert if np accidentally passed
-            X = torch.from_numpy(X).float()
-
-        vals = X[:, self.feature_idx]  # (B,) if tabular, or (B,H,W) if per-pixel
-        mu = torch.tensor(self.mu, dtype=torch.float32, device=X.device)
-        sigma = torch.tensor(self.sigma, dtype=torch.float32, device=X.device)
-        probs = torch.exp(-0.5 * ((vals - mu) / (sigma + 1e-12))**2) / (sigma * (2*np.pi)**0.5)
+        probs = torch.exp(-0.5 * ((vals - mu) / (sigma + 1e-12))**2) \
+                / (sigma * (2 * np.pi) ** 0.5)
         return probs
 
-    def set_params(self, mu, sigma):
-        """Update distribution parameters."""
-        self.mu = mu
-        self.sigma = sigma
+    def evaluate(self, X):
+        """
+        X: torch.Tensor or np.ndarray of shape (B,C,H,W)
+        Returns: torch.Tensor (B,H,W)
+        """
+        if isinstance(X, np.ndarray):
+            X = torch.from_numpy(X).float().to(self.device)
+
+        vals = X[:, self.feature_idx, :, :]   # (B,H,W)
+
+        # ensure mu, sigma are tensors on same device
+        mu = self.mu.to(vals.device)
+        sigma = self.sigma.to(vals.device)
+
+        probs = torch.exp(-0.5 * ((vals - mu) / (sigma + 1e-12))**2) \
+                / (sigma * (2 * np.pi) ** 0.5)
+        return probs
 
 class SumNode(Node):
     def __init__(self, children, weights=None, device="cpu"):
@@ -260,14 +265,7 @@ class ProbabilisticCircuit:
         """
         if self.root is None:
             raise ValueError("Root not set")
-        return self.root.evaluate(input)
-    
-    def predict_mask(self, image_tensor):
-        """
-        Returns segmentation mask from PC evaluation.
-        """
-        probs = self.evaluate(image_tensor)  # (B, n_classes, H, W)
-        return torch.argmax(probs, dim=2)    # (B, H, W)
+        return self.root.evaluate(input)   # (B, H, W)
     
     def get_nodes(self):
         return self.graph.nodes
@@ -275,30 +273,76 @@ class ProbabilisticCircuit:
     def get_edges(self):
         return [(p, c) for p, children in self.graph.edges.items() for c in children]
 
-    def visualize(self):
+    
+    
+    def visualize(self, direction="TB", layer_sep=2.0, node_sep=5.0):
         """
-        Visualize the circuit using networkx.
+        Visualize the probabilistic circuit as a tree-like hierarchical layout with proper spacing.
+
+        :param direction: 'TB' (top-to-bottom) or 'LR' (left-to-right)
+        :param layer_sep: spacing between layers (higher = more vertical spacing)
+        :param node_sep: spacing between nodes in the same layer (higher = more horizontal spacing)
         """
         G = nx.DiGraph()
+        colors = {}
+
+        # Add nodes with labels and colors
         for node in self.get_nodes():
-            label = node.__class__.__name__
             if isinstance(node, InputNode):
-                label += f"\n(feature={node.feature_idx})"
+                label = "In"
+                label += f"\n{node.feature_name}"
+                colors[node] = "lightgreen"
             elif isinstance(node, SumNode):
-                weights_str = ','.join([f"{w:.2f}" for w in node.weights.detach().cpu().numpy()])
+                label = "Sum"
+                weights_str = ','.join([f"{w:.2f}\n" for w in node.weights.detach().cpu().numpy()])
                 label += f"\n(w={weights_str})"
+                colors[node] = "skyblue"
+            elif isinstance(node, ProductNode):
+                label = "Product"
+                colors[node] = "lightcoral"
+            elif isinstance(node, ClassifierNode):
+                label = "Classifier"
+                colors[node] = "orange"
+            else:
+                colors[node] = "lightgray"
             G.add_node(node, label=label)
 
+        # Add edges
         for parent, child in self.get_edges():
             G.add_edge(parent, child)
 
-        pos = nx.kamada_kawai_layout(G)
+        for n in G.nodes:
+            G.nodes[n]['rankdir'] = 'TB' if direction == "TB" else 'LR'
+        G.graph['graph'] = {'ranksep': str(layer_sep), 'nodesep': str(node_sep)}
+
+        # Hierarchical layout
+        pos = nx.nx_pydot.graphviz_layout(G, prog="dot")
+        if direction == "LR":
+            pos = {k: (y, -x) for k, (x, y) in pos.items()}
+        
         labels = nx.get_node_attributes(G, 'label')
-        nx.draw(G, pos, with_labels=True, labels=labels, node_size=300, node_color="lightblue")
+        node_colors = [colors[n] for n in G.nodes]
+
+        plt.figure(figsize=(16, 6))
+        nx.draw(
+            G,
+            pos,
+            with_labels=True,
+            labels=labels,
+            node_size=4000,
+            node_color=node_colors,
+            font_size=7,
+            font_color="black",
+            edgecolors="k",
+            linewidths=0.7,
+            arrows=True,
+            arrowsize=12
+        )
+        plt.title("Probabilistic Circuit Tree Visualization", fontsize=16)
         plt.show()
 
 class PCNet(ProbabilisticCircuit):
-    def __init__(self,n_classes=2, distribution=None, device="cpu", max_depth=4, max_branching=3, feature_extractor="handcrafted"):
+    def __init__(self,n_classes=2, distribution=None, device="cpu", max_depth=4, max_branching=3, feature_extractor="handcrafted", seed=42):
         
         super().__init__(n_classes, device)
         self.network = None  # Placeholder for a pc network
@@ -311,6 +355,14 @@ class PCNet(ProbabilisticCircuit):
         self.max_branching = max_branching
         self.feature_tensor = None
         self.feature_extractor = feature_extractor
+        self.seed = seed
+        random.seed(self.seed)
+
+    def set_max_depth(self, depth):
+        self.max_depth = depth
+
+    def set_max_branching(self, branching):
+        self.max_branching = branching
 
     def pairwise(self, nodes):
         """Group nodes pairwise for ProductNode layer"""
@@ -321,19 +373,6 @@ class PCNet(ProbabilisticCircuit):
         if len(nodes) % 2 == 1:
             paired.append((nodes[-1],))
         return paired
-    
-    def branchwise(self, nodes):
-        """Group nodes randomly with max_branching for SumNode layer"""
-        random.shuffle(nodes)
-        branched = []
-        current = nodes[:]
-        while len(current) > self.max_branching:
-            group_size = random.randint(1, self.max_branching)
-            branched.append(tuple(current[:group_size]))
-            current = current[group_size:]
-        if len(current) > 0:
-            branched.append(tuple(current))
-        return branched
     
     def prod_layer(self, current_nodes):
         """Build a ProductNode layer"""
@@ -350,10 +389,59 @@ class PCNet(ProbabilisticCircuit):
             next_nodes.append(prod_node)
         return next_nodes
     
+    def branchwise_multi_branch(self, nodes, max_reuse=3):
+        """
+        Group nodes with limited reuse across branches.
+        
+        Args:
+            nodes: list of nodes in the current layer
+            max_reuse: maximum times a node can be reused across groups
+        
+        Returns:
+            branched: list of tuples, each tuple is a group of nodes
+        """
+        import random
+        random.shuffle(nodes)
+
+        # Track how many times each node has been used
+        usage_count = {node: 0 for node in nodes}
+        branched = []
+
+        while True:
+            # Collect candidate nodes still allowed
+            candidates = [n for n in nodes if usage_count[n] < max_reuse]
+            if not candidates:
+                break  # no node left to use
+
+            # Sample group size
+            group_size = random.randint(1, min(self.max_branching, len(candidates)))
+            group = random.sample(candidates, group_size)
+
+            # Update usage
+            for g in group:
+                usage_count[g] += 1
+
+            branched.append(tuple(group))
+
+        return branched
+    
+    def branchwise(self, nodes):
+        """Group nodes randomly with max_branching for SumNode layer"""
+        random.shuffle(nodes)
+        branched = []
+        current = nodes[:]
+        while len(current) > self.max_branching:
+            group_size = random.randint(1, self.max_branching)
+            branched.append(tuple(current[:group_size]))
+            current = current[group_size:]
+        if len(current) > 0:
+            branched.append(tuple(current))
+        return branched
+    
     def sum_layer(self, current_nodes):
         """Build a SumNode layer"""
         next_nodes = []
-        branches = self.branchwise(current_nodes)
+        branches = self.branchwise_multi_branch(current_nodes)
         for branch in branches:
             # Random weights
             weights = torch.rand(len(branch), device=self.device)
@@ -386,6 +474,155 @@ class PCNet(ProbabilisticCircuit):
                     nodes = self.sum_layer(nodes)
         return root  # fallback, though loop returns at max_depth
     
+
+    def get_filter_bank(self):
+        filters = {}
+
+        # --- 1. Edge detectors (Sobel) ---
+        filters["sobel_x"] = np.array([[-1, 0, 1],
+                                    [-2, 0, 2],
+                                    [-1, 0, 1]], dtype=np.float32)
+
+        filters["sobel_y"] = np.array([[-1, -2, -1],
+                                    [ 0,  0,  0],
+                                    [ 1,  2,  1]], dtype=np.float32)
+
+        # --- 2. Laplacian (second derivative, edges) ---
+        filters["laplacian"] = np.array([[-1, -1, -1],
+                                        [-1,  8, -1],
+                                        [-1, -1, -1]], dtype=np.float32)
+
+        # --- 3. Sharpen (high-pass) ---
+        filters["sharpen"] = np.array([[ 0, -1,  0],
+                                    [-1,  5, -1],
+                                    [ 0, -1,  0]], dtype=np.float32)
+
+        # --- 4. Box blur (mean filter) ---
+        filters["box3"] = np.ones((3,3), np.float32) / 9.0
+        filters["box5"] = np.ones((5,5), np.float32) / 25.0
+
+        # --- 5. Gaussian blur (multi-scale) ---
+        g3 = cv2.getGaussianKernel(3, sigma=0.8)
+        g5 = cv2.getGaussianKernel(5, sigma=1.2)
+        g7 = cv2.getGaussianKernel(7, sigma=2.0)
+
+        filters["gauss3"] = (g3 @ g3.T).astype(np.float32)
+        filters["gauss5"] = (g5 @ g5.T).astype(np.float32)
+        filters["gauss7"] = (g7 @ g7.T).astype(np.float32)
+
+        # --- 6. Emboss (directional gradients) ---
+        filters["emboss_NE"] = np.array([[-2, -1, 0],
+                                        [-1,  1, 1],
+                                        [ 0,  1, 2]], dtype=np.float32)
+
+        filters["emboss_SE"] = np.array([[ 0,  1, 2],
+                                        [-1,  1, 1],
+                                        [-2, -1, 0]], dtype=np.float32)
+
+        # --- 7. Edge orientation (Prewitt) ---
+        filters["prewitt_x"] = np.array([[-1, 0, 1],
+                                        [-1, 0, 1],
+                                        [-1, 0, 1]], dtype=np.float32)
+
+        filters["prewitt_y"] = np.array([[-1, -1, -1],
+                                        [ 0,  0,  0],
+                                        [ 1,  1,  1]], dtype=np.float32)
+
+        # --- 8. Diagonal edge filters ---
+        filters["diag_45"] = np.array([[ 0,  1, 2],
+                                    [-1, 0, 1],
+                                    [-2,-1, 0]], dtype=np.float32)
+
+        filters["diag_135"] = np.array([[ 2,  1,  0],
+                                        [ 1,  0, -1],
+                                        [ 0, -1, -2]], dtype=np.float32)
+        
+        # Horizontal line detector (elongated)
+        filters["hline"] = np.array([[-1, -1, -1, -1, -1],
+                                    [ 2,  2,  2,  2,  2],
+                                    [-1, -1, -1, -1, -1]], dtype=np.float32)
+
+        # Vertical line detector (elongated)
+        filters["vline"] = np.array([[-1,  2, -1],
+                                    [-1,  2, -1],
+                                    [-1,  2, -1],
+                                    [-1,  2, -1],
+                                    [-1,  2, -1]], dtype=np.float32)
+
+        # Diagonal 45° line detector
+        filters["diag45"] = np.array([[ 0,  0, -1,  2, -1],
+                                    [ 0, -1,  2, -1,  0],
+                                    [-1,  2, -1,  0,  0],
+                                    [ 2, -1,  0,  0,  0],
+                                    [-1,  0,  0,  0,  0]], dtype=np.float32)
+
+        # Diagonal 135° line detector
+        filters["diag135"] = np.array([[-1,  0,  0,  0,  0],
+                                    [ 2, -1,  0,  0,  0],
+                                    [-1,  2, -1,  0,  0],
+                                    [ 0, -1,  2, -1,  0],
+                                    [ 0,  0, -1,  2, -1]], dtype=np.float32)
+
+        # Elongated Gaussian-like directional filters
+        size = 15
+        theta_list = [0, np.pi/4, np.pi/2, 3*np.pi/4]
+        for i, theta in enumerate(theta_list):
+            kernel = cv2.getGaborKernel((size, size), sigma=3.0, theta=theta,
+                                        lambd=10.0, gamma=0.3, psi=0, ktype=cv2.CV_32F)
+            filters[f"gabor_dir_{int(np.degrees(theta))}"] = kernel
+
+        return filters
+    
+    def compute_conv_features(self, images, filters, device="cpu"):
+        """
+        Compute convolutional feature maps for a batch of images and a bank of filters.
+
+        :param images: np.ndarray or torch.Tensor, shape (N,H,W,3) or (N,3,H,W)
+        :param filters: dict[str,np.ndarray] or list[np.ndarray], each filter is (h,w) or (3,h,w)
+        :param device: device to run computations on
+        :return: torch.Tensor, shape (N, C_out, H_out, W_out)
+        """
+        # Convert images to torch tensor
+        if isinstance(images, list):
+            images = torch.from_numpy(np.stack(images, axis=0)).float()
+        if isinstance(images, np.ndarray):
+            images = torch.from_numpy(images).float()
+        images = images.to(device)
+
+        # Make sure images are channels-first
+        if images.ndim == 4 and images.shape[1] != 3:
+            images = images.permute(0, 3, 1, 2)  # (N,H,W,3) -> (N,3,H,W)
+
+        # Collect filter list
+        if isinstance(filters, dict):
+            filt_list = list(filters.values())
+        else:
+            filt_list = filters
+
+        # --- Pad filters to common size ---
+        max_h = max(k.shape[0] for k in filt_list)
+        max_w = max(k.shape[1] for k in filt_list)
+
+        def pad_to_size(kernel, target_size=(max_h, max_w)):
+            h, w = kernel.shape
+            H, W = target_size
+            out = np.zeros((H, W), dtype=np.float32)
+            y0 = (H - h) // 2
+            x0 = (W - w) // 2
+            out[y0:y0+h, x0:x0+w] = kernel
+            return out
+
+        filt_padded = [pad_to_size(k, (max_h, max_w)) for k in filt_list]
+
+        # Convert to torch conv filters -> shape (out_channels, in_channels, H, W)
+        filt_tensor = torch.from_numpy(np.stack(filt_padded, axis=0)).float().unsqueeze(1)
+        filt_tensor = filt_tensor.repeat(1, 3, 1, 1).to(device)  # replicate for 3 input channels
+
+        # Apply convolution
+        conv_out = F.conv2d(images, filt_tensor, padding="same")
+
+        return conv_out
+    
     def get_handcrafted_features(self, images: list[np.ndarray]) -> np.ndarray:
         """
         Compute handcrafted feature bank for a list of images.
@@ -400,6 +637,11 @@ class PCNet(ProbabilisticCircuit):
         def process_one(image: np.ndarray) -> np.ndarray:
             if image.dtype != np.float32:
                 image = image.astype(np.float32) / 255.0  # normalize to [0,1]
+
+            # Support both (H,W,3) and (3,H,W)
+            if image.shape[-1] == 3:  # channels-last
+                image = np.transpose(image, (2,0,1))  # → (3,H,W)
+
             C, H, W = image.shape
             assert C == 3, f"Expected RGB image with 3 channels, got shape {image.shape}"
 
@@ -434,63 +676,93 @@ class PCNet(ProbabilisticCircuit):
             return np.stack(features, axis=0).astype(np.float32)
 
         # Process each image
-        feature_tensors = [process_one(img) for img in tqdm.tqdm(images, desc="Computing handcrafted features")]
+        if self.feature_extractor != "handcrafted":
+            feature_tensors = [process_one(img) for img in images]
+        else:
+            feature_tensors = [process_one(img) for img in tqdm.tqdm(images, desc="Computing handcrafted features")]
+
+        convolutional_filters = [
+            self.get_filter_bank()[key] for key in sorted(self.get_filter_bank().keys())
+        ]
+        convolutional_features = self.compute_conv_features(images, convolutional_filters, device=self.device)
+        feature_tensors = np.concatenate([feature_tensors, convolutional_features], axis=1)
 
         # Stack into (N,C,H,W)
         return np.stack(feature_tensors, axis=0)
-
-    def get_cnn_features(self, input_images: list[np.ndarray]) -> np.ndarray:
+    
+    def get_features_tensor_with_patches(self, images: list[np.ndarray], patch_size=(16,16)) -> np.ndarray:
         """
-        Compute CNN feature embeddings for a list of images.
+        For each image, compute handcrafted features and additional features from patches.
+        Patch-based features are computed with the full handcrafted feature pipeline.
+        These patch features are then upsampled/replicated to match original image size
+        and concatenated with the original full-image features.
         
-        :param input_images: list of np.ndarray, each (H,W,3) RGB in [0,255] or [0,1]
-        :return: feature_tensor: np.ndarray (N,C,Hf,Wf)
+        :param images: list of np.ndarray, each (H,W,3) RGB
+        :param patch_size: tuple (patch_h, patch_w)
+        :return: feature_tensor: np.ndarray (N, C_total, H, W)
         """
-        self.cnn.eval()
-        device = next(self.cnn.parameters()).device
+        # Base full-image features
+        base_features = self.get_handcrafted_features(images)  # (N, C_base, H, W)
+        N, C_base, H, W = base_features.shape
+        patch_h, patch_w = patch_size
 
-        tensors = []
-        for img in input_images:
+        augmented_features = []
+
+        for idx, img in tqdm.tqdm(enumerate(images), desc="Computing patch-augmented features", total=N):
+            # Ensure float32 and (3,H,W)
             if img.dtype != np.float32:
                 img = img.astype(np.float32) / 255.0
-            if img.shape[-1] == 3:  # (H,W,3) → (3,H,W)
-                img = np.transpose(img, (2,0,1))
-            t = torch.from_numpy(img).unsqueeze(0).to(device)  # (1,3,H,W)
-            tensors.append(t)
+            if img.shape[-1] == 3:
+                img = np.transpose(img, (2,0,1))  # (3,H,W)
 
-        batch = torch.cat(tensors, dim=0)  # (N,3,H,W)
-        with torch.no_grad():
-            feats = self.cnn(batch)  # (N,C,Hf,Wf)
+            patch_feature_maps = []
 
-        return feats.cpu().numpy().astype(np.float32)
+            # Extract patches
+            for i in range(0, H, patch_h):
+                for j in range(0, W, patch_w):
+                    patch = img[:, i:i+patch_h, j:j+patch_w]
+                    if patch.shape[1:] != (patch_h, patch_w):
+                        continue  # skip incomplete patches
+
+                    # Compute full handcrafted features for this patch
+                    patch_hw3 = np.transpose(patch, (1,2,0))  # (H_patch,W_patch,3)
+                    patch_cwh = np.transpose(patch_hw3, (2,0,1))  # (3,H_patch,W_patch)
+                    patch_feats = self.get_handcrafted_features([patch_cwh])[0]
+
+                    # Append to patch_feature_maps
+                    patch_feature_maps.append((i,j,patch_feats))
+
+            # Create empty feature maps for augmented channels
+            C_patch = patch_feature_maps[0][2].shape[0] if patch_feature_maps else 0
+            patch_aug = np.zeros((C_patch, H, W), dtype=np.float32)
+
+            # Place patch features back into full image
+            for i, j, feats in patch_feature_maps:
+                patch_aug[:, i:i+patch_h, j:j+patch_w] = feats
+
+            # Concatenate with base full-image features
+            combined_features = np.concatenate([base_features[idx], patch_aug], axis=0)
+            augmented_features.append(combined_features)
+
+        return np.stack(augmented_features, axis=0)  # (N, C_total, H, W)
 
     def get_feature_tensor(self, input_images):
         if self.feature_extractor == "handcrafted":
             return self.get_handcrafted_features(input_images)
-        elif self.feature_extractor == "cnn":
-            self.cnn = CNNFeatureExtractor(model_name="resnet18", pretrained=True, layer="layer4").to(self.device)
-            return self.get_cnn_features(input_images)
+        elif self.feature_extractor == "patches":
+            return self.get_features_tensor_with_patches(input_images, patch_size=(64,64))
         else:
             raise ValueError(f"Unknown feature extractor {self.feature_extractor}")
     
     def set_input_nodes(self, input_images, labels):
-        """
-        Build supervised InputNodes using image features and GT labels.
-        input_images: np.ndarray (B,H,W,3)
-        labels: np.ndarray (B,H,W) ground truth segmentation masks
-        """
         self.feature_tensor = self.get_feature_tensor(input_images)  # (B,C,H,W)
+        print("Feature tensor shape:", self.feature_tensor.shape)
         B, C, H, W = self.feature_tensor.shape
 
-        # Flatten
-        features = self.feature_tensor.transpose(0, 2, 3, 1).reshape(-1, C)   # (B*H*W, C)
-        labels = labels.reshape(-1)                                      # (B*H*W,)
-
-        # Create input nodes for each feature dim
         input_nodes = []
         for i in range(C):
-            node = InputNode(i)
-            node.fit_supervised(features, labels)
+            node = InputNode(i, device=self.device)
+            node.fit_supervised(self.feature_tensor, labels)
             input_nodes.append(node)
             self.add_node(node)
 
@@ -524,16 +796,22 @@ class PCNet(ProbabilisticCircuit):
         if target.dim() == 4 and target.size(1) == 1:
             target = target.squeeze(1)
         pbar = tqdm.tqdm(range(epochs), desc="Training PC", ncols=100)
+        losses = []
         for epoch in pbar:
             optimizer.zero_grad()
             logits = self.evaluate(self.feature_tensor)
             loss = F.cross_entropy(logits, target)
             loss.backward()
             optimizer.step()
-            
+            losses.append(loss.item())
             # Update progress bar postfix with current loss
             pbar.set_postfix(loss=f"{loss.item():.4f}")
-
+        print("Training complete.")
+        plt.plot(losses)
+        plt.xlabel("Epoch")
+        plt.ylabel("Loss")
+        plt.title("Training Loss over Epochs")
+        plt.show()
     def evaluate(self, data):
         return self.root.evaluate(data)
     
@@ -542,6 +820,8 @@ class PCNet(ProbabilisticCircuit):
         images: numpy list or torch tensor already processed to shape (B,C,H,W)
         returns: numpy array (B,H,W) with predicted class ids
         """
+
+        print("Image type:", type(image))
         if isinstance(image, list) or isinstance(image, np.ndarray):
             # if list of numpy images: compute handcrafted features first
             if isinstance(image, list):
@@ -560,28 +840,47 @@ class PCNet(ProbabilisticCircuit):
             preds = torch.softmax(logits, dim=2)               # (B, H, W)
             return preds.cpu().numpy()
 
+class EvoPCNet(PCNet):
+    """
+    Evolutionary Probabilistic Circuit Network.
+    Maintains a population of PCNets, evolves them over generations.
+    Uses random variations in max_depth and max_branching to create diversity,
+    At each generation, apply Genetic Programming to recombine and mutate circuits.
+    :param init_pop_size: initial population size
+    """
+    def __init__(self, input_size=(1, 28, 28), patch_size=(9,9), n_classes=2, distribution=None, device="cpu", max_depth=4, max_branching=3, feature_extractor="handcrafted", seed=42, init_pop_size=10):
+        super().__init__(input_size, patch_size, n_classes, distribution, device, max_depth, max_branching, feature_extractor, seed)
+        self.init_pop_size = init_pop_size
+        self.population = []
+
+    def initialize_population(self, images, masks):
+        self.population = []
+        for _ in range(self.init_pop_size):
+            max_depth = random.randint(3, self.max_depth)
+            max_branching = random.randint(2, self.max_branching)
+            pc = PCNet(n_classes=self.n_classes, distribution=self.distribution, device=self.device,
+                       max_depth=max_depth, max_branching=max_branching,
+                       feature_extractor=self.feature_extractor, seed=random.randint(0,10000))
+            self.population.append(pc)
+
+    def mutation(self):
+        pass
+
+    def crossover(self):
+        pass
+
+    def ask(self, images, masks):
+        if not self.population:
+            self.initialize_population(images, masks)
+        else:
+            for pc in self.population:
+                pc.mutation()
+
+        return self.population
+    
+    def tell(self, fitnesses):
+        pass
+
+    
 
 
-if __name__ == "__main__":
-    pc_net = PCNet(input_size=(1, 28, 28), patch_size=(9,9), n_classes=2, distribution=None, device="cpu", max_depth=4, max_branching=3)
-
-    # Dummy data
-    B, C, H, W = 10, 1, 28, 28
-    image = torch.rand(B, C, H, W)
-    pc_net.initialize_network(image)
-    probs = pc_net.evaluate(image)
-    mask = pc_net.predict_mask(image)
-    probs = probs.detach().cpu().numpy()
-    print(mask.shape, probs.shape)
-    plt.subplot(1, 3, 1)
-    plt.imshow(image[0,0].numpy(), cmap='gray')
-    plt.title("Input Image")
-    plt.subplot(1, 3, 2)
-    plt.imshow(mask[0].numpy(), cmap='gray')
-    plt.title("Predicted Segmentation Mask")
-    plt.subplot(1, 3, 3)
-    plt.imshow(probs[0,0], cmap='hot')
-    plt.title("Predicted Probabilities")
-    plt.show()
-
-    pc_net.visualize()

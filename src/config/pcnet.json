@@ -9,12 +9,13 @@
 
     "epochs": 20,
     "batch_size": 4,
-    "sample_size": 800,
+    "sample_size": 50,
     "resize_size": [256, 256],
     "input_channels": 3,
-    "n_classes": 2,
+    "n_classes": 1,
     "max_depth": 5,
-    "max_branching": 2,
+    "max_branching": 5,
+    "seed": 4,
 
     "execution_mode": "test"
     

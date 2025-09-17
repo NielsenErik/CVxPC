@@ -10,6 +10,7 @@ from tqdm import trange
 import torch
 import matplotlib.pyplot as plt
 from scipy.stats import norm
+from utils import *
 
 
 from crackdata_processing import CrackDataset, CrackAugmentations
@@ -48,6 +49,7 @@ class Experiment:
         
         self.epochs = self.config.get("epochs", 10)
         self.model = None
+        print_configs("Experiment Configurations:", self.config)
 
     
     @abc.abstractmethod
@@ -396,52 +398,13 @@ class ExperimentPC(Experiment):
         self.input_channels = self.config.get("input_channels", 3)
         self.max_depth = self.config.get("max_depth", 5)
         self.max_branching = self.config.get("max_branching", 2)
+        self.n_classes = self.config.get("n_classes", 1)
         self.input_nodes = []
-
-    def tensor_to_features(self, image_tensor):
-        """
-        Convert tensor image to feature matrix with RGB + XY.
-        
-        :param image_tensor: shape (C,H,W) or (H,W,C), tensor or numpy
-        :return: np.ndarray of shape (H*W, C+2)
-        """
-        # Convert to numpy if tensor
-        if not isinstance(image_tensor, np.ndarray):
-            image = image_tensor.cpu().numpy()
-        else:
-            image = image_tensor
-
-        # Handle channel-first
-        if image.ndim == 3 and image.shape[0] <= 4:  # (C,H,W)
-            image = np.transpose(image, (1, 2, 0))   # -> (H,W,C)
-
-        H, W, C = image.shape
-
-        # Flatten RGB
-        pixels = image.reshape(-1, C)
-
-        # XY coords normalized
-        yy, xx = np.meshgrid(np.arange(H), np.arange(W), indexing="ij")
-        coords = np.stack([xx.flatten() / W, yy.flatten() / H], axis=1)
-
-        # Final features = [R,G,B,x,y]
-        features = np.concatenate([pixels, coords], axis=1).astype(np.float32)
-        return features
-    def set_input_nodes(self, input_images):
-        input_nodes = []
-        features = self.tensor_to_features(input_images[0])
-        n_features = features.shape[1]
-        print("Number of features:", n_features)
-        for feat_idx in range(n_features):
-            # Start with a generic Gaussian PDF
-            def distribution(v, mu=0.0, sigma=1.0):
-                return norm.pdf(v, loc=mu, scale=sigma+1e-12)
-            node = InputNode(feature_idx=feat_idx, distribution=distribution)
-            input_nodes.append(node)
-        return input_nodes
+        self.epochs = self.config.get("epochs", 10)
+        self.seed = self.config.get("seed", 42)
 
     def set_algorithm(self):
-        self.model = PCNet(n_classes=1, distribution=None, device="cpu", max_depth=4, max_branching=3)
+        self.model = PCNet(n_classes=self.n_classes, distribution=None, device="cpu", max_depth=self.max_depth, max_branching=self.max_branching, seed=self.seed)
 
     def train(self, model):
         X = np.array([self.data[i][0] for i in range(len(self.data))])
@@ -461,18 +424,11 @@ class ExperimentPC(Experiment):
         for img, gt in zip(image_list, ground_truth_list):
             # probs = model.evaluate(img)
             mask = model.predict_mask(img)
-            probs = torch.sigmoid(torch.tensor(mask)).numpy()
             print(mask.shape, mask.min(), mask.max(), mask.mean())
-            class_1 = probs[0][0]
-            class_2 = probs[0][1]
-            print("Class 1:", class_1.min(), class_1.max(), class_1.mean())
-            print("Class 2:", class_2.min(), class_2.max(), class_2.mean())
-
-            print(probs.shape, probs.min(), probs.max(), probs.mean())
             img_np = img.squeeze().permute(1, 2, 0).cpu().numpy()
             gt_np = gt.squeeze().cpu().numpy()
             plt.figure(figsize=(12,6))
-            plt.subplot(1,4,1)
+            plt.subplot(1,2 + self.n_classes,1)
             plt.imshow(img_np)
             plt.title("Input Image")
             plt.axis("off")
@@ -480,14 +436,11 @@ class ExperimentPC(Experiment):
             plt.imshow(gt_np, cmap="gray")
             plt.title("Ground Truth")
             plt.axis("off")
-            plt.subplot(1,4,3)
-            plt.imshow(probs[0][0], cmap="cool")
-            plt.title("Prediction")
-            plt.axis("off")
-            plt.subplot(1,4,4)
-            plt.imshow(probs[0][1], cmap="cool")
-            plt.title("Prediction")
-            plt.axis("off")
+            for i in range(self.n_classes):
+                plt.subplot(1,4,3+i)
+                plt.imshow(mask[0][i], cmap="cool")
+                plt.title(f"Predicted Prob Class {i}")
+                plt.axis("off")
             plt.show()
 
         model.visualize()
@@ -497,7 +450,7 @@ class ExperimentPC(Experiment):
         
     def run(self):
         self.set_dataset(self.data_path, self.test_path)
-        print("Dataset size:", len(self.data))
+        print_info("Dataset size:", len(self.data))
         self.set_algorithm()
         self.loss_function = BCEDiceLoss()
         self.model = self.train(self.model)
