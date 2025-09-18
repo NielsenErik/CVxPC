@@ -18,6 +18,87 @@ from torch import nn
 import torch
 import torchvision.models as models
 import torch.nn.functional as F
+from utils import print_configs, print_info, print_debugging
+
+
+class FocalLoss(nn.Module):
+    """
+    Focal Loss for multi-class segmentation
+    """
+    def __init__(self, alpha=None, gamma=2.0, reduction="mean"):
+        """
+        alpha: class weights (Tensor of shape [C]) or None
+        gamma: focusing parameter
+        """
+        super().__init__()
+        self.alpha = alpha
+        self.gamma = gamma
+        self.reduction = reduction
+
+    def dice_loss(self, logits, target, smooth=1e-6):
+        """Dice loss for binary segmentation"""
+        pred = torch.sigmoid(logits)   # convert logits → probabilities
+        intersection = (pred * target).sum(dim=(2,3))
+        dice = (2. * intersection + smooth) / (pred.sum(dim=(2,3)) + target.sum(dim=(2,3)) + smooth)
+        return 1 - dice.mean()
+
+    def forward(self, logits, target):
+        # logits: (B,C,H,W), target: (B,H,W)
+        ce_loss = F.cross_entropy(logits, target, weight=torch.tensor(self.alpha), reduction="none")  # (B,H,W) self.alpha, reduction="none")  # (B,H,W)
+        pt = torch.exp(-ce_loss)   # pt = softmax probability of the true class
+        focal = ((1 - pt) ** self.gamma) * ce_loss
+        dice = self.dice_loss(logits, target)
+        if self.reduction == "mean":
+            return focal.mean()
+        elif self.reduction == "sum":
+            return focal.sum()
+        return 0.5 * dice + 0.5 * ce_loss
+    
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
+
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
+
+class DiceCELoss(nn.Module):
+    '''
+    In case of pos_weight, it becomes weighted BCE loss.
+    '''
+    def __init__(self, pos_weight=None):
+        super().__init__()
+        self.ce = nn.CrossEntropyLoss(weight=pos_weight)
+    
+    def dice_loss(self, pred, target, smooth=1.0):
+        """
+        General Dice loss.
+        Works with:
+        - Binary segmentation: pred (B, 1, H, W), target (B, H, W)
+        - Multi-class segmentation: pred (B, C, H, W), target (B, H, W) with class indices
+        """
+        if pred.size(1) == 1:
+            # Binary case
+            pred_prob = torch.sigmoid(pred)        # (B, 1, H, W)
+            target = target.unsqueeze(1).float()   # (B, 1, H, W)
+        else:
+            # Multi-class case
+            pred_prob = torch.softmax(pred, dim=1)   # (B, C, H, W)
+            target = F.one_hot(target, num_classes=pred.size(1))  # (B, H, W, C)
+            target = target.permute(0, 3, 1, 2).float()           # (B, C, H, W)
+
+        # Compute Dice per class
+        intersection = (pred_prob * target).sum(dim=(2, 3))   # (B, C)
+        denominator   = (pred_prob.sum(dim=(2, 3)) + target.sum(dim=(2, 3)))  # (B, C)
+        dice = (2. * intersection + smooth) / (denominator + smooth)          # (B, C)
+
+        # Average over classes and batch
+        return 1 - dice.mean()
+
+    def forward(self, pred, target):
+        bce_loss = self.ce(pred, target)
+        d_loss = self.dice_loss(pred, target)
+        return 0.5 * bce_loss + 0.5 * d_loss
 
 # ---------------- Node definitions ----------------
 class Node(ABC):
@@ -71,6 +152,8 @@ class InputNode(Node):
             "Gabor_dir_0", "Gabor_dir_45", "Gabor_dir_90", "Gabor_dir_135"
         ]
         feature_names += conv_filters
+        if idx >= len(feature_names):
+            return f"Feature_{idx}"
 
         return feature_names[idx]
 
@@ -357,6 +440,17 @@ class PCNet(ProbabilisticCircuit):
         self.feature_extractor = feature_extractor
         self.seed = seed
         random.seed(self.seed)
+        self.use_conv_features = True if feature_extractor in ["handcrafted", "patches"] else False
+        if self.use_conv_features:
+            # Lightweight CNN to extract local features
+            self.conv_extractor = nn.Sequential(
+                nn.Conv2d(1, 16, kernel_size=3, padding=1),  # input: grayscale crack images
+                nn.BatchNorm2d(16),
+                nn.ReLU(),
+                nn.Conv2d(16, 32, kernel_size=3, padding=1),
+                nn.BatchNorm2d(32),
+                nn.ReLU()
+            )
 
     def set_max_depth(self, depth):
         self.max_depth = depth
@@ -431,7 +525,7 @@ class PCNet(ProbabilisticCircuit):
         branched = []
         current = nodes[:]
         while len(current) > self.max_branching:
-            group_size = random.randint(1, self.max_branching)
+            group_size = random.randint(2, self.max_branching)
             branched.append(tuple(current[:group_size]))
             current = current[group_size:]
         if len(current) > 0:
@@ -441,7 +535,7 @@ class PCNet(ProbabilisticCircuit):
     def sum_layer(self, current_nodes):
         """Build a SumNode layer"""
         next_nodes = []
-        branches = self.branchwise_multi_branch(current_nodes)
+        branches = self.branchwise(current_nodes)
         for branch in branches:
             # Random weights
             weights = torch.rand(len(branch), device=self.device)
@@ -741,7 +835,9 @@ class PCNet(ProbabilisticCircuit):
                 patch_aug[:, i:i+patch_h, j:j+patch_w] = feats
 
             # Concatenate with base full-image features
-            combined_features = np.concatenate([base_features[idx], patch_aug], axis=0)
+            conv_feats = self.conv_extractor(images) 
+            conv_feats = conv_feats.detach().cpu().numpy()
+            combined_features = np.concatenate([base_features[idx], patch_aug, conv_feats], axis=0)
             augmented_features.append(combined_features)
 
         return np.stack(augmented_features, axis=0)  # (N, C_total, H, W)
@@ -756,7 +852,7 @@ class PCNet(ProbabilisticCircuit):
     
     def set_input_nodes(self, input_images, labels):
         self.feature_tensor = self.get_feature_tensor(input_images)  # (B,C,H,W)
-        print("Feature tensor shape:", self.feature_tensor.shape)
+        print_configs("Feature tensor shape:", self.feature_tensor.shape)
         B, C, H, W = self.feature_tensor.shape
 
         input_nodes = []
@@ -773,10 +869,10 @@ class PCNet(ProbabilisticCircuit):
         input_nodes = self.set_input_nodes(images, masks)
 
         # Step 2: Build circuit structure
-        print("Building circuit...")
+        print_info("Building circuit...")
         self.root = self.init_network(input_nodes)
         self.set_root(self.root)
-        print("Circuit built.")
+        print_info("Circuit built.")
         # Collect trainable parameters: all SumNode weights and any nn.Parameter in other nodes
         params = []
         for node in tqdm.tqdm(self.graph.nodes, desc="Collecting parameters"):
@@ -792,21 +888,37 @@ class PCNet(ProbabilisticCircuit):
             ).float().to(self.device)
         target = torch.from_numpy(masks).long().to(self.device)  # (B,1,H,W) maybe
 
+        flat = target.view(-1)
+
+        # Count pixels per class
+        counts = torch.bincount(flat, minlength=self.n_classes).float()
+
+        # Avoid division by zero for missing classes
+        counts[counts == 0] = 1.0
+
+        # Inverse frequency weighting
+        balance = 1.0 / counts
+
+        # Normalize so balance.sum() == 1
+        balance = balance / balance.sum()
+        print_debugging("Class balance weights:", balance.cpu().numpy())
         # ensure target shape is (B,H,W)
         if target.dim() == 4 and target.size(1) == 1:
             target = target.squeeze(1)
-        pbar = tqdm.tqdm(range(epochs), desc="Training PC", ncols=100)
+        target = torch.flip(target, dims=[0])  # flip 
+        pbar = tqdm.tqdm(range(epochs), desc="Training PC")
+        criterion = DiceCELoss(pos_weight=torch.tensor([0.8,0.2])).to(self.device)
         losses = []
         for epoch in pbar:
             optimizer.zero_grad()
             logits = self.evaluate(self.feature_tensor)
-            loss = F.cross_entropy(logits, target)
+            loss = criterion(logits, target)
             loss.backward()
             optimizer.step()
             losses.append(loss.item())
             # Update progress bar postfix with current loss
             pbar.set_postfix(loss=f"{loss.item():.4f}")
-        print("Training complete.")
+        print_info("Training complete.")
         plt.plot(losses)
         plt.xlabel("Epoch")
         plt.ylabel("Loss")
@@ -821,7 +933,7 @@ class PCNet(ProbabilisticCircuit):
         returns: numpy array (B,H,W) with predicted class ids
         """
 
-        print("Image type:", type(image))
+        print_debugging("Image type:", type(image))
         if isinstance(image, list) or isinstance(image, np.ndarray):
             # if list of numpy images: compute handcrafted features first
             if isinstance(image, list):
@@ -837,7 +949,7 @@ class PCNet(ProbabilisticCircuit):
 
         with torch.no_grad():
             logits = self.evaluate(feature_tensor)            # (B, n_classes, H, W)
-            preds = torch.softmax(logits, dim=2)               # (B, H, W)
+            preds = torch.argmax(logits, dim=1, keepdim=True)              # (B, H, W)
             return preds.cpu().numpy()
 
 class EvoPCNet(PCNet):

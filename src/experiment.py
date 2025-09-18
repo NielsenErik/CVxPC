@@ -428,20 +428,20 @@ class ExperimentPC(Experiment):
             img_np = img.squeeze().permute(1, 2, 0).cpu().numpy()
             gt_np = gt.squeeze().cpu().numpy()
             plt.figure(figsize=(12,6))
-            plt.subplot(1,2 + self.n_classes,1)
+            plt.subplot(1,3,1)
             plt.imshow(img_np)
             plt.title("Input Image")
             plt.axis("off")
-            plt.subplot(1,4,2)
+            plt.subplot(1,3,2)
             plt.imshow(gt_np, cmap="gray")
             plt.title("Ground Truth")
             plt.axis("off")
-            for i in range(self.n_classes):
-                plt.subplot(1,4,3+i)
-                plt.imshow(mask[0][i], cmap="cool")
-                plt.title(f"Predicted Prob Class {i}")
-                plt.axis("off")
+            plt.subplot(1,3,3)
+            plt.imshow(mask[0][0], cmap="cool")
+            plt.title("Prediction")
+            plt.axis("off")
             plt.show()
+
 
         model.visualize()
 
