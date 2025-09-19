@@ -9,7 +9,7 @@
 
     "epochs": 30,
     "batch_size": 4,
-    "sample_size": 150,
+    "sample_size": 100,
     "resize_size": [256, 256],
     "input_channels": 3,
     "n_classes": 1,
