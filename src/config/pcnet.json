@@ -16,7 +16,7 @@
     "n_classes": 1,
     "max_depth": 5,
     "max_branching": 2,
-    "seed": 4,
+    "seed": 5,
 
     "execution_mode": "train"
     
