@@ -8,15 +8,15 @@
     "save_path": "models/",
     "validation_split": 0.2,
 
-    "epochs": 2,
+    "epochs": 50,
     "batch_size": 4,
-    "sample_size": 8,
+    "sample_size": 3000,
     "resize_size": [256, 256],
     "input_channels": 3,
     "n_classes": 1,
     "max_depth": 5,
     "max_branching": 2,
-    "seed": 5,
+    "seed": 4,
 
     "execution_mode": "train"
     
