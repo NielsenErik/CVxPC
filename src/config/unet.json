@@ -2,6 +2,7 @@
     "mlflow": null,
     "experiment": "crack_segmentation",
     "algorithm": "unet",
+    
 
     "data_path": "data/kaggle/crack_segmentation_dataset/train",
     "test_path": "data/kaggle/crack_segmentation_dataset/test",

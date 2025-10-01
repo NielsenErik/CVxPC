@@ -12,7 +12,7 @@ def main():
     parser.add_argument("--debug", action="store_true", help="Debug flag")
     args = parser.parse_args()
     config = json.load(open(args.config))
-    config["log_dir"] = os.path.join("logs", config["experiment"], str(config["seed"]))
+    config["log_dir"] = os.path.join("logs", config["algorithm"], str(config["seed"]))
     os.makedirs(config["log_dir"], exist_ok=True)
     json.dump(config, open(os.path.join(config["log_dir"], "config.json"), "w"), indent=4)
     set_up_mlflow(**config)
