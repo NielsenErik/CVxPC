@@ -11,8 +11,9 @@ import torch
 import matplotlib.pyplot as plt
 from scipy.stats import norm
 from utils import *
+import pickle
 
-
+import pandas as pd
 from crackdata_processing import CrackDataset, CrackAugmentations
 
 def run_experiment(config):
@@ -49,7 +50,10 @@ class Experiment:
         
         self.epochs = self.config.get("epochs", 10)
         self.model = None
+
+        self.log_path = self.config.get("log_dir", "logs/")
         print_configs("Experiment Configurations:", self.config)
+        self.experiment_dict = {}
 
     
     @abc.abstractmethod
@@ -64,6 +68,57 @@ class Experiment:
             self.test_ground_truth_path = test_path + "/masks/"
             self.test_data = CrackDataset(self.test_images_path, self.test_ground_truth_path, augmentation_percentage=0.0,sample_size=10, resize_size=(self.resize_size[0], self.resize_size[1]))
         self.data = CrackDataset(self.images_path, self.ground_truth_path, augmentation_percentage=0.1,sample_size=self.sample_size, resize_size=(self.resize_size[0], self.resize_size[1]))     
+        self.experiment_dict["dataset_size"] = {
+            "train": len(self.data),
+            "test": len(self.test_data) if test_path is not None else 0
+        }
+
+    # ----------------------------
+    # Metrics
+    # ----------------------------
+    def dice_coef(self, pred, target, smooth=1.0):
+        """
+        pred: (B, C, H, W) logits
+        target: (B, H, W) or (H, W) integer mask
+        """
+        if target.dim() == 2:  # single mask, no batch
+            target = target.unsqueeze(0)  # (1,H,W)
+
+        if pred.size(1) == 1:  # binary
+            pred_prob = torch.sigmoid(pred)
+            target = target.unsqueeze(1).float()  # (B,1,H,W)
+        else:  # multi-class
+            pred_prob = torch.softmax(pred, dim=1)
+            target = F.one_hot(target, num_classes=pred.size(1))  # (B,H,W,C)
+            target = target.permute(0,3,1,2).float()  # (B,C,H,W)
+
+        intersection = (pred_prob * target).sum(dim=(2,3))
+        denominator = pred_prob.sum(dim=(2,3)) + target.sum(dim=(2,3))
+        dice = (2. * intersection + smooth) / (denominator + smooth)
+        return dice.mean()
+
+
+
+    def iou_score(self, pred, target, smooth=1.0):
+        """
+        pred: (B, C, H, W) logits
+        target: (B, H, W) or (H, W) integer mask
+        """
+        if target.dim() == 2:  # single mask
+            target = target.unsqueeze(0)  # (1,H,W)
+
+        if pred.size(1) == 1:  # binary segmentation
+            pred_prob = torch.sigmoid(pred)
+            target = target.unsqueeze(1).float()  # (B,1,H,W)
+        else:  # multi-class segmentation
+            pred_prob = torch.softmax(pred, dim=1)
+            target = F.one_hot(target, num_classes=pred.size(1))  # (B,H,W,C)
+            target = target.permute(0,3,1,2).float()  # (B,C,H,W)
+
+        intersection = (pred_prob * target).sum(dim=(2,3))
+        union = pred_prob.sum(dim=(2,3)) + target.sum(dim=(2,3)) - intersection
+        iou = (intersection + smooth) / (union + smooth)
+        return iou.mean()
 
     @abc.abstractmethod
     def setup(self, pos_weight=1.0):
@@ -100,6 +155,20 @@ class Experiment:
     @abc.abstractmethod
     def run(self):
         pass
+
+    def plot_losses(self, train_losses, val_losses=None):
+        plt.plot(train_losses, label="Train Loss")
+        if val_losses:
+            plt.plot(val_losses, label="Validation Loss")
+        plt.xlabel("Epoch")
+        plt.ylabel("Loss")
+        plt.title("Loss over Epochs")
+        plt.legend()
+        plt.show()
+
+    def log_results(self):
+        pass
+
 
 
 
@@ -145,23 +214,6 @@ class ExperimentDL(Experiment):
         return torch.tensor([pos_weight], dtype=torch.float32)
 
     # ----------------------------
-    # Metrics
-    # ----------------------------
-    def dice_coef(self, pred, target, smooth=1.0):
-        pred = (torch.sigmoid(pred) > 0.5).float()
-        intersection = (pred * target).sum(dim=(2,3))
-        dice = (2. * intersection + smooth) / (pred.sum(dim=(2,3)) + target.sum(dim=(2,3)) + smooth)
-        return dice.mean().item()
-
-    def iou_score(self, pred, target, smooth=1.0):
-        pred = (torch.sigmoid(pred) > 0.5).float()
-        intersection = (pred * target).sum(dim=(2,3))
-        union = pred.sum(dim=(2,3)) + target.sum(dim=(2,3)) - intersection
-        iou = (intersection + smooth) / (union + smooth)
-        return iou.mean().item()
-
-
-    # ----------------------------
     # Training loop
     # ----------------------------
     def train(self, model, train_data, val_data=None, 
@@ -179,6 +231,7 @@ class ExperimentDL(Experiment):
         val_loader = self.get_dataloaders(val_data) if val_data else None
 
         model.to(device)
+        train_losses, val_losses, train_dices, val_dices, train_ious, val_ious = [], [], [], [], [], []
 
         for epoch in trange(epochs):
             model.train()
@@ -200,7 +253,9 @@ class ExperimentDL(Experiment):
             train_loss = epoch_loss / len(train_loader)
             train_dice = epoch_dice / len(train_loader)
             train_iou  = epoch_iou / len(train_loader)
-
+            train_losses.append(train_loss)
+            train_dices.append(train_dice)
+            train_ious.append(train_iou)
             # Validation
             if val_loader:
                 model.eval()
@@ -216,9 +271,12 @@ class ExperimentDL(Experiment):
                 val_loss /= len(val_loader)
                 val_dice /= len(val_loader)
                 val_iou  /= len(val_loader)
+
             else:
                 val_loss, val_dice, val_iou = None, None, None
-
+            val_losses.append(val_loss)
+            val_dices.append(val_dice)
+            val_ious.append(val_iou)
             if scheduler:
                 scheduler.step()
 
@@ -234,7 +292,11 @@ class ExperimentDL(Experiment):
                 mlflow.log_metric("val_loss", val_loss, step=epoch)
                 mlflow.log_metric("val_dice", val_dice, step=epoch)
                 mlflow.log_metric("val_iou", val_iou, step=epoch)
-
+            
+        loss_df = pd.DataFrame({"train_loss": train_losses, "val_loss": val_losses, 
+                                "train_dice": train_dices, "val_dice": val_dices,
+                                "train_iou": train_ious, "val_iou": val_ious})
+        loss_df.to_csv(os.path.join(self.log_path, "training.csv"), index=False)
         return model
 
     def finetune(self):
@@ -406,24 +468,96 @@ class ExperimentPC(Experiment):
     def set_algorithm(self):
         self.model = PCNet(n_classes=self.n_classes, distribution=None, device="cpu", max_depth=self.max_depth, max_branching=self.max_branching, seed=self.seed)
 
-    def train(self, model):
-        X = np.array([self.data[i][0] for i in range(len(self.data))])
-        y = np.array([self.data[i][1] for i in range(len(self.data))])
-        model.fit_supervised(X, y, epochs=self.epochs)
+    def train(self, model, epochs=10, lr=0.01):
+        images = np.array([self.data[i][0] for i in range(len(self.data))])
+        masks = np.array([self.data[i][1] for i in range(len(self.data))])
+        optimizer = torch.optim.Adam(model.params, lr=lr)
+        print_configs("Number of trainable parameters:", sum(p.numel() for p in model.params))
+        feature_tensor = torch.from_numpy(model.get_feature_tensor(images)).float().to(self.device)
+        target = torch.from_numpy(masks).long().to(self.device)
+        if target.dim() == 4 and target.size(1) == 1:
+            target = target.squeeze(1)
+
+        flat = target.view(-1)
+
+        # Count pixels per class
+        counts = torch.bincount(flat, minlength=self.n_classes).float()
+
+        # Avoid division by zero for missing classes
+        counts[counts == 0] = 1.0
+
+        # Inverse frequency weighting
+        balance = 1.0 / counts
+
+        # Normalize so balance.sum() == 1
+        balance = balance / balance.sum()
+        print_debugging("Class balance weights:", balance.cpu().numpy())
+
+        criterion = DiceCELoss(pos_weight=torch.tensor(balance)).to(self.device)
+        losses = []
+        pbar = tqdm.tqdm(range(epochs), desc="Training PCNet")
+        train_losses, val_losses, train_dices, val_dices, train_ious, val_ious = [], [], [], [], [], []
+        for epoch in pbar:
+            losses = []
+            dices = []
+            ious = []
+            for ft, t in zip(feature_tensor, target):
+                optimizer.zero_grad()
+                
+                # ft: (C, H, W) → logits: (1, n_classes, H, W)
+                logits = model.evaluate(ft)  
+                
+                loss = criterion(logits, t.unsqueeze(0))  # (1, H, W)
+                loss.backward()
+                optimizer.step()
+
+                losses.append(loss.item())
+                dice_score = self.dice_coef(logits, t).item()
+                iou_score = self.iou_score(logits, t).item()
+                losses.append(loss.item())
+                dices.append(dice_score)
+                ious.append(iou_score)
+                
+            train_losses.append(np.mean(losses))
+            train_dices.append(np.mean(dices))
+            train_ious.append(np.mean(ious))
+
+            pbar.set_postfix({"loss": loss.item()})
+        
+        df_train = pd.DataFrame({"train_loss": train_losses, "train_dice": train_dices, "train_iou": train_ious})
+        df_train.to_csv(os.path.join(self.log_path, "training.csv"), index=False)
+
+        print_info("Training complete.")
+        plt.plot(train_losses, label="Train Loss")
+        plt.title("Training Loss over Epochs"); plt.show()
         return model
     
     def evaluate(self, model, data, loss_function):
+        losses = []
+        dices = []
+        ious = []
         for d in data:            
             probs= model.predict(d[0])
-            print(probs.shape, probs.min(), probs.max(), probs.mean())
-            plt.imshow(probs)
-            plt.show()
+            loss = loss_function(probs, d[1])
+            dice_score = model.dice_coef(probs, d[1])
+            iou_score = model.iou_score(probs, d[1])
+            losses.append(loss.item())
+            dices.append(dice_score)
+            ious.append(iou_score)
+        print(f"Test Loss: {np.mean(losses)}, Dice: {np.mean(dices)}, IoU: {np.mean(ious)}")
+        mlflow.log_metric("test_loss", np.mean(losses))
+        mlflow.log_metric("test_dice", np.mean(dices))
+        mlflow.log_metric("test_iou", np.mean(ious))
+        df_results = pd.DataFrame({"test_loss": losses, "test_dice": dices, "test_iou": ious})
+        df_results.to_csv(os.path.join(self.log_path, "results.csv"), index=False)
+        return np.mean(losses)
     
     def show_prediction(self, model, image_list, ground_truth_list):
-
-        for img, gt in zip(image_list, ground_truth_list):
+        predictions_path = os.path.join(self.log_path, "predictions")
+        os.makedirs(predictions_path, exist_ok=True)
+        for enum, (img, gt) in enumerate(zip(image_list, ground_truth_list)):
             # probs = model.evaluate(img)
-            mask = model.predict_mask(img)
+            mask = model.predict(img)
             print(mask.shape, mask.min(), mask.max(), mask.mean())
             img_np = img.squeeze().permute(1, 2, 0).cpu().numpy()
             gt_np = gt.squeeze().cpu().numpy()
@@ -440,21 +574,36 @@ class ExperimentPC(Experiment):
             plt.imshow(mask[0][0], cmap="cool")
             plt.title("Prediction")
             plt.axis("off")
-            plt.show()
+            plt.savefig(os.path.join(predictions_path, f"prediction_{enum}.png")) 
 
 
-        model.visualize()
+        model.visualize(save_path=self.log_path)
 
     def finetune(self):
         pass
+
+    def save_model(self, model_name="pcnet"):
+        with open(os.path.join(self.save_path, f"{model_name}.pkl"), "wb") as f:
+            pickle.dump(self.model, f)
+
+    def load_model(self, model_name="pcnet"):
+        with open(os.path.join(self.save_path, f"{model_name}.pkl"), "rb") as f:
+            self.model = pickle.load(f)
         
     def run(self):
         self.set_dataset(self.data_path, self.test_path)
         print_info("Dataset size:", len(self.data))
-        self.set_algorithm()
-        self.loss_function = BCEDiceLoss()
-        self.model = self.train(self.model)
-        if self.test_path is not None:
+        if self.execution_mode == "train":
+            self.set_algorithm()
+            self.loss_function = BCEDiceLoss()
+            self.model.init_network(self.data)  
+            self.model = self.train(self.model, epochs=self.epochs, lr=self.learning_rate)
+            if self.test_path is not None:
+                images = [self.test_data[i][0] for i in range(len(self.test_data))]
+                gts = [self.test_data[i][1] for i in range(len(self.test_data))]
+                self.show_prediction(self.model, images, gts)
+        elif self.execution_mode == "test":
+            self.load_model(self.model_name)
             images = [self.test_data[i][0] for i in range(len(self.test_data))]
             gts = [self.test_data[i][1] for i in range(len(self.test_data))]
             self.show_prediction(self.model, images, gts)

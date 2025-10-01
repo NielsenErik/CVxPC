@@ -148,9 +148,11 @@ class ProductNode(Node):
 
 class ClassifierNode(Node):
     """Stack children outputs into logits across class dimension."""
-
     def evaluate(self, x):
-        return torch.stack([c.evaluate(x) for c in self.children], dim=1)
+        # Collect child outputs -> (B, H, W)
+        child_outputs = [c.evaluate(x) for c in self.children]  
+        return torch.stack(child_outputs, dim=1)  # (B, n_classes, H, W)
+
 
 
 # ============================================================
@@ -234,7 +236,7 @@ class ProbabilisticCircuit:
 # [Your PCNet implementation cleaned goes here ... same structure but formatted]
 
 
-    def visualize(self, direction="TB", layer_sep=2.0, node_sep=5.0):
+    def visualize(self, direction="TB", layer_sep=2.0, node_sep=5.0, save_path=None):
         """
         Visualize the probabilistic circuit as a tree-like hierarchical layout with proper spacing.
 
@@ -298,7 +300,9 @@ class ProbabilisticCircuit:
             arrowsize=12
         )
         plt.title("Probabilistic Circuit Tree Visualization", fontsize=16)
-        plt.show()
+        if save_path is not None:
+            plt.savefig(save_path, bbox_inches='tight')
+            print_info(f"PC visualization saved to {save_path}")
 # ============================================================
 # PCNet
 # ============================================================
@@ -381,7 +385,7 @@ class PCNet(ProbabilisticCircuit):
             next_nodes.append(node)
         return next_nodes
 
-    def init_network(self, current_nodes):
+    def build_network(self, current_nodes):
         """Iteratively build the circuit layers"""
         nodes = current_nodes
         for depth in trange(1, self.max_depth + 1, desc="Building PCNet"):
@@ -392,6 +396,17 @@ class PCNet(ProbabilisticCircuit):
                     self.add_edge(root, child)
                 return root
             nodes = self.prod_layer(nodes) if depth % 2 == 0 else self.sum_layer(nodes)
+
+    def init_network(self, data):
+        """Initialize the PCNet structure"""
+        images = np.array([data[i][0] for i in range(len(data))])
+        masks = np.array([data[i][1] for i in range(len(data))])
+        input_nodes = self.set_input_nodes(images, masks)
+        root = self.build_network(input_nodes)
+        self.set_root(root)
+        self.params = [n.weights for n in self.get_nodes() if isinstance(n, SumNode)]
+        print_configs(f"Initialized PCNet with {len(self.get_nodes())} nodes, "
+                      f"{sum(p.numel() for p in self.params)} trainable parameters")
 
     # --------------------------------------------------------
     # Feature extraction
@@ -488,57 +503,15 @@ class PCNet(ProbabilisticCircuit):
             nodes.append(node)
             self.add_node(node)
         return nodes
+    
+    def evaluate(self, x):
+    # x should be (C, H, W), convert to (1, C, H, W)
+        if x.ndim == 3:
+            x = x.unsqueeze(0)
+        return self.root.evaluate(x)
 
-    def fit_supervised(self, images, masks, epochs=5, lr=0.01):
-        input_nodes = self.set_input_nodes(images, masks)
-        print_configs("Number of input features:", len(input_nodes))
-        print_info("Building circuit...")
-        self.root = self.init_network(input_nodes)
-        self.set_root(self.root)
-        print_info("Circuit built.")
 
-        params = [n.weights for n in self.graph.nodes if hasattr(n, "weights")]
-        optimizer = torch.optim.Adam(params, lr=lr)
-        print_configs("Number of trainable parameters:", sum(p.numel() for p in params))
-        if self.feature_tensor is None:
-            self.feature_tensor = torch.from_numpy(self.get_feature_tensor(images)).float().to(self.device)
-        target = torch.from_numpy(masks).long().to(self.device)
-        if target.dim() == 4 and target.size(1) == 1:
-            target = target.squeeze(1)
-
-        flat = target.view(-1)
-
-        # Count pixels per class
-        counts = torch.bincount(flat, minlength=self.n_classes).float()
-
-        # Avoid division by zero for missing classes
-        counts[counts == 0] = 1.0
-
-        # Inverse frequency weighting
-        balance = 1.0 / counts
-
-        # Normalize so balance.sum() == 1
-        balance = balance / balance.sum()
-        print_debugging("Class balance weights:", balance.cpu().numpy())
-
-        criterion = DiceCELoss(pos_weight=torch.tensor(balance)).to(self.device)
-        losses = []
-        pbar = tqdm.tqdm(range(epochs), desc="Training PCNet")
-
-        for epoch in pbar:
-            optimizer.zero_grad()
-            logits = self.evaluate(self.feature_tensor)
-            loss = criterion(logits, target)
-            loss.backward()
-            optimizer.step()
-            losses.append(loss.item())
-            pbar.set_postfix({"loss": loss.item()})
-
-        print_info("Training complete.")
-        plt.plot(losses); plt.xlabel("Epoch"); plt.ylabel("Loss")
-        plt.title("Training Loss over Epochs"); plt.show()
-
-    def predict_mask(self, image):
+    def predict(self, image):
         if isinstance(image, list):
             features = torch.from_numpy(self.get_feature_tensor(image)).float().to(self.device)
         elif isinstance(image, np.ndarray):

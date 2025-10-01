@@ -16,6 +16,7 @@
     "hidden_channels": [128,64],
     "learning_rate": 0.001,
     "threshold": 0.4,
+    "seed": 4,
 
     "execution_mode": "test"
     
