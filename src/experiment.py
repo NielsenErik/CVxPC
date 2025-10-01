@@ -39,6 +39,7 @@ class Experiment:
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
         self.data_path = self.config.get("data_path", "data/train")
+        self.validation_split = self.config.get("validation_split", 0.2)
         self.test_path = self.config.get("test_path", "data/test")
         self.save_path = self.config.get("save_path", "models/")
 
@@ -67,9 +68,21 @@ class Experiment:
             self.test_images_path = test_path + "/images/"
             self.test_ground_truth_path = test_path + "/masks/"
             self.test_data = CrackDataset(self.test_images_path, self.test_ground_truth_path, augmentation_percentage=0.0,sample_size=10, resize_size=(self.resize_size[0], self.resize_size[1]))
+        
         self.data = CrackDataset(self.images_path, self.ground_truth_path, augmentation_percentage=0.1,sample_size=self.sample_size, resize_size=(self.resize_size[0], self.resize_size[1]))     
+        if self.execution_mode == "train":
+            if self.validation_split > 0:
+                split_idx = int((1 - self.validation_split) * len(self.data))
+                self.train_data = torch.utils.data.Subset(self.data, list(range(0, split_idx)))
+                self.val_data = torch.utils.data.Subset(self.data, list(range(split_idx, len(self.data))))
+                print_info(f"Training samples: {len(self.train_data)}, Validation samples: {len(self.val_data)}")
+            else:
+                self.train_data = self.data
+                self.val_data = None
+                print_info(f"Training samples: {len(self.train_data)}")
         self.experiment_dict["dataset_size"] = {
             "train": len(self.data),
+            "val": len(self.val_data) if self.validation_split > 0 else 0,
             "test": len(self.test_data) if test_path is not None else 0
         }
 
@@ -369,6 +382,7 @@ class ExperimentDL(Experiment):
                 axes[i, 2].axis("off")
 
             plt.tight_layout()
+            plt.savefig(os.path.join(self.log_path, f"prediction_{j}.png"))
             plt.show()
 
     @abc.abstractmethod
@@ -389,10 +403,7 @@ class ExperimentDL(Experiment):
             # get the class imbalance ratio
             pos_weight = self.compute_pos_weight(self.data)
             self.setup(pos_weight=pos_weight)
-            split_idx = int(0.8 * len(self.data))
-            train_data = torch.utils.data.Subset(self.data, list(range(0, split_idx)))
-            val_data = torch.utils.data.Subset(self.data, list(range(split_idx, len(self.data))))
-            self.model = self.train(self.model, train_data=train_data, val_data=val_data, loss_function=self.loss, optimizer=self.optimizer, device=self.device, epochs=self.epochs, batch_size=self.batch_size)
+            self.model = self.train(self.model, train_data=self.train_data, val_data=self.val_data, loss_function=self.loss, optimizer=self.optimizer, device=self.device, epochs=self.epochs, batch_size=self.batch_size)
             self.save_model(self.model_name)
             if self.test_path is not None:
                 self.evaluate(self.model, self.test_data, loss_function=self.loss)
@@ -469,14 +480,20 @@ class ExperimentPC(Experiment):
         self.model = PCNet(n_classes=self.n_classes, distribution=None, device="cpu", max_depth=self.max_depth, max_branching=self.max_branching, seed=self.seed)
 
     def train(self, model, epochs=10, lr=0.01):
-        images = np.array([self.data[i][0] for i in range(len(self.data))])
-        masks = np.array([self.data[i][1] for i in range(len(self.data))])
+        train_images = np.array([self.train_data[i][0] for i in range(len(self.train_data))])
+        train_masks = np.array([self.train_data[i][1] for i in range(len(self.train_data))])
+        val_images = np.array([self.val_data[i][0] for i in range(len(self.val_data))]) if self.val_data else None
+        val_masks = np.array([self.val_data[i][1] for i in range(len(self.val_data))]) if self.val_data else None
         optimizer = torch.optim.Adam(model.params, lr=lr)
         print_configs("Number of trainable parameters:", sum(p.numel() for p in model.params))
-        feature_tensor = torch.from_numpy(model.get_feature_tensor(images)).float().to(self.device)
-        target = torch.from_numpy(masks).long().to(self.device)
+        feature_tensor = torch.from_numpy(model.get_feature_tensor(train_images)).float().to(self.device)
+        target = torch.from_numpy(train_masks).long().to(self.device)
+        val_feature_tensor = torch.from_numpy(model.get_feature_tensor(val_images)).float().to(self.device) if val_images is not None else None
+        val_target = torch.from_numpy(val_masks).long().to(self.device) if val_images is not None else None
         if target.dim() == 4 and target.size(1) == 1:
             target = target.squeeze(1)
+        if val_target.dim() == 4 and val_target.size(1) == 1:
+            val_target = val_target.squeeze(1)
 
         flat = target.view(-1)
 
@@ -522,13 +539,25 @@ class ExperimentPC(Experiment):
             train_dices.append(np.mean(dices))
             train_ious.append(np.mean(ious))
 
+            if val_feature_tensor is not None and val_target is not None:
+                val_loss, val_dice, val_iou = self.evaluate(model, [(val_feature_tensor, val_target)], criterion)
+                val_losses.append(val_loss)
+                val_dices.append(val_dice)
+                val_ious.append(val_iou)
             pbar.set_postfix({"loss": loss.item()})
         
         df_train = pd.DataFrame({"train_loss": train_losses, "train_dice": train_dices, "train_iou": train_ious})
         df_train.to_csv(os.path.join(self.log_path, "training.csv"), index=False)
 
+        if val_feature_tensor is not None and val_target is not None:
+            df_val = pd.DataFrame({"val_loss": val_losses, "val_dice": val_dices, "val_iou": val_ious})
+            df_val.to_csv(os.path.join(self.log_path, "validation.csv"), index=False)
+
         print_info("Training complete.")
         plt.plot(train_losses, label="Train Loss")
+        if val_feature_tensor is not None and val_target is not None:
+            plt.plot(val_losses, label="Val Loss")
+            plt.legend()
         plt.title("Training Loss over Epochs"); plt.show()
         return model
     
@@ -537,10 +566,10 @@ class ExperimentPC(Experiment):
         dices = []
         ious = []
         for d in data:            
-            probs= model.predict(d[0])
+            probs= model.evaluate(d[0])
             loss = loss_function(probs, d[1])
-            dice_score = model.dice_coef(probs, d[1])
-            iou_score = model.iou_score(probs, d[1])
+            dice_score = self.dice_coef(probs, d[1]).item()
+            iou_score = self.iou_score(probs, d[1]).item()
             losses.append(loss.item())
             dices.append(dice_score)
             ious.append(iou_score)
@@ -550,7 +579,7 @@ class ExperimentPC(Experiment):
         mlflow.log_metric("test_iou", np.mean(ious))
         df_results = pd.DataFrame({"test_loss": losses, "test_dice": dices, "test_iou": ious})
         df_results.to_csv(os.path.join(self.log_path, "results.csv"), index=False)
-        return np.mean(losses)
+        return np.mean(losses), np.mean(dices), np.mean(ious)
     
     def show_prediction(self, model, image_list, ground_truth_list):
         predictions_path = os.path.join(self.log_path, "predictions")
@@ -596,7 +625,7 @@ class ExperimentPC(Experiment):
         if self.execution_mode == "train":
             self.set_algorithm()
             self.loss_function = BCEDiceLoss()
-            self.model.init_network(self.data)  
+            self.model.init_network(self.train_data)  
             self.model = self.train(self.model, epochs=self.epochs, lr=self.learning_rate)
             if self.test_path is not None:
                 images = [self.test_data[i][0] for i in range(len(self.test_data))]

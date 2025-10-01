@@ -492,14 +492,13 @@ class PCNet(ProbabilisticCircuit):
     # Training & Prediction
     # --------------------------------------------------------
     def set_input_nodes(self, images, labels):
-        self.feature_tensor = self.get_feature_tensor(images)
-        print_configs("Feature tensor shape:", self.feature_tensor.shape)
-        B, C, H, W = self.feature_tensor.shape
+        feature_tensor = self.get_feature_tensor(images)
+        B, C, H, W = feature_tensor.shape
 
         nodes = []
         for i in range(C):
             node = InputNode(i, device=self.device)
-            node.fit_supervised(self.feature_tensor, labels)
+            node.fit_supervised(feature_tensor, labels)
             nodes.append(node)
             self.add_node(node)
         return nodes
