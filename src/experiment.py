@@ -558,7 +558,8 @@ class ExperimentPC(Experiment):
         if val_feature_tensor is not None and val_target is not None:
             plt.plot(val_losses, label="Val Loss")
             plt.legend()
-        plt.title("Training Loss over Epochs"); plt.show()
+        plt.title("Training Loss over Epochs")
+        plt.savefig(os.path.join(self.log_path, "training_plot.png")) 
         return model
     
     def evaluate(self, model, data, loss_function):
