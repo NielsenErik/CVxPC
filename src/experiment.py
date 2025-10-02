@@ -475,21 +475,98 @@ class ExperimentPC(Experiment):
         self.input_nodes = []
         self.epochs = self.config.get("epochs", 10)
         self.seed = self.config.get("seed", 42)
+        self.feature_extractor = self.config.get("feature_extractor", "handcrafted")
 
     def set_algorithm(self):
         self.model = PCNet(n_classes=self.n_classes, distribution=None, device="cpu", max_depth=self.max_depth, max_branching=self.max_branching, seed=self.seed)
 
+
+    # --------------------------------------------------------
+    # Feature extraction
+    # --------------------------------------------------------
+    def get_filter_bank(self):
+        """Return predefined convolution filters"""
+        filters = {
+            "sobel_x": np.array([[-1, 0, 1], [-2, 0, 2], [-1, 0, 1]], np.float32),
+            "sobel_y": np.array([[-1, -2, -1], [0, 0, 0], [1, 2, 1]], np.float32),
+            "laplacian": np.array([[-1, -1, -1], [-1, 8, -1], [-1, -1, -1]], np.float32),
+            "sharpen": np.array([[0, -1, 0], [-1, 5, -1], [0, -1, 0]], np.float32),
+            "box3": np.ones((3, 3), np.float32) / 9,
+            "box5": np.ones((5, 5), np.float32) / 25,
+        }
+        # gaussian
+        for k, sigma in zip([3, 5, 7], [0.8, 1.2, 2.0]):
+            g = cv2.getGaussianKernel(k, sigma)
+            filters[f"gauss{k}"] = (g @ g.T).astype(np.float32)
+        return filters
+
+    def compute_conv_features(self, images, filters, device="cpu"):
+        """Apply a bank of conv filters to images"""
+        if isinstance(images, list):
+            images = torch.from_numpy(np.stack(images)).float()
+        elif isinstance(images, np.ndarray):
+            images = torch.from_numpy(images).float()
+        images = images.to(device)
+
+        if images.ndim == 4 and images.shape[1] != 3:
+            images = images.permute(0, 3, 1, 2)
+
+        filt_list = list(filters.values())
+        max_h, max_w = max(k.shape[0] for k in filt_list), max(k.shape[1] for k in filt_list)
+
+        def pad(kernel, size):
+            h, w = kernel.shape
+            H, W = size
+            out = np.zeros((H, W), np.float32)
+            out[(H - h)//2:(H - h)//2 + h, (W - w)//2:(W - w)//2 + w] = kernel
+            return out
+
+        filt_padded = [pad(k, (max_h, max_w)) for k in filt_list]
+        filt_tensor = torch.from_numpy(np.stack(filt_padded)).float().unsqueeze(1)
+        filt_tensor = filt_tensor.repeat(1, 3, 1, 1).to(device)
+
+        return F.conv2d(images, filt_tensor, padding="same")
+
+    def get_handcrafted_features(self, images):
+        """Compute handcrafted features for RGB images"""
+        def process_one(img):
+            if img.dtype != np.float32:
+                img = img.astype(np.float32) / 255.0
+            if img.shape[-1] == 3:
+                img = np.transpose(img, (2, 0, 1))
+
+            C, H, W = img.shape
+            feats = [img[c] for c in range(C)]
+            img_hw3 = np.transpose(img, (1, 2, 0))
+
+            lab, hsv = rgb2lab(img_hw3), rgb2hsv(img_hw3)
+            feats += [lab[..., c] for c in range(3)]
+            feats += [hsv[..., c] for c in range(3)]
+
+            gray = cv2.cvtColor((img_hw3*255).astype(np.uint8), cv2.COLOR_RGB2GRAY) / 255.0
+            feats += [sobel(gray), laplace(gray)]
+
+            for theta in [0, np.pi/4, np.pi/2, 3*np.pi/4]:
+                real, imag = gabor(gray, frequency=0.2, theta=theta)
+                feats += [real, imag]
+
+            return np.stack(feats).astype(np.float32)
+
+        feats = [process_one(im) for im in tqdm.tqdm(images, desc="Handcrafted features")]
+        conv_feats = self.compute_conv_features(images, self.get_filter_bank(), device=self.device)
+        return np.concatenate([np.stack(feats), conv_feats.cpu().numpy()], axis=1)
+
+    def get_feature_tensor(self, images):
+        if self.feature_extractor == "handcrafted":
+            return self.get_handcrafted_features(images)
+        raise ValueError(f"Unknown feature extractor {self.feature_extractor}")
     def train(self, model, epochs=10, lr=0.01):
-        train_images = np.array([self.train_data[i][0] for i in range(len(self.train_data))])
-        train_masks = np.array([self.train_data[i][1] for i in range(len(self.train_data))])
-        val_images = np.array([self.val_data[i][0] for i in range(len(self.val_data))]) if self.val_data else None
-        val_masks = np.array([self.val_data[i][1] for i in range(len(self.val_data))]) if self.val_data else None
         optimizer = torch.optim.Adam(model.params, lr=lr)
         print_configs("Number of trainable parameters:", sum(p.numel() for p in model.params))
-        feature_tensor = torch.from_numpy(model.get_feature_tensor(train_images)).float().to(self.device)
-        target = torch.from_numpy(train_masks).long().to(self.device)
-        val_feature_tensor = torch.from_numpy(model.get_feature_tensor(val_images)).float().to(self.device) if val_images is not None else None
-        val_target = torch.from_numpy(val_masks).long().to(self.device) if val_images is not None else None
+        feature_tensor = torch.from_numpy(self.feature_tensor).float().to(self.device)
+        target = torch.from_numpy(self.train_masks).long().to(self.device)
+        val_feature_tensor = torch.from_numpy(self.val_feature_tensor).float().to(self.device) if self.val_feature_tensor is not None else None
+        val_target = torch.from_numpy(self.val_masks).long().to(self.device) if self.val_masks is not None else None
         if target.dim() == 4 and target.size(1) == 1:
             target = target.squeeze(1)
         if val_target.dim() == 4 and val_target.size(1) == 1:
@@ -510,7 +587,7 @@ class ExperimentPC(Experiment):
         balance = balance / balance.sum()
         print_debugging("Class balance weights:", balance.cpu().numpy())
 
-        criterion = DiceCELoss(pos_weight=torch.tensor(balance)).to(self.device)
+        self.criterion = DiceCELoss(pos_weight=torch.tensor(balance)).to(self.device)
         losses = []
         pbar = tqdm.tqdm(range(epochs), desc="Training PCNet")
         train_losses, val_losses, train_dices, val_dices, train_ious, val_ious = [], [], [], [], [], []
@@ -524,7 +601,7 @@ class ExperimentPC(Experiment):
                 # ft: (C, H, W) → logits: (1, n_classes, H, W)
                 logits = model.evaluate(ft)  
                 
-                loss = criterion(logits, t.unsqueeze(0))  # (1, H, W)
+                loss = self.criterion(logits, t.unsqueeze(0))  # (1, H, W)
                 loss.backward()
                 optimizer.step()
 
@@ -540,7 +617,7 @@ class ExperimentPC(Experiment):
             train_ious.append(np.mean(ious))
 
             if val_feature_tensor is not None and val_target is not None:
-                val_loss, val_dice, val_iou = self.evaluate(model, [(val_feature_tensor, val_target)], criterion)
+                val_loss, val_dice, val_iou = self.evaluate(model, [(val_feature_tensor, val_target)], self.criterion)
                 val_losses.append(val_loss)
                 val_dices.append(val_dice)
                 val_ious.append(val_iou)
@@ -566,9 +643,10 @@ class ExperimentPC(Experiment):
         losses = []
         dices = []
         ious = []
+        
         for d in data:            
             probs= model.evaluate(d[0])
-            loss = loss_function(probs, d[1])
+            loss = self.criterion(probs, d[1])
             dice_score = self.dice_coef(probs, d[1]).item()
             iou_score = self.iou_score(probs, d[1]).item()
             losses.append(loss.item())
@@ -582,15 +660,18 @@ class ExperimentPC(Experiment):
         df_results.to_csv(os.path.join(self.log_path, "results.csv"), index=False)
         return np.mean(losses), np.mean(dices), np.mean(ious)
     
-    def show_prediction(self, model, image_list, ground_truth_list):
+    def show_prediction(self, model):
         predictions_path = os.path.join(self.log_path, "predictions")
         os.makedirs(predictions_path, exist_ok=True)
-        for enum, (img, gt) in enumerate(zip(image_list, ground_truth_list)):
+        imgs = [self.test_data[i][0] for i in range(len(self.test_data))]
+        for enum, (img, inputs, gt) in enumerate(zip(imgs, self.test_inputs, self.test_ground_truth)):
             # probs = model.evaluate(img)
-            mask = model.predict(img)
+            mask = model.predict(inputs)
             print(mask.shape, mask.min(), mask.max(), mask.mean())
+            
             img_np = img.squeeze().permute(1, 2, 0).cpu().numpy()
             gt_np = gt.squeeze().cpu().numpy()
+
             plt.figure(figsize=(12,6))
             plt.subplot(1,3,1)
             plt.imshow(img_np)
@@ -626,16 +707,28 @@ class ExperimentPC(Experiment):
         if self.execution_mode == "train":
             self.set_algorithm()
             self.loss_function = BCEDiceLoss()
-            self.model.init_network(self.train_data)  
+
+            self.feature_tensor = self.get_feature_tensor(np.array([self.train_data[i][0] for i in range(len(self.train_data))]))
+            self.train_masks = np.array([self.train_data[i][1] for i in range(len(self.train_data))])
+            self.val_feature_tensor = self.get_feature_tensor(np.array([self.val_data[i][0] for i in range(len(self.val_data))]))
+            self.val_masks = np.array([self.val_data[i][1] for i in range(len(self.val_data))]) if self.validation_split > 0 else None
+
+            self.model.init_network(self.feature_tensor, self.train_masks)  
             self.model = self.train(self.model, epochs=self.epochs, lr=self.learning_rate)
             if self.test_path is not None:
-                images = [self.test_data[i][0] for i in range(len(self.test_data))]
-                gts = [self.test_data[i][1] for i in range(len(self.test_data))]
-                self.show_prediction(self.model, images, gts)
+                self.test_inputs = torch.from_numpy(self.get_feature_tensor(np.array([self.test_data[i][0] for i in range(len(self.test_data))]))).float().to(self.device)
+                self.test_ground_truth = torch.from_numpy(np.array([self.test_data[i][1] for i in range(len(self.test_data))])).long().to(self.device)
+                if self.test_ground_truth.dim() == 4 and self.test_ground_truth.size(1) == 1:
+                    self.test_ground_truth = self.test_ground_truth.squeeze(1)
+
+                self.evaluate(self.model, [(self.test_inputs, self.test_ground_truth)], self.loss_function)
+                self.show_prediction(self.model)
         elif self.execution_mode == "test":
             self.load_model(self.model_name)
-            images = [self.test_data[i][0] for i in range(len(self.test_data))]
-            gts = [self.test_data[i][1] for i in range(len(self.test_data))]
-            self.show_prediction(self.model, images, gts)
+            self.test_inputs = torch.from_numpy(self.get_feature_tensor(np.array([self.test_data[i][0] for i in range(len(self.test_data))]))).float().to(self.device)
+            self.test_ground_truth = torch.from_numpy(np.array([self.test_data[i][1] for i in range(len(self.test_data))])).long().to(self.device)
+            if self.test_ground_truth.dim() == 4 and self.test_ground_truth.size(1) == 1:
+                    self.test_ground_truth = self.test_ground_truth.squeeze(1)
+            self.show_prediction(self.model)
 
         

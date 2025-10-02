@@ -6,6 +6,7 @@
     "test_path": "data/kaggle/crack_segmentation_dataset/test",
     "save_path": "models/",
     "validation_split": 0.2,
+    "feature_extractor": "handcrafted",
     "epochs": 2,
     "batch_size": 4,
     "sample_size": 8,
