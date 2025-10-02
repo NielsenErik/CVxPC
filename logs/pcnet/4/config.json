@@ -6,12 +6,7 @@
     "test_path": "data/kaggle/crack_segmentation_dataset/test",
     "save_path": "models/",
     "validation_split": 0.2,
-<<<<<<< HEAD
-    "feature_extractor": "handcrafted",
-    "epochs": 2,
-=======
     "epochs": 50,
->>>>>>> origin
     "batch_size": 4,
     "sample_size": 3000,
     "resize_size": [
@@ -22,7 +17,7 @@
     "n_classes": 1,
     "max_depth": 5,
     "max_branching": 2,
-    "seed": 5,
+    "seed": 4,
     "execution_mode": "train",
-    "log_dir": "logs/pcnet/5"
+    "log_dir": "logs/pcnet/4"
 }
