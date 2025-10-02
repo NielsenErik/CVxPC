@@ -309,30 +309,15 @@ class ProbabilisticCircuit:
 class PCNet(ProbabilisticCircuit):
     def __init__(
         self, n_classes=2, distribution=None, device="cpu",
-        max_depth=4, max_branching=3, feature_extractor="handcrafted",
+        max_depth=4, max_branching=3,
         seed=42
     ):
         super().__init__(n_classes, device)
         self.distribution = distribution
         self.max_depth = max_depth
         self.max_branching = max_branching
-        self.feature_extractor = feature_extractor
         self.seed = seed
         random.seed(self.seed)
-
-        self.feature_tensor = None
-        self.use_conv_features = feature_extractor in ["handcrafted", "patches"]
-
-        if self.use_conv_features:
-            # Lightweight CNN for local features
-            self.conv_extractor = nn.Sequential(
-                nn.Conv2d(1, 16, kernel_size=3, padding=1),
-                nn.BatchNorm2d(16),
-                nn.ReLU(),
-                nn.Conv2d(16, 32, kernel_size=3, padding=1),
-                nn.BatchNorm2d(32),
-                nn.ReLU(),
-            )
 
     # --------------------------------------------------------
     # Network structure helpers
@@ -397,11 +382,9 @@ class PCNet(ProbabilisticCircuit):
                 return root
             nodes = self.prod_layer(nodes) if depth % 2 == 0 else self.sum_layer(nodes)
 
-    def init_network(self, data):
+    def init_network(self, inputs, labels):
         """Initialize the PCNet structure"""
-        images = np.array([data[i][0] for i in range(len(data))])
-        masks = np.array([data[i][1] for i in range(len(data))])
-        input_nodes = self.set_input_nodes(images, masks)
+        input_nodes = self.set_input_nodes(inputs, labels)
         root = self.build_network(input_nodes)
         self.set_root(root)
         self.params = [n.weights for n in self.get_nodes() if isinstance(n, SumNode)]
@@ -409,96 +392,16 @@ class PCNet(ProbabilisticCircuit):
                       f"{sum(p.numel() for p in self.params)} trainable parameters")
 
     # --------------------------------------------------------
-    # Feature extraction
-    # --------------------------------------------------------
-    def get_filter_bank(self):
-        """Return predefined convolution filters"""
-        filters = {
-            "sobel_x": np.array([[-1, 0, 1], [-2, 0, 2], [-1, 0, 1]], np.float32),
-            "sobel_y": np.array([[-1, -2, -1], [0, 0, 0], [1, 2, 1]], np.float32),
-            "laplacian": np.array([[-1, -1, -1], [-1, 8, -1], [-1, -1, -1]], np.float32),
-            "sharpen": np.array([[0, -1, 0], [-1, 5, -1], [0, -1, 0]], np.float32),
-            "box3": np.ones((3, 3), np.float32) / 9,
-            "box5": np.ones((5, 5), np.float32) / 25,
-        }
-        # gaussian
-        for k, sigma in zip([3, 5, 7], [0.8, 1.2, 2.0]):
-            g = cv2.getGaussianKernel(k, sigma)
-            filters[f"gauss{k}"] = (g @ g.T).astype(np.float32)
-        return filters
-
-    def compute_conv_features(self, images, filters, device="cpu"):
-        """Apply a bank of conv filters to images"""
-        if isinstance(images, list):
-            images = torch.from_numpy(np.stack(images)).float()
-        elif isinstance(images, np.ndarray):
-            images = torch.from_numpy(images).float()
-        images = images.to(device)
-
-        if images.ndim == 4 and images.shape[1] != 3:
-            images = images.permute(0, 3, 1, 2)
-
-        filt_list = list(filters.values())
-        max_h, max_w = max(k.shape[0] for k in filt_list), max(k.shape[1] for k in filt_list)
-
-        def pad(kernel, size):
-            h, w = kernel.shape
-            H, W = size
-            out = np.zeros((H, W), np.float32)
-            out[(H - h)//2:(H - h)//2 + h, (W - w)//2:(W - w)//2 + w] = kernel
-            return out
-
-        filt_padded = [pad(k, (max_h, max_w)) for k in filt_list]
-        filt_tensor = torch.from_numpy(np.stack(filt_padded)).float().unsqueeze(1)
-        filt_tensor = filt_tensor.repeat(1, 3, 1, 1).to(device)
-
-        return F.conv2d(images, filt_tensor, padding="same")
-
-    def get_handcrafted_features(self, images):
-        """Compute handcrafted features for RGB images"""
-        def process_one(img):
-            if img.dtype != np.float32:
-                img = img.astype(np.float32) / 255.0
-            if img.shape[-1] == 3:
-                img = np.transpose(img, (2, 0, 1))
-
-            C, H, W = img.shape
-            feats = [img[c] for c in range(C)]
-            img_hw3 = np.transpose(img, (1, 2, 0))
-
-            lab, hsv = rgb2lab(img_hw3), rgb2hsv(img_hw3)
-            feats += [lab[..., c] for c in range(3)]
-            feats += [hsv[..., c] for c in range(3)]
-
-            gray = cv2.cvtColor((img_hw3*255).astype(np.uint8), cv2.COLOR_RGB2GRAY) / 255.0
-            feats += [sobel(gray), laplace(gray)]
-
-            for theta in [0, np.pi/4, np.pi/2, 3*np.pi/4]:
-                real, imag = gabor(gray, frequency=0.2, theta=theta)
-                feats += [real, imag]
-
-            return np.stack(feats).astype(np.float32)
-
-        feats = [process_one(im) for im in tqdm.tqdm(images, desc="Handcrafted features")]
-        conv_feats = self.compute_conv_features(images, self.get_filter_bank(), device=self.device)
-        return np.concatenate([np.stack(feats), conv_feats.cpu().numpy()], axis=1)
-
-    def get_feature_tensor(self, images):
-        if self.feature_extractor == "handcrafted":
-            return self.get_handcrafted_features(images)
-        raise ValueError(f"Unknown feature extractor {self.feature_extractor}")
-
-    # --------------------------------------------------------
     # Training & Prediction
     # --------------------------------------------------------
-    def set_input_nodes(self, images, labels):
-        feature_tensor = self.get_feature_tensor(images)
-        B, C, H, W = feature_tensor.shape
+    def set_input_nodes(self, inputs, labels):
+        print_configs("Inputs tensor shape:", inputs.shape)
+        B, C, H, W = inputs.shape
 
         nodes = []
         for i in range(C):
             node = InputNode(i, device=self.device)
-            node.fit_supervised(feature_tensor, labels)
+            node.fit_supervised(inputs, labels)
             nodes.append(node)
             self.add_node(node)
         return nodes
@@ -510,18 +413,10 @@ class PCNet(ProbabilisticCircuit):
         return self.root.evaluate(x)
 
 
-    def predict(self, image):
-        if isinstance(image, list):
-            features = torch.from_numpy(self.get_feature_tensor(image)).float().to(self.device)
-        elif isinstance(image, np.ndarray):
-            features = torch.from_numpy(image).float().to(self.device)
-        elif isinstance(image, torch.Tensor):
-            features = self.get_handcrafted_features([image.cpu().numpy()])
-        else:
-            raise ValueError("Unsupported input type for predict_mask")
+    def predict(self, inputs):
 
         with torch.no_grad():
-            logits = self.evaluate(features)
+            logits = self.evaluate(inputs)
             preds = torch.argmax(logits, dim=1, keepdim=True)
             return preds.cpu().numpy()
 
