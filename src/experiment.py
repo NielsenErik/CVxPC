@@ -526,6 +526,23 @@ class ExperimentPC(Experiment):
         filt_tensor = filt_tensor.repeat(1, 3, 1, 1).to(device)
 
         return F.conv2d(images, filt_tensor, padding="same")
+    
+    def multi_scale_pooling(self, feat_maps, pool_sizes=(3, 7, 15), modes=("avg", "max")):
+        """
+        feat_maps: torch.Tensor (B, C, H, W)
+        Returns: torch.Tensor (B, C * len(pool_sizes) * len(modes), H, W)
+        """
+        pooled = []
+        for k in pool_sizes:
+            for mode in modes:
+                if mode == "avg":
+                    out = F.avg_pool2d(feat_maps, kernel_size=k, stride=1, padding=k//2)
+                elif mode == "max":
+                    out = F.max_pool2d(feat_maps, kernel_size=k, stride=1, padding=k//2)
+                else:
+                    raise ValueError(f"Unknown pooling mode: {mode}")
+                pooled.append(out)
+        return torch.cat(pooled, dim=1)
 
     def get_handcrafted_features(self, images):
         """Compute handcrafted features for RGB images"""
@@ -554,7 +571,16 @@ class ExperimentPC(Experiment):
 
         feats = [process_one(im) for im in tqdm.tqdm(images, desc="Handcrafted features")]
         conv_feats = self.compute_conv_features(images, self.get_filter_bank(), device=self.device)
-        return np.concatenate([np.stack(feats), conv_feats.cpu().numpy()], axis=1)
+        
+        base_feats = np.concatenate([feats, conv_feats], axis=1)  # (B, C_total, H, W)
+
+        # ---- Multi-scale pooling ----
+        base_tensor = torch.from_numpy(base_feats).float().to(self.device)
+        pooled_feats = self.multi_scale_pooling(base_tensor, pool_sizes=(3, 7, 15), modes=("avg", "max"))
+        pooled_feats = pooled_feats.cpu().numpy()
+
+        return np.concatenate([base_feats, pooled_feats], axis=1)
+        
 
     def get_feature_tensor(self, images):
         if self.feature_extractor == "handcrafted":
@@ -599,8 +625,7 @@ class ExperimentPC(Experiment):
                 optimizer.zero_grad()
                 
                 # ft: (C, H, W) → logits: (1, n_classes, H, W)
-                logits = model.evaluate(ft)  
-                
+                logits = model.evaluate(ft) 
                 loss = self.criterion(logits, t.unsqueeze(0))  # (1, H, W)
                 loss.backward()
                 optimizer.step()
