@@ -571,7 +571,9 @@ class ExperimentPC(Experiment):
             return np.stack(feats).astype(np.float32)
 
         feats = [process_one(im) for im in tqdm.tqdm(images, desc="Handcrafted features")]
+        feats = self.downsample_features(np.stack(feats), factor=self.downsample_factor, mode="avg").cpu().numpy()
         conv_feats = self.compute_conv_features(images, self.get_filter_bank(), device=self.device)
+        conv_feats = self.downsample_features(conv_feats, factor=self.downsample_factor, mode="avg").cpu().numpy()
         
         base_feats = np.concatenate([feats, conv_feats], axis=1)  # (B, C_total, H, W)
 
@@ -606,7 +608,6 @@ class ExperimentPC(Experiment):
 
             # ---- Apply pooling here ----
             feats = torch.from_numpy(feats).float().to(self.device)
-            feats = self.downsample_features(feats, factor=self.downsample_factor, mode="avg")
             
             return feats.cpu().numpy()
         raise ValueError(f"Unknown feature extractor {self.feature_extractor}")
