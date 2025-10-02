@@ -97,18 +97,21 @@ class InputNode(Node):
         base += convs
         return base[idx] if idx < len(base) else f"Feature_{idx}"
 
-    def fit_supervised(self, X, y):
-        vals = X[:, self.feature_idx].reshape(-1)
-        labels = y.reshape(-1)
+    def fit(self, X):
+        """
+        Fit Gaussian parameters (mu, sigma) without labels.
+        X: np.ndarray or torch.Tensor of shape (B, C, H, W)
+        """
+        if isinstance(X, torch.Tensor):
+            X = X.detach().cpu().numpy()
 
-        for c in np.unique(labels):
-            class_vals = vals[labels == c]
-            mu = np.median(class_vals)
-            sigma = np.mean(np.abs(class_vals - mu)) + 1e-6
-            self.class_params[c] = (mu, sigma)
+        vals = X[:, self.feature_idx].reshape(-1)  # flatten across batch + pixels
+        mu = np.median(vals)
+        sigma = np.mean(np.abs(vals - mu)) + 1e-6
 
         self.mu = torch.tensor(mu, dtype=torch.float32, device=self.device)
         self.sigma = torch.tensor(sigma, dtype=torch.float32, device=self.device)
+
 
     def evaluate_class(self, X, class_idx):
         if isinstance(X, np.ndarray):
@@ -308,11 +311,12 @@ class ProbabilisticCircuit:
 # ============================================================
 class PCNet(ProbabilisticCircuit):
     def __init__(
-        self, n_classes=2, distribution=None, device="cpu",
+        self, input_size=(256, 256), n_classes=2, distribution=None, device="cpu",
         max_depth=4, max_branching=3,
         seed=42
     ):
         super().__init__(n_classes, device)
+        self.input_size = input_size
         self.distribution = distribution
         self.max_depth = max_depth
         self.max_branching = max_branching
@@ -438,7 +442,7 @@ class PCNet(ProbabilisticCircuit):
         nodes = []
         for i in range(C):
             node = InputNode(i, device=self.device)
-            node.fit_supervised(inputs, labels)
+            node.fit(inputs)
             nodes.append(node)
             self.add_node(node)
         return nodes
@@ -447,7 +451,11 @@ class PCNet(ProbabilisticCircuit):
     # x should be (C, H, W), convert to (1, C, H, W)
         if x.ndim == 3:
             x = x.unsqueeze(0)
-        return self.root.evaluate(x)
+        out = self.root.evaluate(x)
+        B, n_classes, H, W = out.shape
+        if H != self.input_size[0] or W != self.input_size[1]:
+            out = F.interpolate(out, size=self.input_size, mode='bilinear', align_corners=False)
+        return out
 
 
     def predict(self, inputs):
