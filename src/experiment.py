@@ -603,7 +603,7 @@ class ExperimentPC(Experiment):
     def get_feature_tensor(self, images):
         if self.feature_extractor == "handcrafted":
             feats = self.get_handcrafted_features(images)   # (B, C, H, W)
-
+            print_debugging(feats.shape)
             # ---- Apply pooling here ----
             feats = torch.from_numpy(feats).float().to(self.device)
             feats = self.downsample_features(feats, factor=self.downsample_factor, mode="avg")
