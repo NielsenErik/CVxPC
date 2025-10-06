@@ -4,15 +4,12 @@
     "algorithm": "pcnet",
     "device": "cpu",
     "n_jobs": 2,
-
     "data_path": "data/kaggle/crack_segmentation_dataset/train",
     "test_path": "data/kaggle/crack_segmentation_dataset/test",
     "save_path": "models/",
     "validation_split": 0.2,
-
     "feature_extractor": "handcrafted",
-
-    "epochs": 10,
+    "epochs": 50,
     "batch_size": 4,
     "sample_size": 50,
     "resize_size": [
@@ -24,8 +21,6 @@
     "max_depth": 7,
     "max_branching": 3,
     "seed": 88,
-
-    "execution_mode": "train"
-    
-
+    "execution_mode": "train",
+    "log_dir": "logs/pcnet/88"
 }

@@ -618,6 +618,7 @@ class ExperimentPC(Experiment):
         pbar = tqdm.tqdm(range(epochs), desc="Training PCNet")
         train_losses, val_losses, train_dices, val_dices, train_ious, val_ious = [], [], [], [], [], []
         for epoch in pbar:
+            print_debugging(f"Parameter means: {np.mean([p.mean().item() for p in model.params])}")
             losses = []
             dices = []
             ious = []
@@ -626,6 +627,7 @@ class ExperimentPC(Experiment):
                 
                 # ft: (C, H, W) → logits: (1, n_classes, H, W)
                 logits = model.evaluate(ft) 
+                # preds = torch.sigmoid(logits)  # (1, H, W)
                 loss = self.criterion(logits, t.unsqueeze(0))  # (1, H, W)
                 loss.backward()
                 optimizer.step()
