@@ -781,4 +781,5 @@ class ExperimentPC(Experiment):
                     self.test_ground_truth = self.test_ground_truth.squeeze(1)
             self.show_prediction(self.model)
 
+"This is the right version at 6-10-25 13:23"
         
