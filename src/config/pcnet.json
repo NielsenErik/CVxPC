@@ -2,6 +2,8 @@
     "mlflow": null,
     "experiment": "crack_segmentation",
     "algorithm": "pcnet",
+    "device": "cpu",
+    "n_jobs": 30,
 
     "data_path": "data/kaggle/crack_segmentation_dataset/train",
     "test_path": "data/kaggle/crack_segmentation_dataset/test",
