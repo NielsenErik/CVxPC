@@ -10,15 +10,15 @@
 
     "feature_extractor": "handcrafted",
 
-    "epochs": 20,
+    "epochs": 30,
     "batch_size": 4,
-    "sample_size": 2000,
-    "resize_size": [256, 256],
+    "sample_size": 500,
+    "resize_size": [128, 128],
     "input_channels": 3,
     "n_classes": 2,
-    "max_depth": 8,
-    "max_branching": 4,
-    "seed": 10,
+    "max_depth": 7,
+    "max_branching": 3,
+    "seed": 42,
 
     "execution_mode": "train"
     
