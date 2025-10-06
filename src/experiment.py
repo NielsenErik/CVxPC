@@ -36,7 +36,7 @@ class Experiment:
     def __init__(self, config):
         self.config = config
         self.execution_mode = self.config.get("execution_mode", "train")
-        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        self.device = self.config.get("device", "cpu")
 
         self.data_path = self.config.get("data_path", "data/train")
         self.validation_split = self.config.get("validation_split", 0.2)
@@ -566,7 +566,7 @@ class ExperimentPC(Experiment):
             for theta in [0, np.pi/4, np.pi/2, 3*np.pi/4]:
                 real, imag = gabor(gray, frequency=0.2, theta=theta)
                 feats += [real, imag]
-
+            # feats = feats + 0.05 * torch.randn_like(feats)
             return np.stack(feats).astype(np.float32)
 
         feats = [process_one(im) for im in tqdm.tqdm(images, desc="Handcrafted features")]
@@ -587,7 +587,7 @@ class ExperimentPC(Experiment):
             return self.get_handcrafted_features(images)
         raise ValueError(f"Unknown feature extractor {self.feature_extractor}")
     def train(self, model, epochs=10, lr=0.01):
-        optimizer = torch.optim.Adam(model.params, lr=lr)
+        optimizer = torch.optim.Adam(model.params, lr=lr, weight_decay=1e-4)
         print_configs("Number of trainable parameters:", sum(p.numel() for p in model.params))
         feature_tensor = torch.from_numpy(self.feature_tensor).float().to(self.device)
         target = torch.from_numpy(self.train_masks).long().to(self.device)
@@ -618,6 +618,7 @@ class ExperimentPC(Experiment):
         pbar = tqdm.tqdm(range(epochs), desc="Training PCNet")
         train_losses, val_losses, train_dices, val_dices, train_ious, val_ious = [], [], [], [], [], []
         for epoch in pbar:
+            print_debugging(f"Parameter means: {np.mean([p.mean().item() for p in model.params])}")
             losses = []
             dices = []
             ious = []
@@ -670,10 +671,10 @@ class ExperimentPC(Experiment):
         ious = []
         
         for d in data:            
-            probs= model.evaluate(d[0])
-            loss = self.criterion(probs, d[1])
-            dice_score = self.dice_coef(probs, d[1]).item()
-            iou_score = self.iou_score(probs, d[1]).item()
+            logits= model.evaluate(d[0])
+            loss = self.criterion(logits, d[1])
+            dice_score = self.dice_coef(logits, d[1]).item()
+            iou_score = self.iou_score(logits, d[1]).item()
             losses.append(loss.item())
             dices.append(dice_score)
             ious.append(iou_score)

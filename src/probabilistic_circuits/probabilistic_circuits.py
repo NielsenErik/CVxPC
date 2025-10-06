@@ -62,71 +62,90 @@ class Node(ABC):
         pass
 
 
-class InputNode(Node):
-    def __init__(self, feature_idx, mu=0.0, sigma=1.0, device="cpu"):
-        super().__init__(children=[])
+class InputNode(nn.Module, Node):
+    """
+    A learnable Gaussian leaf node in a probabilistic circuit.
+
+    Each InputNode models one input channel (feature) as
+    a univariate Gaussian distribution N(mu, sigma^2).
+    """
+
+    def __init__(self, feature_idx, mu_init=0.0, sigma_init=1.0, device="cpu"):
+        Node.__init__(self, children=[])
+        nn.Module.__init__(self)
         self.feature_idx = feature_idx
-        self.mu = torch.tensor(mu, dtype=torch.float32, device=device)
-        self.sigma = torch.tensor(sigma, dtype=torch.float32, device=device)
-        self.class_params = {}
         self.device = device
-        self.feature_name = self.get_feature_names(feature_idx)
 
-    def get_feature_names(self, idx):
-        base = [
-            # color
-            "R_channel", "G_channel", "B_channel",
-            # color transforms
-            "Lab_L", "Lab_a", "Lab_b",
-            "HSV_H", "HSV_S", "HSV_V",
-            # edges
-            "Sobel_gray", "Laplacian_gray",
-        ]
-        # gabor orientations
-        for theta in [0, 45, 90, 135]:
-            base += [f"Gabor_{theta}_real", f"Gabor_{theta}_imag"]
-        # conv filter bank
-        convs = [
-            "Sobel_x", "Sobel_y", "Laplacian", "Sharpen", "Box3", "Box5",
-            "Gaussian3", "Gaussian5", "Gaussian7", "Emboss_NE", "Emboss_SE",
-            "Prewitt_x", "Prewitt_y", "Diagonal_45", "Diagonal_135",
-            "Horizontal_line", "Vertical_line", "Diagonal45_line",
-            "Diagonal135_line", "Gabor_dir_0", "Gabor_dir_45",
-            "Gabor_dir_90", "Gabor_dir_135",
-        ]
-        base += convs
-        return base[idx] if idx < len(base) else f"Feature_{idx}"
+        # Learnable parameters
+        self.mu = nn.Parameter(torch.tensor(float(mu_init), dtype=torch.float32, device=device))
+        self.log_sigma = nn.Parameter(torch.log(torch.tensor(float(sigma_init), dtype=torch.float32, device=device)))
 
+        # For optional per-class stats
+        self.class_params = {}
+        self.feature_name = f"Channel_{feature_idx}"
+
+    # ----------------------------------------------------------------------
+    # Initialization (fitting without gradient)
+    # ----------------------------------------------------------------------
     def fit(self, X):
         """
-        Fit Gaussian parameters (mu, sigma) without labels.
-        X: np.ndarray or torch.Tensor of shape (B, C, H, W)
+        Initialize mu and sigma based on dataset statistics.
+
+        Args:
+            X (torch.Tensor or np.ndarray): shape (B, C, H, W)
         """
         if isinstance(X, torch.Tensor):
             X = X.detach().cpu().numpy()
+        vals = X[:, self.feature_idx].reshape(-1)
+        mu = np.mean(vals)
+        sigma = np.std(vals) + 1e-6
 
-        vals = X[:, self.feature_idx].reshape(-1)  # flatten across batch + pixels
-        mu = np.median(vals)
-        sigma = np.mean(np.abs(vals - mu)) + 1e-6
+        with torch.no_grad():
+            self.mu.copy_(torch.tensor(mu, dtype=torch.float32, device=self.device))
+            self.log_sigma.copy_(torch.log(torch.tensor(sigma, dtype=torch.float32, device=self.device)))
 
-        self.mu = torch.tensor(mu, dtype=torch.float32, device=self.device)
-        self.sigma = torch.tensor(sigma, dtype=torch.float32, device=self.device)
+    # ----------------------------------------------------------------------
+    # Evaluation
+    # ----------------------------------------------------------------------
+    def forward(self, X):
+        """
+        Compute Gaussian likelihood P(X|mu,sigma) for the feature channel.
 
+        Args:
+            X (torch.Tensor): shape (B, C, H, W)
+        Returns:
+            torch.Tensor: likelihood values for each spatial position (B, H, W)
+        """
+        if isinstance(X, np.ndarray):
+            X = torch.from_numpy(X).float().to(self.device)
 
+        vals = X[:, self.feature_idx]  # (B, H, W)
+        sigma = torch.exp(self.log_sigma)+ 1e-3
+
+        # Gaussian PDF
+        log_prob = -0.5 * ((vals - self.mu) / (sigma + 1e-12))**2 - torch.log(sigma * (2 * np.pi)**0.5)
+
+        return log_prob
+
+    # Alias for PCNet compatibility
+    def evaluate(self, X):
+        return self.forward(X)
+
+    # ----------------------------------------------------------------------
+    # Optional per-class evaluation
+    # ----------------------------------------------------------------------
     def evaluate_class(self, X, class_idx):
         if isinstance(X, np.ndarray):
             X = torch.from_numpy(X).float().to(self.device)
         vals = X[:, self.feature_idx]
-        mu, sigma = self.class_params[class_idx]
-        mu, sigma = torch.tensor(mu, device=self.device), torch.tensor(sigma, device=self.device)
-        return torch.exp(-0.5 * ((vals - mu) / (sigma + 1e-12))**2) / (sigma * (2 * np.pi) ** 0.5)
+        mu, sigma = self.class_params.get(class_idx, (self.mu, torch.exp(self.log_sigma)))
+        mu = mu.to(self.device)
+        sigma = sigma.to(self.device)
+        return torch.exp(-0.5 * ((vals - mu) / (sigma + 1e-12))**2) / (sigma * (2 * pi) ** 0.5)
 
-    def evaluate(self, X):
-        if isinstance(X, np.ndarray):
-            X = torch.from_numpy(X).float().to(self.device)
-        vals = X[:, self.feature_idx]
-        mu, sigma = self.mu.to(vals.device), self.sigma.to(vals.device)
-        return torch.exp(-0.5 * ((vals - mu) / (sigma + 1e-12))**2) / (sigma * (2 * np.pi) ** 0.5)
+    def __repr__(self):
+        sigma = torch.exp(self.log_sigma).item()
+        return f"InputNode({self.feature_name}, mu={self.mu.item():.4f}, sigma={sigma:.4f})"
 
 
 class SumNode(Node):
@@ -429,6 +448,8 @@ class PCNet(ProbabilisticCircuit):
         root = self.build_network(input_nodes)
         self.set_root(root)
         self.params = [n.weights for n in self.get_nodes() if isinstance(n, SumNode)]
+        for i in input_nodes:
+            self.params.extend([i.mu, i.log_sigma])
         print_configs(f"Initialized PCNet with {len(self.get_nodes())} nodes, "
                       f"{sum(p.numel() for p in self.params)} trainable parameters")
 
