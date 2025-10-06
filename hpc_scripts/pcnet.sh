@@ -21,8 +21,4 @@ cd ${PBS_O_WORKDIR}
 module load python-3.10.14
 module load cuda-11.3   
 source $PWD/.venv/bin/activate
-<<<<<<< HEAD
 python3 $PWD/src/main.py $PWD/src/config/hpc/pcnet.json
-=======
-python3 $PWD/src/main.py $PWD/src/config/hpc/pcnet.json
->>>>>>> 896493f4a95d99db98f6042e151fa7dbfe44eddb
