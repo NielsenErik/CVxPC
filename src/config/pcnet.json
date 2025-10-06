@@ -14,13 +14,8 @@
 
     "epochs": 5,
     "batch_size": 4,
-<<<<<<< HEAD
     "sample_size": 500,
     "resize_size": [128, 128],
-=======
-    "sample_size": 50,
-    "resize_size": [256, 256],
->>>>>>> 896493f4a95d99db98f6042e151fa7dbfe44eddb
     "input_channels": 3,
     "n_classes": 2,
     "max_depth": 7,
