@@ -1,0 +1,2 @@
+/var/spool/pbs/mom_priv/jobs/4322725.hpc-head-n1.unitn.it.SC: line 24: syntax error near unexpected token `<<<'
+/var/spool/pbs/mom_priv/jobs/4322725.hpc-head-n1.unitn.it.SC: line 24: `<<<<<<< HEAD'
