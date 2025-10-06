@@ -476,6 +476,7 @@ class ExperimentPC(Experiment):
         self.epochs = self.config.get("epochs", 10)
         self.seed = self.config.get("seed", 42)
         self.feature_extractor = self.config.get("feature_extractor", "handcrafted")
+        self.downsample_factor = self.config.get("downsample_factor", 4)
 
     def set_algorithm(self):
         self.model = PCNet(n_classes=self.n_classes, distribution=None, device="cpu", max_depth=self.max_depth, max_branching=self.max_branching, seed=self.seed)
@@ -570,7 +571,9 @@ class ExperimentPC(Experiment):
             return np.stack(feats).astype(np.float32)
 
         feats = [process_one(im) for im in tqdm.tqdm(images, desc="Handcrafted features")]
+        feats = self.downsample_features(np.stack(feats), factor=self.downsample_factor, mode="avg").cpu().numpy()
         conv_feats = self.compute_conv_features(images, self.get_filter_bank(), device=self.device)
+        conv_feats = self.downsample_features(conv_feats, factor=self.downsample_factor, mode="avg").cpu().numpy()
         
         base_feats = np.concatenate([feats, conv_feats], axis=1)  # (B, C_total, H, W)
 
@@ -580,11 +583,33 @@ class ExperimentPC(Experiment):
         pooled_feats = pooled_feats.cpu().numpy()
 
         return np.concatenate([base_feats, pooled_feats], axis=1)
+    
+    def downsample_features(self, features, factor=4, mode="avg"):
+        """
+        features: torch.Tensor or np.ndarray (B, C, H, W)
+        factor: downsampling factor (e.g. 2, 4, 8)
+        mode: "avg" or "max"
+        """
+        if isinstance(features, np.ndarray):
+            features = torch.from_numpy(features).float()
+
+        if mode == "avg":
+            pooled = F.avg_pool2d(features, kernel_size=factor, stride=factor)
+        elif mode == "max":
+            pooled = F.max_pool2d(features, kernel_size=factor, stride=factor)
+        else:
+            raise ValueError(f"Unknown pooling mode {mode}")
+        return pooled
         
 
     def get_feature_tensor(self, images):
         if self.feature_extractor == "handcrafted":
-            return self.get_handcrafted_features(images)
+            feats = self.get_handcrafted_features(images)   # (B, C, H, W)
+            print_debugging(feats.shape)
+            # ---- Apply pooling here ----
+            feats = torch.from_numpy(feats).float().to(self.device)
+            
+            return feats.cpu().numpy()
         raise ValueError(f"Unknown feature extractor {self.feature_extractor}")
     def train(self, model, epochs=10, lr=0.01):
         optimizer = torch.optim.Adam(model.params, lr=lr)
