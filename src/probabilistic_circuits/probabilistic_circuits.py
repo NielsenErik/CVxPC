@@ -452,9 +452,6 @@ class PCNet(ProbabilisticCircuit):
         if x.ndim == 3:
             x = x.unsqueeze(0)
         out = self.root.evaluate(x)
-        B, n_classes, H, W = out.shape
-        if H != self.input_size[0] or W != self.input_size[1]:
-            out = F.interpolate(out, size=self.input_size, mode='bilinear', align_corners=False)
         return out
 
 
