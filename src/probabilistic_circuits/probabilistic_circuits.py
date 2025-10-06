@@ -369,18 +369,55 @@ class PCNet(ProbabilisticCircuit):
                 self.add_edge(node, child)
             next_nodes.append(node)
         return next_nodes
+    
+    def reduce_to_n(self, nodes, n_target):
+        """
+        Force reduce a list of nodes to exactly n_target nodes by grouping.
+        """
+        if len(nodes) == n_target:
+            return nodes
+        if len(nodes) < n_target:
+            # Pad by duplicating last node
+            while len(nodes) < n_target:
+                nodes.append(nodes[-1])
+            return nodes
+
+        # Too many: group nodes into n_target groups
+        groups = np.array_split(nodes, n_target)
+        reduced = []
+        for g in groups:
+            if len(g) == 1:
+                reduced.append(g[0])
+            else:
+                weights = torch.rand(len(g), device=self.device)
+                weights = weights / weights.sum()
+                node = SumNode(list(g), weights=weights, device=self.device)
+                self.add_node(node)
+                for child in g:
+                    self.add_edge(node, child)
+                reduced.append(node)
+        return reduced
+
 
     def build_network(self, current_nodes):
-        """Iteratively build the circuit layers"""
         nodes = current_nodes
-        for depth in trange(1, self.max_depth + 1, desc="Building PCNet"):
+        for depth in range(1, self.max_depth + 1):
             if depth == self.max_depth:
+                # Force reduce/pad to exactly n_classes
+                nodes = self.reduce_to_n(nodes, self.n_classes)
+
+                print(f"[DEBUG] Final children = {len(nodes)}, expected = {self.n_classes}")
                 root = ClassifierNode(nodes)
                 self.add_node(root)
                 for child in nodes:
                     self.add_edge(root, child)
                 return root
+
             nodes = self.prod_layer(nodes) if depth % 2 == 0 else self.sum_layer(nodes)
+
+
+        
+
 
     def init_network(self, inputs, labels):
         """Initialize the PCNet structure"""
