@@ -96,8 +96,15 @@ class CrackDataset(Dataset):
     '''
     def __init__(self, images_path, ground_truths_path, resize_size=(256, 256), augmentation_percentage=None, sample_size=224):
         self.sample_size = sample_size
-        self.img_paths = sorted(glob.glob(os.path.join(images_path, "*.jpg")))[:sample_size]
-        self.mask_paths = sorted(glob.glob(os.path.join(ground_truths_path, "*.jpg")))[:sample_size]
+        image_exts = ["*.jpg", "*.jpeg", "*.png"]
+        mask_exts = ["*.jpg", "*.jpeg", "*.png"]
+
+        self.img_paths = sorted(
+            [p for ext in image_exts for p in glob.glob(os.path.join(images_path, ext))]
+        )[:sample_size]
+        self.mask_paths = sorted(
+            [p for ext in mask_exts for p in glob.glob(os.path.join(ground_truths_path, ext))]
+        )[:sample_size]
         self.resize_size = resize_size
         self.augmentation_percentage = augmentation_percentage
         

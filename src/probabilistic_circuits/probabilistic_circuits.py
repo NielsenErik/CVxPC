@@ -3,6 +3,7 @@
 # ============================================================
 import random
 from abc import ABC, abstractmethod
+import os
 
 import cv2
 import matplotlib.pyplot as plt
@@ -299,7 +300,7 @@ class ProbabilisticCircuit:
 # [Your PCNet implementation cleaned goes here ... same structure but formatted]
 
 
-    def visualize(self, direction="TB", layer_sep=2.0, node_sep=5.0, save_path=None):
+    def visualize(self, direction="LR", layer_sep=2.0, node_sep=5.0, save_path=None):
         """
         Visualize the probabilistic circuit as a tree-like hierarchical layout with proper spacing.
 
@@ -364,19 +365,19 @@ class ProbabilisticCircuit:
         )
         plt.title("Probabilistic Circuit Tree Visualization", fontsize=16)
         if save_path is not None:
+            save_path = os.path.join(save_path, "pc_tree.png")
             plt.savefig(save_path, bbox_inches='tight')
             print_info(f"PC visualization saved to {save_path}")
 # ============================================================
 # PCNet
 # ============================================================
-class PCNet(ProbabilisticCircuit, nn.Module):
+class PCNet(ProbabilisticCircuit):
     def __init__(
         self, input_size=(256, 256), n_classes=2, distribution=None, device="cpu",
         max_depth=4, max_branching=3,
         seed=42
     ):
-        ProbabilisticCircuit.__init__(self, n_classes, device)
-        nn.Module.__init__(self)
+        super().__init__(n_classes, device)
         self.input_size = input_size
         self.distribution = distribution
         self.max_depth = max_depth
@@ -491,9 +492,10 @@ class PCNet(ProbabilisticCircuit, nn.Module):
         self.set_root(root)
         self.params = [n.weights for n in self.get_nodes() if isinstance(n, SumNode)]
         for i in input_nodes:
-            self.params.extend([i.mu, i.log_sigma, i.log_nu, i.logits])
+            self.params.extend([i.mu, i.log_sigma])
         print_configs(f"Initialized PCNet with {len(self.get_nodes())} nodes, "
                       f"{sum(p.numel() for p in self.params)} trainable parameters")
+        print_debugging(self)
 
     # --------------------------------------------------------
     # Training & Prediction
@@ -505,8 +507,7 @@ class PCNet(ProbabilisticCircuit, nn.Module):
         nodes = []
         for i in range(C):
             node = InputNode(i, device=self.device)
-            if hasattr(node, 'fit'):
-                node.fit(inputs)
+            node.fit(inputs)
             nodes.append(node)
             self.add_node(node)
         return nodes
@@ -525,6 +526,53 @@ class PCNet(ProbabilisticCircuit, nn.Module):
             logits = self.evaluate(inputs)
             preds = torch.argmax(logits, dim=1, keepdim=True)
             return preds.cpu().numpy()
+        
+    def __repr__(self):
+        """
+        Nicely formatted hierarchical summary of the PCNet structure.
+        Includes node type, number of children, and feature indices.
+        """
+        if not hasattr(self, "root") or self.root is None:
+            return "<PCNet: Uninitialized>"
+
+        lines = []
+        node_counts = {"InputNode": 0, "SumNode": 0, "ProductNode": 0, "ClassifierNode": 0}
+
+        # recursive pretty-printer
+        def recurse(node, prefix="", depth=0, max_depth=6):
+            if depth > max_depth:
+                lines.append(prefix + "└─ (...) [truncated]")
+                return
+
+            name = type(node).__name__
+            node_counts[name] = node_counts.get(name, 0) + 1
+
+            # description depending on node type
+            if isinstance(node, InputNode):
+                desc = f"{name}({node.feature_name})"
+            elif isinstance(node, SumNode):
+                desc = f"{name}(children={len(node.children)}, weights={len(node.weights)})"
+            elif isinstance(node, ProductNode):
+                desc = f"{name}(children={len(node.children)})"
+            elif isinstance(node, ClassifierNode):
+                desc = f"{name}(classes={len(node.children)})"
+            else:
+                desc = name
+
+            lines.append(f"{prefix}├─ {desc}")
+
+            for i, child in enumerate(node.children):
+                connector = "│  " if i < len(node.children) - 1 else "   "
+                recurse(child, prefix + connector, depth + 1, max_depth)
+
+        recurse(self.root)
+
+        # summary
+        summary = " | ".join(f"{k}: {v}" for k, v in node_counts.items())
+        lines.append(f"\n[Summary] {summary}")
+        return "\n".join(lines)
+
+
 
 
 # ============================================================
