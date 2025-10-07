@@ -1,0 +1,26 @@
+{
+    "mlflow": null,
+    "experiment": "crack_segmentation",
+    "algorithm": "pcnet",
+    "device": "cpu",
+    "n_jobs": 2,
+    "data_path": "data/kaggle/crack_segmentation_dataset/train",
+    "test_path": "data/kaggle/crack_segmentation_dataset/test",
+    "save_path": "models/",
+    "validation_split": 0.2,
+    "feature_extractor": "handcrafted",
+    "epochs": 10,
+    "batch_size": 4,
+    "sample_size": 20,
+    "resize_size": [
+        256,
+        256
+    ],
+    "input_channels": 3,
+    "n_classes": 2,
+    "max_depth": 10,
+    "max_branching": 5,
+    "seed": 66,
+    "execution_mode": "train",
+    "log_dir": "logs/pcnet/66"
+}

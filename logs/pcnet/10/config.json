@@ -7,17 +7,23 @@
     "save_path": "models/",
     "validation_split": 0.2,
     "feature_extractor": "handcrafted",
+<<<<<<< HEAD
+    "epochs": 20,
+    "batch_size": 4,
+    "sample_size": 2000,
+=======
     "epochs": 5,
     "batch_size": 4,
     "sample_size": 50,
+>>>>>>> 896493f4a95d99db98f6042e151fa7dbfe44eddb
     "resize_size": [
         256,
         256
     ],
     "input_channels": 3,
     "n_classes": 2,
-    "max_depth": 5,
-    "max_branching": 2,
+    "max_depth": 8,
+    "max_branching": 4,
     "seed": 10,
     "execution_mode": "train",
     "log_dir": "logs/pcnet/10"
