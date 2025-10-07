@@ -916,10 +916,10 @@ class ExperimentGEPC(ExperimentPC):
     def __init__(self, config):
         super().__init__(config)
         self.ge = GEOptimizer(
-                    pop_size=20,
+                    pop_size=2,
                     genome_len=96,
-                    max_depth=4,          # search budget
-                    max_branching=4,      # upper bound for sum fan-in
+                    max_depth=self.max_depth,          # search budget
+                    max_branching=self.max_branching,      # upper bound for sum fan-in
                     crossover_rate=0.9,
                     mutation_rate=0.05,
                     elite_k=2,
