@@ -62,118 +62,159 @@ class Node(ABC):
         pass
 
 
+import torch
+import torch.nn as nn
+import numpy as np
+from math import pi
+
+
+# ======================================================
+# Input Node: returns log-probability
+# ======================================================
 class InputNode(nn.Module, Node):
     """
-    A learnable Gaussian leaf node in a probabilistic circuit.
-
-    Each InputNode models one input channel (feature) as
-    a univariate Gaussian distribution N(mu, sigma^2).
+    Input node that automatically learns the best-fitting distribution
+    among {Gaussian, Laplace, Student-t}.
     """
-
     def __init__(self, feature_idx, mu_init=0.0, sigma_init=1.0, device="cpu"):
-        Node.__init__(self, children=[])
         nn.Module.__init__(self)
+        Node.__init__(self, children=[])
+
         self.feature_idx = feature_idx
         self.device = device
 
-        # Learnable parameters
+        # Shared location and scale
         self.mu = nn.Parameter(torch.tensor(float(mu_init), dtype=torch.float32, device=device))
         self.log_sigma = nn.Parameter(torch.log(torch.tensor(float(sigma_init), dtype=torch.float32, device=device)))
 
-        # For optional per-class stats
-        self.class_params = {}
-        self.feature_name = f"Channel_{feature_idx}"
+        # Optional shape parameter for Student-t
+        self.log_nu = nn.Parameter(torch.log(torch.tensor(5.0, dtype=torch.float32, device=device)))  # degrees of freedom
 
-    # ----------------------------------------------------------------------
-    # Initialization (fitting without gradient)
-    # ----------------------------------------------------------------------
+        # Mixture weights over distributions: [Gaussian, Laplace, Student-t]
+        self.logits = nn.Parameter(torch.zeros(3, dtype=torch.float32, device=device))
+        self.feature_name = f"feat_{feature_idx}"
+
+    def _log_gaussian(self, x, mu, sigma):
+        return -0.5 * ((x - mu) / sigma)**2 - torch.log(sigma * (2 * np.pi)**0.5)
+
+    def _log_laplace(self, x, mu, sigma):
+        b = sigma / np.sqrt(2.0)
+        return -torch.abs(x - mu) / b - torch.log(2 * b)
+
+    def _log_student(self, x, mu, sigma, nu):
+        z = (x - mu) / (sigma + 1e-12)
+        return (
+            torch.lgamma((nu + 1) / 2)
+            - torch.lgamma(nu / 2)
+            - 0.5 * torch.log(nu * np.pi)
+            - torch.log(sigma + 1e-12)
+            - ((nu + 1) / 2) * torch.log1p((z ** 2) / nu)
+        )
+    
     def fit(self, X):
         """
-        Initialize mu and sigma based on dataset statistics.
+        Initialize the distribution parameters (mu, sigma, nu, mixture weights)
+        based on the dataset statistics for this feature channel.
 
         Args:
             X (torch.Tensor or np.ndarray): shape (B, C, H, W)
         """
+        # Convert to NumPy for easy aggregation
         if isinstance(X, torch.Tensor):
             X = X.detach().cpu().numpy()
+
+        # Select this feature channel
         vals = X[:, self.feature_idx].reshape(-1)
-        mu = np.mean(vals)
-        sigma = np.std(vals) + 1e-6
 
+        # Robust initialization: median + MAD
+        mu_init = float(np.median(vals))
+        mad = float(np.median(np.abs(vals - mu_init)) + 1e-6)
+        sigma_init = mad * 1.4826  # consistent with Gaussian std
+
+        # Use moderate ν to start (Student-t)
+        nu_init = 5.0
+
+        # Start with uniform mixture over {Gaussian, Laplace, Student-t}
+        logits_init = np.zeros(3, dtype=np.float32)
+
+        # Copy into parameters without breaking the computational graph
         with torch.no_grad():
-            self.mu.copy_(torch.tensor(mu, dtype=torch.float32, device=self.device))
-            self.log_sigma.copy_(torch.log(torch.tensor(sigma, dtype=torch.float32, device=self.device)))
+            self.mu.copy_(torch.tensor(mu_init, dtype=torch.float32, device=self.device))
+            self.log_sigma.copy_(torch.log(torch.tensor(sigma_init, dtype=torch.float32, device=self.device)))
+            self.log_nu.copy_(torch.log(torch.tensor(nu_init, dtype=torch.float32, device=self.device)))
+            self.logits.copy_(torch.tensor(logits_init, dtype=torch.float32, device=self.device))
 
-    # ----------------------------------------------------------------------
-    # Evaluation
-    # ----------------------------------------------------------------------
-    def forward(self, X):
-        """
-        Compute Gaussian likelihood P(X|mu,sigma) for the feature channel.
 
-        Args:
-            X (torch.Tensor): shape (B, C, H, W)
-        Returns:
-            torch.Tensor: likelihood values for each spatial position (B, H, W)
-        """
-        if isinstance(X, np.ndarray):
-            X = torch.from_numpy(X).float().to(self.device)
-
-        vals = X[:, self.feature_idx]  # (B, H, W)
-        sigma = torch.exp(self.log_sigma)+ 1e-3
-
-        # Gaussian PDF
-        log_prob = -0.5 * ((vals - self.mu) / (sigma + 1e-12))**2 - torch.log(sigma * (2 * np.pi)**0.5)
-
-        return log_prob
-
-    # Alias for PCNet compatibility
     def evaluate(self, X):
-        return self.forward(X)
-
-    # ----------------------------------------------------------------------
-    # Optional per-class evaluation
-    # ----------------------------------------------------------------------
-    def evaluate_class(self, X, class_idx):
         if isinstance(X, np.ndarray):
             X = torch.from_numpy(X).float().to(self.device)
         vals = X[:, self.feature_idx]
-        mu, sigma = self.class_params.get(class_idx, (self.mu, torch.exp(self.log_sigma)))
-        mu = mu.to(self.device)
-        sigma = sigma.to(self.device)
-        return torch.exp(-0.5 * ((vals - mu) / (sigma + 1e-12))**2) / (sigma * (2 * pi) ** 0.5)
+        sigma = torch.exp(self.log_sigma)
+        nu = torch.exp(self.log_nu)
+        weights = torch.softmax(self.logits, dim=0)
 
-    def __repr__(self):
-        sigma = torch.exp(self.log_sigma).item()
-        return f"InputNode({self.feature_name}, mu={self.mu.item():.4f}, sigma={sigma:.4f})"
+        log_gauss = self._log_gaussian(vals, self.mu, sigma)
+        log_lapl  = self._log_laplace(vals, self.mu, sigma)
+        log_stud  = self._log_student(vals, self.mu, sigma, nu)
+
+        # log-sum-exp over distributions
+        logpdfs = torch.stack([log_gauss, log_lapl, log_stud], dim=0)
+        log_mix = torch.logsumexp(torch.log(weights).view(-1, *([1]*(logpdfs.ndim-1))) + logpdfs, dim=0)
+        return log_mix
 
 
-class SumNode(Node):
+
+# ======================================================
+# Sum Node: log-sum-exp over children
+# ======================================================
+class SumNode(Node, nn.Module):
     def __init__(self, children, weights=None, device="cpu"):
-        super().__init__(children)
+        nn.Module.__init__(self)
+        Node.__init__(self, children)
         n = len(children)
         if weights is None:
             weights = torch.ones(n, device=device) / n
         elif not isinstance(weights, torch.Tensor):
             weights = torch.tensor(weights, dtype=torch.float32, device=device)
-        self.weights = nn.Parameter(weights / weights.sum(), requires_grad=True)
+        # store log-weights (trainable)
+        log_w = torch.log(weights / weights.sum())
+        self.weights = nn.Parameter(log_w, requires_grad=True)
+        self.device = device
 
     def evaluate(self, x):
-        child_vals = torch.stack([c.evaluate(x) for c in self.children], dim=0)
-        return torch.tensordot(self.weights, child_vals, dims=([0], [0]))
+        """Compute log(∑_i w_i * p_i) = logsumexp(log w_i + log p_i)."""
+        child_logs = torch.stack([c.evaluate(x) for c in self.children], dim=0)
+        log_w = torch.log_softmax(self.weights, dim=0).view(-1, *([1]*(child_logs.ndim-1)))
+        return torch.logsumexp(log_w + child_logs, dim=0)
 
 
-class ProductNode(Node):
+# ======================================================
+# Product Node: sum of log-probabilities
+# ======================================================
+class ProductNode(Node, nn.Module):
+    def __init__(self, children):
+        nn.Module.__init__(self)
+        Node.__init__(self, children)
+
     def evaluate(self, x):
-        return torch.prod(torch.stack([c.evaluate(x) for c in self.children], dim=0), dim=0)
+        """Compute log(∏_i p_i) = ∑_i log p_i."""
+        child_logs = torch.stack([c.evaluate(x) for c in self.children], dim=0)
+        return torch.sum(child_logs, dim=0)
 
 
-class ClassifierNode(Node):
-    """Stack children outputs into logits across class dimension."""
+# ======================================================
+# Classifier Node: stack log-likelihoods as class logits
+# ======================================================
+class ClassifierNode(Node, nn.Module):
+    def __init__(self, children):
+        nn.Module.__init__(self)
+        Node.__init__(self, children)
+
     def evaluate(self, x):
-        # Collect child outputs -> (B, H, W)
-        child_outputs = [c.evaluate(x) for c in self.children]  
-        return torch.stack(child_outputs, dim=1)  # (B, n_classes, H, W)
+        """Return (B, n_classes, H, W) log-probs."""
+        child_logs = [c.evaluate(x) for c in self.children]
+        return torch.stack(child_logs, dim=1)
+
 
 
 
@@ -328,13 +369,14 @@ class ProbabilisticCircuit:
 # ============================================================
 # PCNet
 # ============================================================
-class PCNet(ProbabilisticCircuit):
+class PCNet(ProbabilisticCircuit, nn.Module):
     def __init__(
         self, input_size=(256, 256), n_classes=2, distribution=None, device="cpu",
         max_depth=4, max_branching=3,
         seed=42
     ):
-        super().__init__(n_classes, device)
+        ProbabilisticCircuit.__init__(self, n_classes, device)
+        nn.Module.__init__(self)
         self.input_size = input_size
         self.distribution = distribution
         self.max_depth = max_depth
@@ -449,7 +491,7 @@ class PCNet(ProbabilisticCircuit):
         self.set_root(root)
         self.params = [n.weights for n in self.get_nodes() if isinstance(n, SumNode)]
         for i in input_nodes:
-            self.params.extend([i.mu, i.log_sigma])
+            self.params.extend([i.mu, i.log_sigma, i.log_nu, i.logits])
         print_configs(f"Initialized PCNet with {len(self.get_nodes())} nodes, "
                       f"{sum(p.numel() for p in self.params)} trainable parameters")
 
@@ -463,7 +505,8 @@ class PCNet(ProbabilisticCircuit):
         nodes = []
         for i in range(C):
             node = InputNode(i, device=self.device)
-            node.fit(inputs)
+            if hasattr(node, 'fit'):
+                node.fit(inputs)
             nodes.append(node)
             self.add_node(node)
         return nodes

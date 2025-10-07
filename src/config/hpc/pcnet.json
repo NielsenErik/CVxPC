@@ -3,7 +3,7 @@
     "experiment": "crack_segmentation",
     "algorithm": "pcnet",
     "device": "cpu",
-    "n_jobs": 2,
+    "n_jobs": 30,
 
     "data_path": "data/kaggle/crack_segmentation_dataset/train",
     "test_path": "data/kaggle/crack_segmentation_dataset/test",
@@ -15,7 +15,7 @@
     "epochs": 50,
     "batch_size": 4,
     "sample_size": 5000,
-    "resize_size": [128, 128],
+    "resize_size": [256, 256],
     "input_channels": 3,
     "n_classes": 2,
     "max_depth": 5,

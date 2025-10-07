@@ -10,8 +10,10 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("config", help="Path of the config file to use")
     parser.add_argument("--debug", action="store_true", help="Debug flag")
+    parser.add_argument("seed", type=int, help="Random seed to use")
     args = parser.parse_args()
     config = json.load(open(args.config))
+    config["seed"] = args.seed
     config["log_dir"] = os.path.join("logs", config["algorithm"], str(config["seed"]))
     os.makedirs(config["log_dir"], exist_ok=True)
     json.dump(config, open(os.path.join(config["log_dir"], "config.json"), "w"), indent=4)
