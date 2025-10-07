@@ -918,6 +918,9 @@ class ExperimentPC(Experiment):
         pass
 
     def save_model(self, model_name="pcnet"):
+        with open(os.path.join(self.log_path, f"{model_name}.pkl"), "wb") as f:
+            pickle.dump(self.model, f)
+        f.close()
         with open(os.path.join(self.save_path, f"{model_name}.pkl"), "wb") as f:
             pickle.dump(self.model, f)
         f.close()
@@ -941,6 +944,7 @@ class ExperimentPC(Experiment):
 
             self.model.init_network(self.feature_tensor, self.train_masks)  
             self.model = self.train(self.model, epochs=self.epochs, lr=self.learning_rate, n_cpus=self.n_cpus)
+            self.save_model()
             if self.test_path is not None:
                 self.test_inputs = torch.from_numpy(self.get_feature_tensor(np.array([self.test_data[i][0] for i in range(len(self.test_data))]))).float().to(self.device)
                 self.test_ground_truth = torch.from_numpy(np.array([self.test_data[i][1] for i in range(len(self.test_data))])).long().to(self.device)
@@ -996,6 +1000,7 @@ class ExperimentGEPC(ExperimentPC):
             self.model = best_pc
 
             self.model = self.train(self.model, epochs=self.epochs, lr=self.learning_rate, n_cpus=self.n_cpus)
+            self.save_model("pcnet-ge")
             if self.test_path is not None:
                 self.test_inputs = torch.from_numpy(self.get_feature_tensor(np.array([self.test_data[i][0] for i in range(len(self.test_data))]))).float().to(self.device)
                 self.test_ground_truth = torch.from_numpy(np.array([self.test_data[i][1] for i in range(len(self.test_data))])).long().to(self.device)
