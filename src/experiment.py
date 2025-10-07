@@ -866,9 +866,10 @@ class ExperimentPC(Experiment):
                 cl_iou_score = self.cl_iou_score(pred_mask, true_mask)  # float or tensor
 
                 batch_losses.append(loss.item())
-                batch_dices.append(float(torch.as_tensor(dice_score).mean()))
-                batch_ious.append(float(torch.as_tensor(iou_score).mean()))
-                batch_clious.append(float(torch.as_tensor(cl_iou_score)))
+                batch_dices.append(float(torch.as_tensor(dice_score).detach().mean()))
+                batch_ious.append(float(torch.as_tensor(iou_score).detach().mean()))
+                batch_clious.append(float(torch.as_tensor(cl_iou_score).detach()))
+
 
             # Collect gate values (if present) in parallel
             gates_values = []

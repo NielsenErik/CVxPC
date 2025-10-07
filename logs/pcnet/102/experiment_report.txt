@@ -1,8 +1,8 @@
 Experiment Configurations: {'mlflow': None, 'experiment': 'crack_segmentation', 'algorithm': 'pcnet', 'device': 'cpu', 'n_cpus': 2, 'data_path': 'data/CrackSeg9k/train', 'test_path': 'data/CrackSeg9k/test', 'save_path': 'models/', 'validation_split': 0.2, 'feature_extractor': 'handcrafted', 'epochs': 5, 'batch_size': 4, 'sample_size': 10, 'test_size': 20, 'resize_size': [256, 256], 'input_channels': 3, 'n_classes': 2, 'max_depth': 5, 'max_branching': 3, 'seed': 102, 'filter_sizes': [15, 21], 'execution_mode': 'train', 'log_dir': 'logs/pcnet/102'}
 Dataset sizes: {'train': 10, 'val': 2, 'test': 20}
-Final Training Loss: 0.6799097061157227, Dice: 0.3826887458562851, IoU: 0.3066956102848053, CL IoU: 0.015815703198313713
-Final Validation Loss: 0.5731335878372192, Dice: 0.40368369221687317, IoU: 0.33220332860946655, CL IoU: 0.019838761538267136
-Test Loss: 0.9551501671473185, Dice: 0.36174959937731427, IoU: 0.2885742833216985, CL IoU: 0.01979693677276373
+Final Training Loss: 0.6755546629428864, Dice: 0.3795095682144165, IoU: 0.30205458402633667, CL IoU: 0.0259260730817914
+Final Validation Loss: 0.7067215442657471, Dice: 0.41779226064682007, IoU: 0.34976017475128174, CL IoU: 0.043342575430870056
+Test Loss: 1.0504000186920166, Dice: 0.37433767318725586, IoU: 0.3010347584883372, CL IoU: 0.024112846081455547
 ─────────────────────────────────────────────
 🧠  Probabilistic Circuit Network Summary
 ─────────────────────────────────────────────
@@ -17,7 +17,7 @@ Test Loss: 0.9551501671473185, Dice: 0.36174959937731427, IoU: 0.288574283321698
   • ProductNode    : 23
   • ClassifierNode : 1
 ─────────────────────────────────────────────
-🧩 Trainable parameters: 782
+🧩 Trainable parameters: 777
   • InputNode      : 570
   • SumNode        : 119
 ─────────────────────────────────────────────
