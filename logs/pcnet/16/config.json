@@ -20,7 +20,7 @@
     "n_classes": 2,
     "max_depth": 5,
     "max_branching": 3,
-    "seed": 5,
+    "seed": 16,
     "execution_mode": "train",
-    "log_dir": "logs/pcnet/5"
+    "log_dir": "logs/pcnet/16"
 }
