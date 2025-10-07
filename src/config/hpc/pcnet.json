@@ -13,7 +13,7 @@
     "feature_extractor": "handcrafted",
 
     "epochs": 50,
-    "batch_size": 4,
+    "batch_size": 64,
     "sample_size": 5000,
     "resize_size": [256, 256],
     "input_channels": 3,

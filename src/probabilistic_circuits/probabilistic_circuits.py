@@ -554,7 +554,7 @@ class PCNet(ProbabilisticCircuit):
         param_summary = {}
         for n in nodes:
             if isinstance(n, InputNode):
-                p = sum(p.numel() for p in [n.mu, n.log_sigma, n.log_nu, n.logits])
+                p = sum(p.numel() for p in [n.mu, n.log_sigma, n.log_nu, n.logits, n.gate])
                 param_summary["InputNode"] = param_summary.get("InputNode", 0) + p
             elif isinstance(n, SumNode):
                 p = n.weights.numel()
