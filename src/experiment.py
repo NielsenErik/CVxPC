@@ -4,6 +4,7 @@ import os
 import mlflow
 from networks import *
 from probabilistic_circuits.probabilistic_circuits import *
+from probabilistic_circuits.grammatical_evolution import *
 import abc
 from torch.utils.data import DataLoader
 from tqdm import trange
@@ -21,6 +22,8 @@ import json
 import pandas as pd
 from crackdata_processing import CrackDataset, CrackAugmentations
 
+
+
 def run_experiment(config):
     if config["algorithm"] == "unet":
         experiment = UNetExperiment(config)
@@ -32,6 +35,10 @@ def run_experiment(config):
 
     elif config["algorithm"] == "pcnet":
         experiment = ExperimentPC(config)
+        experiment.run()
+
+    elif config["algorithm"] == "pcnet_ge":
+        experiment = ExperimentGEPC(config)
         experiment.run()
 
     else:
@@ -905,4 +912,57 @@ class ExperimentPC(Experiment):
                     self.test_ground_truth = self.test_ground_truth.squeeze(1)
             self.show_prediction(self.model)
 
+class ExperimentGEPC(ExperimentPC):
+    def __init__(self, config):
+        super().__init__(config)
+        self.ge = GEOptimizer(
+                    pop_size=20,
+                    genome_len=96,
+                    max_depth=4,          # search budget
+                    max_branching=4,      # upper bound for sum fan-in
+                    crossover_rate=0.9,
+                    mutation_rate=0.05,
+                    elite_k=2,
+                    device="cpu",
+                )
         
+    def run(self):
+        self.set_dataset(self.data_path, self.test_path)
+        print_info("Dataset size:", len(self.data))
+        if self.execution_mode == "train":
+            self.set_algorithm()
+            self.loss_function = BCEDiceLoss()
+
+            self.feature_tensor = self.get_feature_tensor(np.array([self.train_data[i][0] for i in range(len(self.train_data))]))
+            self.train_masks = np.array([self.train_data[i][1] for i in range(len(self.train_data))])
+            self.val_feature_tensor = self.get_feature_tensor(np.array([self.val_data[i][0] for i in range(len(self.val_data))]))
+            self.val_masks = np.array([self.val_data[i][1] for i in range(len(self.val_data))]) if self.validation_split > 0 else None
+
+            ge_train_size = int(0.1 * len(self.train_data))
+            ge_X_train = torch.from_numpy(self.feature_tensor).float().to(self.device)[:ge_train_size]
+            ge_Y_train = torch.from_numpy(self.train_masks).long().to(self.device)[:ge_train_size]
+            best_pc, best_genome, history = self.ge.evolve(ge_X_train, ge_Y_train, self.epochs)
+            print_info("Best genome:", best_genome)
+            print_info("Best PC:", str(best_pc))
+            self.model = best_pc
+
+            self.model = self.train(self.model, epochs=self.epochs, lr=self.learning_rate, n_cpus=self.n_cpus)
+            if self.test_path is not None:
+                self.test_inputs = torch.from_numpy(self.get_feature_tensor(np.array([self.test_data[i][0] for i in range(len(self.test_data))]))).float().to(self.device)
+                self.test_ground_truth = torch.from_numpy(np.array([self.test_data[i][1] for i in range(len(self.test_data))])).long().to(self.device)
+                if self.test_ground_truth.dim() == 4 and self.test_ground_truth.size(1) == 1:
+                    self.test_ground_truth = self.test_ground_truth.squeeze(1)
+                test_loader = self.get_dataloaders(TensorDataset(self.test_inputs, self.test_ground_truth))
+                loss, dice, iou, cl_iou = self.evaluate(self.model, test_loader)
+                print_info("Test Loss:", loss, "Dice:", dice, "IoU:", iou, "CL IoU:", cl_iou)
+                with open(self.experiment_report, "a") as f:
+                    f.write(f"Test Loss: {loss}, Dice: {dice}, IoU: {iou}, CL IoU: {cl_iou}\n")
+                f.close()
+                self.show_prediction(self.model)
+        elif self.execution_mode == "test":
+            self.load_model(self.model_name)
+            self.test_inputs = torch.from_numpy(self.get_feature_tensor(np.array([self.test_data[i][0] for i in range(len(self.test_data))]))).float().to(self.device)
+            self.test_ground_truth = torch.from_numpy(np.array([self.test_data[i][1] for i in range(len(self.test_data))])).long().to(self.device)
+            if self.test_ground_truth.dim() == 4 and self.test_ground_truth.size(1) == 1:
+                    self.test_ground_truth = self.test_ground_truth.squeeze(1)
+            self.show_prediction(self.model)
