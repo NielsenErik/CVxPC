@@ -1,6 +1,9 @@
 from datetime import datetime
 import string
 import numpy as np
+from skimage import data, color
+import cv2
+import matplotlib.pyplot as plt
 
 def get_logdir_name():
     """
@@ -108,3 +111,73 @@ def crackseg9k_split():
     copy_files("test")
 
     print("✅ Dataset reorganized successfully!")
+
+def plot_filters(img=None):
+    """Visualize convolution filters on an image (supports HWC and CHW)."""
+    
+    # --- Default image ---
+    if img is None:
+        if hasattr(data, "crack"):
+            img = data.crack()
+        else:
+            img = data.camera()
+    
+    # --- Convert to numpy array and float32 ---
+    if isinstance(img, np.ndarray) is False:
+        img = np.array(img)
+    img = img.astype(np.float32)
+
+    # --- Handle grayscale or channel-first ---
+    if img.ndim == 3:
+        if img.shape[0] == 3 and img.shape[-1] != 3:
+            # (C, H, W) → (H, W, C)
+            img = np.transpose(img, (1, 2, 0))
+    elif img.ndim == 2:
+        # Expand grayscale to 3 channels for visualization
+        img = np.stack([img] * 3, axis=-1)
+
+    # --- Convert to grayscale safely ---
+    if img.ndim == 3 and img.shape[-1] == 3:
+        gray = color.rgb2gray(img)
+    else:
+        gray = img[..., 0] if img.ndim == 3 else img
+
+    gray = (gray * 255).astype(np.uint8)
+
+    # --- Define filters ---
+    filters = {
+        "sobel_x": np.array([[-1, 0, 1],
+                             [-2, 0, 2],
+                             [-1, 0, 1]], np.float32),
+        "sobel_y": np.array([[-1, -2, -1],
+                             [ 0,  0,  0],
+                             [ 1,  2,  1]], np.float32),
+        "laplacian": np.array([[-1, -1, -1],
+                               [-1,  8, -1],
+                               [-1, -1, -1]], np.float32),
+        "sharpen": np.array([[ 0, -1,  0],
+                             [-1,  5, -1],
+                             [ 0, -1,  0]], np.float32),
+        "gauss3": cv2.getGaussianKernel(3, 0.8) @ cv2.getGaussianKernel(3, 0.8).T,
+    }
+
+    # --- Apply filters ---
+    responses = {name: cv2.filter2D(gray.astype(np.float32), -1, k)
+                 for name, k in filters.items()}
+
+    # --- Plot results ---
+    plt.figure(figsize=(12, 6))
+    plt.subplot(2, 3, 1)
+    plt.imshow(gray, cmap="gray")
+    plt.title("Original")
+    plt.axis("off")
+
+    for i, (name, res) in enumerate(responses.items(), start=2):
+        plt.subplot(2, 3, i)
+        plt.imshow(res, cmap="gray")
+        plt.title(name)
+        plt.axis("off")
+
+    plt.tight_layout()
+    plt.show()
+

@@ -538,6 +538,35 @@ class ConvAEExperiment(ExperimentDL):
     def load_model(self, model_name="convae"):
         self.model.load_state_dict(torch.load(os.path.join(self.save_path, f"{model_name}.pth")))
 
+# ============================================================
+# HPC-optimized ExperimentPC
+# ============================================================
+import os
+import cv2
+import mlflow
+import tqdm
+import torch
+import pickle
+import random
+import numpy as np
+import pandas as pd
+import multiprocessing
+
+from joblib import Parallel, delayed
+from torch.utils.data import DataLoader, TensorDataset
+import torch.nn.functional as F
+
+from skimage.color import rgb2hsv, rgb2lab
+from skimage.filters import gabor, laplace, sobel
+
+# Assumes you already have:
+# - Experiment base class
+# - PCNet
+# - DiceCELoss, BCEDiceLoss
+# - self.dice_coef, self.iou_score, self.cl_iou_score
+# - utils.print_* functions
+
+
 class ExperimentPC(Experiment):
     def __init__(self, config):
         super().__init__(config)
@@ -545,59 +574,118 @@ class ExperimentPC(Experiment):
         self.input_channels = self.config.get("input_channels", 3)
         self.max_depth = self.config.get("max_depth", 5)
         self.max_branching = self.config.get("max_branching", 2)
-        self.n_classes = self.config.get("n_classes", 1)
+        self.n_classes = self.config.get("n_classes", 2)
         self.input_nodes = []
         self.epochs = self.config.get("epochs", 10)
         self.seed = self.config.get("seed", 42)
         self.feature_extractor = self.config.get("feature_extractor", "handcrafted")
-        self.filter_sizes = self.config.get("filter_sizes", (3,7,15))
-        self.n_cpus = self.config.get("n_cpus", 8)
+        self.filter_sizes = self.config.get("filter_sizes", (3, 7, 15))
+        self.n_cpus = self.config.get("n_cpus", None)
+        self.batch_size = self.config.get("batch_size", 4)
+        self.learning_rate = self.config.get("learning_rate", 1e-3)
 
+        # cache for conv filter bank tensor
+        self.cached_filter_tensor = None
+
+    # --------------------------------------------------------
+    # Algorithm
+    # --------------------------------------------------------
     def set_algorithm(self):
-        self.model = PCNet(n_classes=self.n_classes, distribution=None, device="cpu", max_depth=self.max_depth, max_branching=self.max_branching, seed=self.seed)
+        self.model = PCNet(
+            n_classes=self.n_classes,
+            distribution=None,
+            device="cpu",
+            max_depth=self.max_depth,
+            max_branching=self.max_branching,
+            seed=self.seed
+        )
 
+    # --------------------------------------------------------
+    # Threading & environment setup
+    # --------------------------------------------------------
+    def _setup_cpu_env(self):
+        if self.n_cpus is None or self.n_cpus < 1:
+            self.n_cpus = multiprocessing.cpu_count()
+        # unify threads across libs
+        torch.set_num_threads(self.n_cpus)
+        os.environ["OMP_NUM_THREADS"] = str(self.n_cpus)
+        os.environ["MKL_NUM_THREADS"] = str(self.n_cpus)
+        print(f"⚙️ Using {self.n_cpus} CPU cores (torch threads)")
 
     # --------------------------------------------------------
     # Feature extraction
     # --------------------------------------------------------
     def get_filter_bank(self):
+        # Minimal, crack-oriented bank
         filters = {
-            "sobel_x": np.array([[-1, 0, 1], [-2, 0, 2], [-1, 0, 1]], np.float32),
-            "sobel_y": np.array([[-1, -2, -1], [0, 0, 0], [1, 2, 1]], np.float32),
-            "laplacian": np.array([[-1, -1, -1], [-1, 8, -1], [-1, -1, -1]], np.float32),
-            "sharpen": np.array([[0, -1, 0], [-1, 5, -1], [0, -1, 0]], np.float32),
-            # keep one small Gaussian for noise smoothing
+            "sobel_x": np.array([[-1, 0, 1],
+                                 [-2, 0, 2],
+                                 [-1, 0, 1]], np.float32),
+            "sobel_y": np.array([[-1, -2, -1],
+                                 [ 0,  0,  0],
+                                 [ 1,  2,  1]], np.float32),
+            "laplacian": np.array([[-1, -1, -1],
+                                   [-1,  8, -1],
+                                   [-1, -1, -1]], np.float32),
+            "sharpen": np.array([[ 0, -1,  0],
+                                 [-1,  5, -1],
+                                 [ 0, -1,  0]], np.float32),
             "gauss3": (cv2.getGaussianKernel(3, 0.8) @ cv2.getGaussianKernel(3, 0.8).T).astype(np.float32),
         }
         return filters
 
+    def _build_filter_tensor_once(self, filters, device="cpu"):
+        """Build and cache the conv filter tensor (repeat over RGB channels) once."""
+        if self.cached_filter_tensor is not None:
+            return self.cached_filter_tensor
+
+        filt_list = list(filters.values())
+        max_h = max(k.shape[0] for k in filt_list)
+        max_w = max(k.shape[1] for k in filt_list)
+
+        def pad_to(k, H, W):
+            out = np.zeros((H, W), np.float32)
+            h, w = k.shape
+            y0 = (H - h) // 2
+            x0 = (W - w) // 2
+            out[y0:y0+h, x0:x0+w] = k
+            return out
+
+        filt_padded = [pad_to(k, max_h, max_w) for k in filt_list]
+        filt_tensor = torch.from_numpy(np.stack(filt_padded)).float().unsqueeze(1)  # (K,1,H,W)
+        filt_tensor = filt_tensor.repeat(1, 3, 1, 1).to(device)  # (K,3,H,W)
+        self.cached_filter_tensor = filt_tensor
+        return self.cached_filter_tensor
+
     def compute_conv_features(self, images, filters, device="cpu"):
-        """Apply a bank of conv filters to images"""
+        """Apply a bank of conv filters to a batch of images (B,H,W,3 or B,3,H,W)."""
         if isinstance(images, list):
             images = torch.from_numpy(np.stack(images)).float()
         elif isinstance(images, np.ndarray):
             images = torch.from_numpy(images).float()
+
+        # Ensure NCHW with 3 channels
+        if images.ndim != 4:
+            raise ValueError(f"Expected 4D images, got {images.shape}")
+        if images.shape[1] != 3 and images.shape[-1] == 3:
+            images = images.permute(0, 3, 1, 2)  # BHWC -> BCHW
+        elif images.shape[1] not in (1, 3):
+            # expand 1-channel grayscale to 3-ch for filtering consistency
+            if images.shape[1] != 3 and images.shape[1] == 1:
+                images = images.repeat(1, 3, 1, 1)
+            else:
+                # if CHW but C not 1/3, try last dim as channel
+                if images.shape[-1] in (1, 3):
+                    images = images.permute(0, 3, 1, 2)
+                else:
+                    raise ValueError(f"Unexpected image shape: {tuple(images.shape)}")
+
         images = images.to(device)
+        filt_tensor = self._build_filter_tensor_once(filters, device=device)
+        # depthwise cross-channel conv: sum over 3 input channels because K has in_channels=3
+        conv = F.conv2d(images, filt_tensor, padding="same")  # (B, K, H, W)
+        return conv
 
-        if images.ndim == 4 and images.shape[1] != 3:
-            images = images.permute(0, 3, 1, 2)
-
-        filt_list = list(filters.values())
-        max_h, max_w = max(k.shape[0] for k in filt_list), max(k.shape[1] for k in filt_list)
-
-        def pad(kernel, size):
-            h, w = kernel.shape
-            H, W = size
-            out = np.zeros((H, W), np.float32)
-            out[(H - h)//2:(H - h)//2 + h, (W - w)//2:(W - w)//2 + w] = kernel
-            return out
-
-        filt_padded = [pad(k, (max_h, max_w)) for k in filt_list]
-        filt_tensor = torch.from_numpy(np.stack(filt_padded)).float().unsqueeze(1)
-        filt_tensor = filt_tensor.repeat(1, 3, 1, 1).to(device)
-
-        return F.conv2d(images, filt_tensor, padding="same")
-    
     def multi_scale_pooling(self, feat_maps, pool_sizes=(3, 7, 15), modes=("avg", "max")):
         """
         feat_maps: torch.Tensor (B, C, H, W)
@@ -605,91 +693,132 @@ class ExperimentPC(Experiment):
         """
         pooled = []
         for k in pool_sizes:
+            if k <= 1:
+                continue
             for mode in modes:
                 if mode == "avg":
-                    out = F.avg_pool2d(feat_maps, kernel_size=k, stride=1, padding=k//2)
+                    out = F.avg_pool2d(feat_maps, kernel_size=k, stride=1, padding=k // 2)
                 elif mode == "max":
-                    out = F.max_pool2d(feat_maps, kernel_size=k, stride=1, padding=k//2)
+                    out = F.max_pool2d(feat_maps, kernel_size=k, stride=1, padding=k // 2)
                 else:
                     raise ValueError(f"Unknown pooling mode: {mode}")
                 pooled.append(out)
-        return torch.cat(pooled, dim=1)
+        return torch.cat(pooled, dim=1) if pooled else feat_maps
 
     def get_handcrafted_features(self, images, n_jobs=8):
-        """Compute handcrafted features for RGB images in parallel across CPU cores."""
-        
+        """Compute handcrafted features for images in parallel across CPU cores."""
         def process_one(img):
-            if img.dtype != np.float32:
-                img = img.astype(np.float32) / 255.0
-            if img.shape[-1] == 3:
-                img = np.transpose(img, (2, 0, 1))
+            # Accept (H,W), (H,W,3), (3,H,W)
+            if isinstance(img, torch.Tensor):
+                img = img.detach().cpu().numpy()
+            img = img.astype(np.float32)
 
-            C, H, W = img.shape
-            feats = [img[c] for c in range(C)]
-            img_hw3 = np.transpose(img, (1, 2, 0))
+            # Normalize to [0,1] if looks like uint8 scale
+            if img.max() > 1.0:
+                img = img / 255.0
 
-            gray = cv2.cvtColor((img_hw3 * 255).astype(np.uint8), cv2.COLOR_RGB2GRAY) / 255.0
-            feats = [gray, sobel(gray), laplace(gray)]
+            # Ensure HWC
+            if img.ndim == 2:  # gray H,W
+                img_hwc = np.stack([img, img, img], axis=-1)
+            elif img.ndim == 3 and img.shape[0] == 3 and img.shape[-1] != 3:
+                img_hwc = np.transpose(img, (1, 2, 0))  # CHW -> HWC
+            elif img.ndim == 3 and img.shape[-1] == 3:
+                img_hwc = img
+            else:
+                raise ValueError(f"Unexpected image shape in process_one: {img.shape}")
 
-            for theta in [0, np.pi/4, np.pi/2, 3*np.pi/4]:
-                real, imag = gabor(gray, frequency=0.2, theta=theta)
-                feats += [real, imag]
+            # Gray
+            gray = cv2.cvtColor((img_hwc * 255).astype(np.uint8), cv2.COLOR_RGB2GRAY).astype(np.float32) / 255.0
 
-            return np.stack(feats).astype(np.float32)
+            # Simple color features (Lab + HSV)
+            lab = cv2.cvtColor((img_hwc * 255).astype(np.uint8), cv2.COLOR_RGB2LAB).astype(np.float32) / 255.0
+            hsv = cv2.cvtColor((img_hwc * 255).astype(np.uint8), cv2.COLOR_RGB2HSV).astype(np.float32) / 255.0
 
-        # --- Parallel computation across CPUs ---
-        print(f"⚙️ Using {n_jobs} CPU workers for handcrafted feature extraction...")
-        results = Parallel(n_jobs=n_jobs, backend="loky")(
-            delayed(process_one)(img) for img in tqdm.tqdm(images, desc="Handcrafted features (parallel)"))
-        
-        feats = np.stack(results)  # (B, C, H, W)
-        
-        # --- Continue as before ---
-        conv_feats = self.compute_conv_features(images, self.get_filter_bank(), device=self.device)
+            feats = [
+                gray,
+                lab[..., 0], lab[..., 1], lab[..., 2],
+                hsv[..., 0], hsv[..., 1], hsv[..., 2],
+                cv2.Sobel(gray, cv2.CV_32F, 1, 0),
+                cv2.Sobel(gray, cv2.CV_32F, 0, 1),
+                cv2.Laplacian(gray, cv2.CV_32F),
+            ]
+
+            # Gabor (OpenCV kernel -> fast, GIL-free)
+            for theta in [0, np.pi / 4, np.pi / 2, 3 * np.pi / 4]:
+                kernel = cv2.getGaborKernel((9, 9), 2.0, theta, 4.0, 0.5, 0, ktype=cv2.CV_32F)
+                feats.append(cv2.filter2D(gray, cv2.CV_32F, kernel))
+
+            return np.stack(feats, axis=0).astype(np.float32)  # (C, H, W)
+
+        # Parallel extraction
+        workers = min(n_jobs if n_jobs else multiprocessing.cpu_count(), 16)
+        print(f"⚙️ Using {workers} CPU workers for handcrafted feature extraction...")
+        feats_list = Parallel(n_jobs=workers, backend="loky", verbose=10)(
+            delayed(process_one)(img) for img in images
+        )
+        feats = np.stack(feats_list, axis=0)  # (B, C, H, W)
+
+        # Conv bank (batched)
+        conv_feats = self.compute_conv_features(images, self.get_filter_bank(), device=self.device)  # torch (B,K,H,W)
+        conv_feats = conv_feats.detach().cpu().numpy()
         base_feats = np.concatenate([feats, conv_feats], axis=1)  # (B, C_total, H, W)
 
+        # Multi-scale pooling
         base_tensor = torch.from_numpy(base_feats).float().to(self.device)
         pooled_feats = self.multi_scale_pooling(base_tensor, pool_sizes=self.filter_sizes, modes=("avg", "max"))
         pooled_feats = pooled_feats.cpu().numpy()
 
         return np.concatenate([base_feats, pooled_feats], axis=1)
-        
 
     def get_feature_tensor(self, images):
         if self.feature_extractor == "handcrafted":
             return self.get_handcrafted_features(images, n_jobs=self.n_cpus)
         raise ValueError(f"Unknown feature extractor {self.feature_extractor}")
-    
-    def get_dataloaders(self, data):
-        return super().get_dataloaders(data)
-    
-    def train(self, model, epochs=10, lr=0.01, n_cpus=8):
-        # CPU threading
-        torch.set_num_threads(n_cpus)
-        print(f"🔧 Using {torch.get_num_threads()} CPU threads")
+
+    # --------------------------------------------------------
+    # DataLoaders
+    # --------------------------------------------------------
+    def get_dataloaders(self, dataset, shuffle=True, batch_size=None):
+        if batch_size is None:
+            batch_size = self.batch_size
+        loader = DataLoader(
+            dataset,
+            batch_size=batch_size,
+            shuffle=shuffle,
+            num_workers=max(1, self.n_cpus // 2),
+            pin_memory=False,
+            persistent_workers=True
+        )
+        return loader
+
+    # --------------------------------------------------------
+    # Training & Evaluation
+    # --------------------------------------------------------
+    def train(self, model, epochs=10, lr=1e-3, n_cpus=8):
+        # Unify threading
+        self._setup_cpu_env()
 
         optimizer = torch.optim.Adam(model.params, lr=lr, weight_decay=1e-4)
         print(f"Number of trainable parameters: {sum(p.numel() for p in model.params)}")
 
-        # --- Prepare tensors ---
+        # Prepare tensors
         feature_tensor = torch.from_numpy(self.feature_tensor).float().to(self.device)
         target = torch.from_numpy(self.train_masks).long().to(self.device)
         val_feature_tensor = (
             torch.from_numpy(self.val_feature_tensor).float().to(self.device)
-            if self.val_feature_tensor is not None else None
+            if getattr(self, "val_feature_tensor", None) is not None else None
         )
         val_target = (
             torch.from_numpy(self.val_masks).long().to(self.device)
-            if self.val_masks is not None else None
+            if getattr(self, "val_masks", None) is not None else None
         )
 
-        # --- Handle extra dimensions ---
         if target.dim() == 4 and target.size(1) == 1:
             target = target.squeeze(1)
         if val_target is not None and val_target.dim() == 4 and val_target.size(1) == 1:
             val_target = val_target.squeeze(1)
 
-        # --- Compute class balance ---
+        # Class balance
         flat = target.view(-1)
         counts = torch.bincount(flat, minlength=self.n_classes).float()
         counts[counts == 0] = 1.0
@@ -697,84 +826,98 @@ class ExperimentPC(Experiment):
         balance = balance / balance.sum()
         print("Class balance weights:", balance.cpu().numpy())
 
-        # --- Loss ---
+        # Loss
         self.criterion = DiceCELoss(pos_weight=balance.detach().clone().to(self.device)).to(self.device)
 
-        # --- Dataset and DataLoader ---
-        #TODO
-        train_loader = self.get_dataloaders(TensorDataset(feature_tensor, target))
-
+        # DataLoaders
+        train_loader = self.get_dataloaders(TensorDataset(feature_tensor, target), shuffle=True, batch_size=self.batch_size)
+        val_loader = None
         if val_feature_tensor is not None and val_target is not None:
-            val_loader = self.get_dataloaders(TensorDataset(val_feature_tensor, val_target))
-        else:
-            val_loader = None
+            val_loader = self.get_dataloaders(
+                TensorDataset(val_feature_tensor, val_target),
+                shuffle=False,
+                batch_size=self.batch_size * 2
+            )
 
-        # --- Logging containers ---
+        # Logs
         train_losses, val_losses = [], []
         train_dices, val_dices = [], []
         train_ious, val_ious = [], []
         train_clious, val_clious = [], []
+        gates_over_epochs = []
 
-        # --- Training loop ---
         pbar = tqdm.tqdm(range(epochs), desc="Training PCNet")
         for epoch in pbar:
             batch_losses, batch_dices, batch_ious, batch_clious = [], [], [], []
 
             for ft_batch, t_batch in train_loader:
                 optimizer.zero_grad()
-                logits = model.evaluate(ft_batch)  # Ensure evaluate supports batched inputs
+                logits = model.evaluate(ft_batch)                     # (B, C, H, W) log-probs
                 loss = self.criterion(logits, t_batch)
                 loss.backward()
                 optimizer.step()
-                # Convert logits to predicted binary mask (foreground class = 1)
-                pred_mask = torch.argmax(logits, dim=1, keepdim=True).float()  # [4, 1, 256, 256]
-                true_mask = t_batch.unsqueeze(1).float()                       # [4, 1, 256, 256]
 
-                # Metrics
-                dice_score = self.dice_coef(logits, t_batch).item()
-                iou_score = self.iou_score(logits, t_batch).item()
+                # Metrics (vectorized)
+                pred_mask = torch.argmax(logits, dim=1, keepdim=True).float()   # (B,1,H,W)
+                true_mask = t_batch.unsqueeze(1).float()                        # (B,1,H,W)
 
-                cl_iou_score = self.cl_iou_score(pred_mask, true_mask)
+                dice_score = self.dice_coef(logits, t_batch)      # tensor
+                iou_score = self.iou_score(logits, t_batch)       # tensor
+                cl_iou_score = self.cl_iou_score(pred_mask, true_mask)  # float or tensor
 
                 batch_losses.append(loss.item())
-                batch_dices.append(dice_score)
-                batch_ious.append(iou_score)
-                batch_clious.append(cl_iou_score)
+                batch_dices.append(float(torch.as_tensor(dice_score).detach().mean()))
+                batch_ious.append(float(torch.as_tensor(iou_score).detach().mean()))
+                batch_clious.append(float(torch.as_tensor(cl_iou_score).detach()))
 
-            # --- Log training metrics ---
-            epoch_loss = np.mean(batch_losses)
-            epoch_dice = np.mean(batch_dices)
-            epoch_iou = np.mean(batch_ious)
-            epoch_cl_iou = np.mean(batch_clious)
+
+            # Collect gate values (if present) in parallel
+            gates_values = []
+            for n in model.get_nodes():
+                if hasattr(n, "gate"):
+                    with torch.no_grad():
+                        gates_values.append(float(n.gate.item()))
+            if gates_values:
+                gates_over_epochs.append(gates_values)
+
+            # Epoch metrics
+            epoch_loss = float(np.mean(batch_losses)) if batch_losses else 0.0
+            epoch_dice = float(np.mean(batch_dices)) if batch_dices else 0.0
+            epoch_iou = float(np.mean(batch_ious)) if batch_ious else 0.0
+            epoch_cl_iou = float(np.mean(batch_clious)) if batch_clious else 0.0
 
             train_losses.append(epoch_loss)
             train_dices.append(epoch_dice)
             train_ious.append(epoch_iou)
             train_clious.append(epoch_cl_iou)
 
-            mlflow.log_metric("train_loss", epoch_loss, step=epoch)
-            mlflow.log_metric("train_dice", epoch_dice, step=epoch)
-            mlflow.log_metric("train_iou", epoch_iou, step=epoch)
-            mlflow.log_metric("train_cl_iou", epoch_cl_iou, step=epoch)
+            mlflow.log_metrics({
+                "train_loss": epoch_loss,
+                "train_dice": epoch_dice,
+                "train_iou": epoch_iou,
+                "train_cl_iou": epoch_cl_iou
+            }, step=epoch)
 
-            # --- Validation ---
+            # Validation
             if val_loader is not None:
                 val_loss, val_dice, val_iou, val_cl_iou = self.evaluate(model, val_loader)
                 val_losses.append(val_loss)
                 val_dices.append(val_dice)
                 val_ious.append(val_iou)
                 val_clious.append(val_cl_iou)
-                mlflow.log_metric("val_loss", val_loss, step=epoch)
-                mlflow.log_metric("val_dice", val_dice, step=epoch)
-                mlflow.log_metric("val_iou", val_iou, step=epoch)
-                mlflow.log_metric("val_cl_iou", val_cl_iou, step=epoch)
+                mlflow.log_metrics({
+                    "val_loss": val_loss,
+                    "val_dice": val_dice,
+                    "val_iou": val_iou,
+                    "val_cl_iou": val_cl_iou
+                }, step=epoch)
 
             pbar.set_postfix({
                 "train_loss": f"{epoch_loss:.4f}",
-                "val_loss": f"{val_losses[-1]:.4f}" if val_loader else None
+                "val_loss": f"{val_losses[-1]:.4f}" if val_loader and val_losses else None
             })
 
-        # --- Save logs ---
+        # Save logs
         df_train = pd.DataFrame({
             "train_loss": train_losses,
             "train_dice": train_dices,
@@ -792,75 +935,95 @@ class ExperimentPC(Experiment):
             })
             df_val.to_csv(os.path.join(self.log_path, "validation.csv"), index=False)
 
-        # --- Plot ---
+        # Save gates (if any)
+        if gates_over_epochs:
+            gates = np.array([np.pad(g, (0, max(map(len, gates_over_epochs)) - len(g)), constant_values=np.nan)
+                              for g in gates_over_epochs], dtype=np.float32)
+            df_importance = pd.DataFrame(gates, columns=[f"gate_{i}" for i in range(gates.shape[1])])
+            df_importance.to_csv(os.path.join(self.log_path, "gates.csv"), index=False)
+
+        # Plots
+        import matplotlib.pyplot as plt
+        # Loss
         plt.figure(figsize=(8, 5))
         plt.plot(train_losses, label="Train Loss")
         if val_loader:
             plt.plot(val_losses, label="Val Loss")
-        plt.legend()
-        plt.title("Training Loss over Epochs")
-        plt.savefig(os.path.join(self.log_path, "training_plot.png"))
+        plt.legend(); plt.title("Training Loss over Epochs")
+        plt.savefig(os.path.join(self.log_path, "training_plot.png")); plt.close()
+
+        # Dice
+        plt.figure(figsize=(8, 5))
+        plt.plot(train_dices, label="Train Dice")
+        if val_loader:
+            plt.plot(val_dices, label="Val Dice")
+        plt.legend(); plt.title("Training Dice over Epochs")
+        plt.savefig(os.path.join(self.log_path, "dice_plot.png")); plt.close()
+
+        # IoU
+        plt.figure(figsize=(8, 5))
+        plt.plot(train_ious, label="Train IoU")
+        if val_loader:
+            plt.plot(val_ious, label="Val IoU")
+        plt.legend(); plt.title("Training IoU over Epochs")
+        plt.savefig(os.path.join(self.log_path, "iou_plot.png")); plt.close()
+
+        # clIoU
+        plt.figure(figsize=(8, 5))
+        plt.plot(train_clious, label="Train CL IoU")
+        if val_loader:
+            plt.plot(val_clious, label="Val CL IoU")
+        plt.legend(); plt.title("Training CL IoU over Epochs")
+        plt.savefig(os.path.join(self.log_path, "cliou_plot.png")); plt.close()
 
         print("✅ Training complete.")
         with open(self.experiment_report, "a") as f:
             f.write(f"Final Training Loss: {train_losses[-1]}, Dice: {train_dices[-1]}, IoU: {train_ious[-1]}, CL IoU: {train_clious[-1]}\n")
             if val_loader:
                 f.write(f"Final Validation Loss: {val_losses[-1]}, Dice: {val_dices[-1]}, IoU: {val_ious[-1]}, CL IoU: {val_clious[-1]}\n")
-        f.close()
+
         return model
 
-    # --- Parallelized Evaluation ---
+    @torch.no_grad()
     def evaluate(self, model, dataloader):
         losses, dices, ious, clious = [], [], [], []
-        with torch.no_grad():
-            for ft_batch, t_batch in dataloader:
-                logits = model.evaluate(ft_batch)
-                loss = self.criterion(logits, t_batch)
-                dice_score = self.dice_coef(logits, t_batch).item()
-                iou_score = self.iou_score(logits, t_batch).item()
+        for ft_batch, t_batch in dataloader:
+            logits = model.evaluate(ft_batch)
+            loss = self.criterion(logits, t_batch)
+            dice_score = self.dice_coef(logits, t_batch)
+            iou_score = self.iou_score(logits, t_batch)
+            pred_mask = torch.argmax(logits, dim=1, keepdim=True).float()
+            true_mask = t_batch.unsqueeze(1).float()
+            cl_iou_score = self.cl_iou_score(pred_mask, true_mask)
 
-                pred_mask = torch.argmax(logits, dim=1, keepdim=True).float()  # [4, 1, 256, 256]
-                true_mask = t_batch.unsqueeze(1).float()                       # [4, 1, 256, 256]
-                cl_iou_score = self.cl_iou_score(pred_mask, true_mask)
+            losses.append(loss.item())
+            dices.append(float(torch.as_tensor(dice_score).mean()))
+            ious.append(float(torch.as_tensor(iou_score).mean()))
+            clious.append(float(torch.as_tensor(cl_iou_score)))
+        return float(np.mean(losses)), float(np.mean(dices)), float(np.mean(ious)), float(np.mean(clious))
 
-                losses.append(loss.item())
-                dices.append(dice_score)
-                ious.append(iou_score)
-                clious.append(cl_iou_score)
-
-        mean_loss, mean_dice, mean_iou, mean_cl_iou = np.mean(losses), np.mean(dices), np.mean(ious), np.mean(clious)
-        
-        return mean_loss, mean_dice, mean_iou, mean_cl_iou
-    
+    # --------------------------------------------------------
+    # I/O
+    # --------------------------------------------------------
     def show_prediction(self, model):
         with open(self.experiment_report, "a") as f:
             f.write(str(model) + "\n")
-        f.close()
+
         predictions_path = os.path.join(self.log_path, "predictions")
         os.makedirs(predictions_path, exist_ok=True)
         imgs = [self.test_data[i][0] for i in range(len(self.test_data))]
+
         for enum, (img, inputs, gt) in enumerate(zip(imgs, self.test_inputs, self.test_ground_truth)):
-            # probs = model.evaluate(img)
             mask = model.predict(inputs)
-            print(mask.shape, mask.min(), mask.max(), mask.mean())
-            
             img_np = img.squeeze().permute(1, 2, 0).cpu().numpy()
             gt_np = gt.squeeze().cpu().numpy()
 
-            plt.figure(figsize=(12,6))
-            plt.subplot(1,3,1)
-            plt.imshow(img_np)
-            plt.title("Input Image")
-            plt.axis("off")
-            plt.subplot(1,3,2)
-            plt.imshow(gt_np, cmap="gray")
-            plt.title("Ground Truth")
-            plt.axis("off")
-            plt.subplot(1,3,3)
-            plt.imshow(mask[0][0], cmap="cool")
-            plt.title("Prediction")
-            plt.axis("off")
-            plt.savefig(os.path.join(predictions_path, f"prediction_{enum}.png")) 
+            import matplotlib.pyplot as plt
+            plt.figure(figsize=(12, 6))
+            plt.subplot(1, 3, 1); plt.imshow(img_np); plt.title("Input Image"); plt.axis("off")
+            plt.subplot(1, 3, 2); plt.imshow(gt_np, cmap="gray"); plt.title("Ground Truth"); plt.axis("off")
+            plt.subplot(1, 3, 3); plt.imshow(mask[0][0], cmap="cool"); plt.title("Prediction"); plt.axis("off")
+            plt.savefig(os.path.join(predictions_path, f"prediction_{enum}.png")); plt.close()
 
         print_debugging(self.log_path)
         model.visualize(save_path=self.log_path)
@@ -869,48 +1032,53 @@ class ExperimentPC(Experiment):
         pass
 
     def save_model(self, model_name="pcnet"):
+        with open(os.path.join(self.log_path, f"{model_name}.pkl"), "wb") as f:
+            pickle.dump(self.model, f)
         with open(os.path.join(self.save_path, f"{model_name}.pkl"), "wb") as f:
             pickle.dump(self.model, f)
-        f.close()
 
     def load_model(self, model_name="pcnet"):
         with open(os.path.join(self.save_path, f"{model_name}.pkl"), "rb") as f:
             self.model = pickle.load(f)
-        f.close()
-        
+
+    # --------------------------------------------------------
+    # Orchestration
+    # --------------------------------------------------------
     def run(self):
+        self._setup_cpu_env()
         self.set_dataset(self.data_path, self.test_path)
         print_info("Dataset size:", len(self.data))
         if self.execution_mode == "train":
             self.set_algorithm()
-            self.loss_function = BCEDiceLoss()
-
             self.feature_tensor = self.get_feature_tensor(np.array([self.train_data[i][0] for i in range(len(self.train_data))]))
             self.train_masks = np.array([self.train_data[i][1] for i in range(len(self.train_data))])
             self.val_feature_tensor = self.get_feature_tensor(np.array([self.val_data[i][0] for i in range(len(self.val_data))]))
             self.val_masks = np.array([self.val_data[i][1] for i in range(len(self.val_data))]) if self.validation_split > 0 else None
 
-            self.model.init_network(self.feature_tensor, self.train_masks)  
+            self.model.init_network(self.feature_tensor, self.train_masks)
             self.model = self.train(self.model, epochs=self.epochs, lr=self.learning_rate, n_cpus=self.n_cpus)
+            self.save_model()
+
             if self.test_path is not None:
                 self.test_inputs = torch.from_numpy(self.get_feature_tensor(np.array([self.test_data[i][0] for i in range(len(self.test_data))]))).float().to(self.device)
                 self.test_ground_truth = torch.from_numpy(np.array([self.test_data[i][1] for i in range(len(self.test_data))])).long().to(self.device)
                 if self.test_ground_truth.dim() == 4 and self.test_ground_truth.size(1) == 1:
                     self.test_ground_truth = self.test_ground_truth.squeeze(1)
-                test_loader = self.get_dataloaders(TensorDataset(self.test_inputs, self.test_ground_truth))
+
+                test_loader = self.get_dataloaders(TensorDataset(self.test_inputs, self.test_ground_truth), shuffle=False, batch_size=self.batch_size*2)
                 loss, dice, iou, cl_iou = self.evaluate(self.model, test_loader)
                 print_info("Test Loss:", loss, "Dice:", dice, "IoU:", iou, "CL IoU:", cl_iou)
                 with open(self.experiment_report, "a") as f:
                     f.write(f"Test Loss: {loss}, Dice: {dice}, IoU: {iou}, CL IoU: {cl_iou}\n")
-                f.close()
                 self.show_prediction(self.model)
         elif self.execution_mode == "test":
             self.load_model(self.model_name)
             self.test_inputs = torch.from_numpy(self.get_feature_tensor(np.array([self.test_data[i][0] for i in range(len(self.test_data))]))).float().to(self.device)
             self.test_ground_truth = torch.from_numpy(np.array([self.test_data[i][1] for i in range(len(self.test_data))])).long().to(self.device)
             if self.test_ground_truth.dim() == 4 and self.test_ground_truth.size(1) == 1:
-                    self.test_ground_truth = self.test_ground_truth.squeeze(1)
+                self.test_ground_truth = self.test_ground_truth.squeeze(1)
             self.show_prediction(self.model)
+
 
 class ExperimentGEPC(ExperimentPC):
     def __init__(self, config):
@@ -947,6 +1115,7 @@ class ExperimentGEPC(ExperimentPC):
             self.model = best_pc
 
             self.model = self.train(self.model, epochs=self.epochs, lr=self.learning_rate, n_cpus=self.n_cpus)
+            self.save_model("pcnet-ge")
             if self.test_path is not None:
                 self.test_inputs = torch.from_numpy(self.get_feature_tensor(np.array([self.test_data[i][0] for i in range(len(self.test_data))]))).float().to(self.device)
                 self.test_ground_truth = torch.from_numpy(np.array([self.test_data[i][1] for i in range(len(self.test_data))])).long().to(self.device)

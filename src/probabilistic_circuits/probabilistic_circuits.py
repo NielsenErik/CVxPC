@@ -94,6 +94,11 @@ class InputNode(nn.Module, Node):
 
         # Mixture weights over distributions: [Gaussian, Laplace, Student-t]
         self.logits = nn.Parameter(torch.zeros(3, dtype=torch.float32, device=device))
+
+        # Mixture gate
+        self.gate = nn.Parameter(torch.tensor(1.0, device=device))  # learnable
+
+        # Feature name
         self.feature_name = f"feat_{feature_idx}"
 
     def _log_gaussian(self, x, mu, sigma):
@@ -162,7 +167,7 @@ class InputNode(nn.Module, Node):
         # log-sum-exp over distributions
         logpdfs = torch.stack([log_gauss, log_lapl, log_stud], dim=0)
         log_mix = torch.logsumexp(torch.log(weights).view(-1, *([1]*(logpdfs.ndim-1))) + logpdfs, dim=0)
-        return log_mix
+        return log_mix * self.gate # scale by gate
 
 
 
@@ -491,7 +496,7 @@ class PCNet(ProbabilisticCircuit):
         self.set_root(root)
         self.params = [n.weights for n in self.get_nodes() if isinstance(n, SumNode)]
         for i in input_nodes:
-            self.params.extend([i.mu, i.log_sigma, i.log_nu, i.logits])
+            self.params.extend([i.mu, i.log_sigma, i.log_nu, i.logits, i.gate])
         print_configs(f"Initialized PCNet with {len(self.get_nodes())} nodes, "
                       f"{sum(p.numel() for p in self.params)} trainable parameters")
         print_info(self.info())
