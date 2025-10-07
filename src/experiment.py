@@ -16,6 +16,7 @@ import torch.nn.functional as F
 from torch.utils.data import TensorDataset
 
 from joblib import Parallel, delayed
+import json
 
 import pandas as pd
 from crackdata_processing import CrackDataset, CrackAugmentations
@@ -49,6 +50,7 @@ class Experiment:
 
         self.batch_size = self.config.get("batch_size", 16)
         self.sample_size = self.config.get("sample_size", 20)
+        self.test_size = self.config.get("test_size", 10)
         self.resize_size = self.config.get("resize_size", [256, 256])
         self.learning_rate = self.config.get("learning_rate", 0.001)
         self.threshold = self.config.get("threshold", 0.5)
@@ -59,6 +61,10 @@ class Experiment:
         self.log_path = self.config.get("log_dir", "logs/")
         print_configs("Experiment Configurations:", self.config)
         self.experiment_dict = {}
+        self.experiment_report = os.path.join(self.log_path, "experiment_report.txt")
+        with open(self.experiment_report, "w") as f:
+            f.write(f"Experiment Configurations: {self.config}\n")
+        f.close()
 
     
     @abc.abstractmethod
@@ -82,13 +88,16 @@ class Experiment:
         if test_path is not None:
             self.test_images_path = test_path + "/images/"
             self.test_ground_truth_path = test_path + "/masks/"
-            self.test_data = CrackDataset(self.test_images_path, self.test_ground_truth_path, augmentation_percentage=0.0,sample_size=10, resize_size=(self.resize_size[0], self.resize_size[1]))
+            self.test_data = CrackDataset(self.test_images_path, self.test_ground_truth_path, augmentation_percentage=0.0,sample_size=self.test_size, resize_size=(self.resize_size[0], self.resize_size[1]))
             print_info(f"Test samples: {len(self.test_data)}")
         self.experiment_dict["dataset_size"] = {
             "train": len(self.data),
             "val": len(self.val_data) if self.validation_split > 0 else 0,
             "test": len(self.test_data) if test_path is not None else 0
         }
+        with open(self.experiment_report, "a") as f:
+            f.write(f"Dataset sizes: {self.experiment_dict['dataset_size']}\n")
+        f.close()
 
     # ----------------------------
     # Metrics
@@ -136,7 +145,37 @@ class Experiment:
         union = pred_prob.sum(dim=(2,3)) + target.sum(dim=(2,3)) - intersection
         iou = (intersection + smooth) / (union + smooth)
         return iou.mean()
-    
+
+    def cl_iou_score(self,pred_mask, true_mask, tau=2):
+        """
+        pred_mask, true_mask: (B,1,H,W)
+        """
+        B = pred_mask.shape[0]
+        device = pred_mask.device
+        pred_mask = (pred_mask > 0.5).float()
+        true_mask = (true_mask > 0.5).float()
+
+        # Skeletonization approximation
+        kernel_3 = torch.ones((1, 1, 3, 3), device=device)
+        eroded_true = F.max_pool2d(1 - true_mask, 3, 1, 1)
+        eroded_pred = F.max_pool2d(1 - pred_mask, 3, 1, 1)
+        skel_true = torch.relu(true_mask - (1 - eroded_true))
+        skel_pred = torch.relu(pred_mask - (1 - eroded_pred))
+
+        # --- Dilation ---
+        k_np = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (2*tau+1, 2*tau+1))
+        k = torch.tensor(k_np, dtype=torch.float32, device=device)[None, None, :, :]
+        dil_true = (F.conv2d(skel_true, k, padding=tau, groups=1) > 0).float()
+        dil_pred = (F.conv2d(skel_pred, k, padding=tau, groups=1) > 0).float()
+
+        TPcl = (skel_true * dil_pred).sum(dim=(1,2,3))
+        FPcl = (skel_pred * (1 - dil_true)).sum(dim=(1,2,3))
+        FNcl = (skel_true * (1 - dil_pred)).sum(dim=(1,2,3))
+
+        cl_iou = TPcl / (TPcl + FPcl + FNcl + 1e-8)
+        return cl_iou.mean().item()
+
+
     def get_dataloaders(self, data, labels=None):
         if labels is not None:
             dataset = TensorDataset(data, labels)
@@ -248,11 +287,11 @@ class ExperimentDL(Experiment):
         val_loader = self.get_dataloaders(val_data) if val_data else None
 
         model.to(device)
-        train_losses, val_losses, train_dices, val_dices, train_ious, val_ious = [], [], [], [], [], []
-
+        train_losses, val_losses, train_dices, train_clious, val_dices, train_ious, val_ious, val_clious = [], [], [], [], [], [], [] , []
+        
         for epoch in trange(epochs):
             model.train()
-            epoch_loss, epoch_dice, epoch_iou = 0, 0, 0
+            epoch_loss, epoch_dice, epoch_iou, epoch_cl_iou = 0, 0, 0, 0
 
             for images, masks in train_loader:
                 images, masks = images.to(device), masks.to(device)
@@ -266,17 +305,20 @@ class ExperimentDL(Experiment):
                 epoch_loss += loss.item()
                 epoch_dice += self.dice_coef(outputs, masks)
                 epoch_iou  += self.iou_score(outputs, masks)
+                epochs_cliou = self.cl_iou_score(outputs, masks)
 
             train_loss = epoch_loss / len(train_loader)
             train_dice = epoch_dice / len(train_loader)
             train_iou  = epoch_iou / len(train_loader)
+            train_cl_iou = epochs_cliou / len(train_loader)
             train_losses.append(train_loss)
             train_dices.append(train_dice)
             train_ious.append(train_iou)
+            train_clious.append(train_cl_iou)
             # Validation
             if val_loader:
                 model.eval()
-                val_loss, val_dice, val_iou = 0, 0, 0
+                val_loss, val_dice, val_iou, val_cl_iou = 0, 0, 0, 0
                 with torch.no_grad():
                     for images, masks in val_loader:
                         images, masks = images.to(device), masks.to(device)
@@ -284,36 +326,48 @@ class ExperimentDL(Experiment):
                         val_loss += loss_function(outputs, masks).item()
                         val_dice += self.dice_coef(outputs, masks)
                         val_iou  += self.iou_score(outputs, masks)
+                        val_cl_iou += self.cl_iou_score(outputs, masks)
 
                 val_loss /= len(val_loader)
                 val_dice /= len(val_loader)
                 val_iou  /= len(val_loader)
+                val_cl_iou /= len(val_loader)
 
             else:
                 val_loss, val_dice, val_iou = None, None, None
             val_losses.append(val_loss)
             val_dices.append(val_dice)
             val_ious.append(val_iou)
+            val_clious.append(val_cl_iou)
             if scheduler:
                 scheduler.step()
 
             # Logging
             print(f"Epoch {epoch+1}/{epochs} | "
-                f"Train Loss: {train_loss:.4f}, Dice: {train_dice:.4f}, IoU: {train_iou:.4f} | "
-                f"Val Loss: {val_loss:.4f} Dice: {val_dice:.4f} IoU: {val_iou:.4f}" if val_loader else "")
+                f"Train Loss: {train_loss:.4f}, Dice: {train_dice:.4f}, IoU: {train_iou:.4f}, CL IoU: {train_cl_iou:.4f} | "
+                f"Val Loss: {val_loss:.4f} Dice: {val_dice:.4f} IoU: {val_iou:.4f}, CL IoU: {val_cl_iou:.4f}" if val_loader else "")
 
             mlflow.log_metric("train_loss", train_loss, step=epoch)
             mlflow.log_metric("train_dice", train_dice, step=epoch)
             mlflow.log_metric("train_iou", train_iou, step=epoch)
+            mlflow.log_metric("train_cl_iou", train_cl_iou, step=epoch)
             if val_loader:
                 mlflow.log_metric("val_loss", val_loss, step=epoch)
                 mlflow.log_metric("val_dice", val_dice, step=epoch)
                 mlflow.log_metric("val_iou", val_iou, step=epoch)
+                mlflow.log_metric("val_cl_iou", val_cl_iou, step=epoch)
             
         loss_df = pd.DataFrame({"train_loss": train_losses, "val_loss": val_losses, 
                                 "train_dice": train_dices, "val_dice": val_dices,
-                                "train_iou": train_ious, "val_iou": val_ious})
+                                "train_iou": train_ious, "val_iou": val_ious,
+                                "train_cl_iou": train_clious, "val_cl_iou": val_clious})
+        
         loss_df.to_csv(os.path.join(self.log_path, "training.csv"), index=False)
+        with open(self.experiment_report, "a") as f:
+            f.write(f"Final Training Loss: {train_losses[-1]}, Dice: {train_dices[-1]}, IoU: {train_ious[-1]}, CL IoU: {train_clious[-1]}\n")
+            if val_loader:
+                f.write(f"Final Validation Loss: {val_losses[-1]}, Dice: {val_dices[-1]}, IoU: {val_ious[-1]}, CL IoU: {val_clious[-1]}\n")
+        f.close()
         return model
 
     def finetune(self):
@@ -343,13 +397,21 @@ class ExperimentDL(Experiment):
                 test_loss += loss.item()
         print(f"Test Loss: {test_loss/len(test_loader)}")
         mlflow.log_metric("test_loss", test_loss/len(test_loader))
+        with open(self.experiment_report, "a") as f:
+            f.write(f"Test Loss: {test_loss/len(test_loader)}\n")
+        f.close()
         return test_loss/len(test_loader)        
 
     def log_results(self):
         pass
 
     def show_predictions(self, model, dataset, device, num_samples=3, threshold=0.5):
-        model.eval()
+        with open(self.experiment_report, "a") as f:
+            f.write(model, "\n")
+        f.close()
+        model_json = os.path.join(self.log_path, "model_info.json")
+        json.dump(model.info(), open(model_json, "w"), indent=4)
+
         for j in range(4):
             fig, axes = plt.subplots(num_samples, 3, figsize=(10, num_samples*4))
 
@@ -492,19 +554,14 @@ class ExperimentPC(Experiment):
     # Feature extraction
     # --------------------------------------------------------
     def get_filter_bank(self):
-        """Return predefined convolution filters"""
         filters = {
             "sobel_x": np.array([[-1, 0, 1], [-2, 0, 2], [-1, 0, 1]], np.float32),
             "sobel_y": np.array([[-1, -2, -1], [0, 0, 0], [1, 2, 1]], np.float32),
             "laplacian": np.array([[-1, -1, -1], [-1, 8, -1], [-1, -1, -1]], np.float32),
             "sharpen": np.array([[0, -1, 0], [-1, 5, -1], [0, -1, 0]], np.float32),
-            "box3": np.ones((3, 3), np.float32) / 9,
-            "box5": np.ones((5, 5), np.float32) / 25,
+            # keep one small Gaussian for noise smoothing
+            "gauss3": (cv2.getGaussianKernel(3, 0.8) @ cv2.getGaussianKernel(3, 0.8).T).astype(np.float32),
         }
-        # gaussian
-        for k, sigma in zip([3, 5, 7], [0.8, 1.2, 2.0]):
-            g = cv2.getGaussianKernel(k, sigma)
-            filters[f"gauss{k}"] = (g @ g.T).astype(np.float32)
         return filters
 
     def compute_conv_features(self, images, filters, device="cpu"):
@@ -564,12 +621,8 @@ class ExperimentPC(Experiment):
             feats = [img[c] for c in range(C)]
             img_hw3 = np.transpose(img, (1, 2, 0))
 
-            lab, hsv = rgb2lab(img_hw3), rgb2hsv(img_hw3)
-            feats += [lab[..., c] for c in range(3)]
-            feats += [hsv[..., c] for c in range(3)]
-
             gray = cv2.cvtColor((img_hw3 * 255).astype(np.uint8), cv2.COLOR_RGB2GRAY) / 255.0
-            feats += [sobel(gray), laplace(gray)]
+            feats = [gray, sobel(gray), laplace(gray)]
 
             for theta in [0, np.pi/4, np.pi/2, 3*np.pi/4]:
                 real, imag = gabor(gray, frequency=0.2, theta=theta)
@@ -653,11 +706,12 @@ class ExperimentPC(Experiment):
         train_losses, val_losses = [], []
         train_dices, val_dices = [], []
         train_ious, val_ious = [], []
+        train_clious, val_clious = [], []
 
         # --- Training loop ---
         pbar = tqdm.tqdm(range(epochs), desc="Training PCNet")
         for epoch in pbar:
-            batch_losses, batch_dices, batch_ious = [], [], []
+            batch_losses, batch_dices, batch_ious, batch_clious = [], [], [], []
 
             for ft_batch, t_batch in train_loader:
                 optimizer.zero_grad()
@@ -665,37 +719,48 @@ class ExperimentPC(Experiment):
                 loss = self.criterion(logits, t_batch)
                 loss.backward()
                 optimizer.step()
+                # Convert logits to predicted binary mask (foreground class = 1)
+                pred_mask = torch.argmax(logits, dim=1, keepdim=True).float()  # [4, 1, 256, 256]
+                true_mask = t_batch.unsqueeze(1).float()                       # [4, 1, 256, 256]
 
                 # Metrics
                 dice_score = self.dice_coef(logits, t_batch).item()
                 iou_score = self.iou_score(logits, t_batch).item()
 
+                cl_iou_score = self.cl_iou_score(pred_mask, true_mask)
+
                 batch_losses.append(loss.item())
                 batch_dices.append(dice_score)
                 batch_ious.append(iou_score)
+                batch_clious.append(cl_iou_score)
 
             # --- Log training metrics ---
             epoch_loss = np.mean(batch_losses)
             epoch_dice = np.mean(batch_dices)
             epoch_iou = np.mean(batch_ious)
+            epoch_cl_iou = np.mean(batch_clious)
 
             train_losses.append(epoch_loss)
             train_dices.append(epoch_dice)
             train_ious.append(epoch_iou)
+            train_clious.append(epoch_cl_iou)
 
             mlflow.log_metric("train_loss", epoch_loss, step=epoch)
             mlflow.log_metric("train_dice", epoch_dice, step=epoch)
             mlflow.log_metric("train_iou", epoch_iou, step=epoch)
+            mlflow.log_metric("train_cl_iou", epoch_cl_iou, step=epoch)
 
             # --- Validation ---
             if val_loader is not None:
-                val_loss, val_dice, val_iou = self.evaluate(model, val_loader)
+                val_loss, val_dice, val_iou, val_cl_iou = self.evaluate(model, val_loader)
                 val_losses.append(val_loss)
                 val_dices.append(val_dice)
                 val_ious.append(val_iou)
+                val_clious.append(val_cl_iou)
                 mlflow.log_metric("val_loss", val_loss, step=epoch)
                 mlflow.log_metric("val_dice", val_dice, step=epoch)
                 mlflow.log_metric("val_iou", val_iou, step=epoch)
+                mlflow.log_metric("val_cl_iou", val_cl_iou, step=epoch)
 
             pbar.set_postfix({
                 "train_loss": f"{epoch_loss:.4f}",
@@ -706,7 +771,8 @@ class ExperimentPC(Experiment):
         df_train = pd.DataFrame({
             "train_loss": train_losses,
             "train_dice": train_dices,
-            "train_iou": train_ious
+            "train_iou": train_ious,
+            "train_cl_iou": train_clious
         })
         df_train.to_csv(os.path.join(self.log_path, "training.csv"), index=False)
 
@@ -714,7 +780,8 @@ class ExperimentPC(Experiment):
             df_val = pd.DataFrame({
                 "val_loss": val_losses,
                 "val_dice": val_dices,
-                "val_iou": val_ious
+                "val_iou": val_ious,
+                "val_cl_iou": val_clious
             })
             df_val.to_csv(os.path.join(self.log_path, "validation.csv"), index=False)
 
@@ -728,11 +795,16 @@ class ExperimentPC(Experiment):
         plt.savefig(os.path.join(self.log_path, "training_plot.png"))
 
         print("✅ Training complete.")
+        with open(self.experiment_report, "a") as f:
+            f.write(f"Final Training Loss: {train_losses[-1]}, Dice: {train_dices[-1]}, IoU: {train_ious[-1]}, CL IoU: {train_clious[-1]}\n")
+            if val_loader:
+                f.write(f"Final Validation Loss: {val_losses[-1]}, Dice: {val_dices[-1]}, IoU: {val_ious[-1]}, CL IoU: {val_clious[-1]}\n")
+        f.close()
         return model
 
     # --- Parallelized Evaluation ---
     def evaluate(self, model, dataloader):
-        losses, dices, ious = [], [], []
+        losses, dices, ious, clious = [], [], [], []
         with torch.no_grad():
             for ft_batch, t_batch in dataloader:
                 logits = model.evaluate(ft_batch)
@@ -740,15 +812,23 @@ class ExperimentPC(Experiment):
                 dice_score = self.dice_coef(logits, t_batch).item()
                 iou_score = self.iou_score(logits, t_batch).item()
 
+                pred_mask = torch.argmax(logits, dim=1, keepdim=True).float()  # [4, 1, 256, 256]
+                true_mask = t_batch.unsqueeze(1).float()                       # [4, 1, 256, 256]
+                cl_iou_score = self.cl_iou_score(pred_mask, true_mask)
+
                 losses.append(loss.item())
                 dices.append(dice_score)
                 ious.append(iou_score)
+                clious.append(cl_iou_score)
 
-        mean_loss, mean_dice, mean_iou = np.mean(losses), np.mean(dices), np.mean(ious)
-        print(f"Validation — Loss: {mean_loss:.4f}, Dice: {mean_dice:.4f}, IoU: {mean_iou:.4f}")
-        return mean_loss, mean_dice, mean_iou
+        mean_loss, mean_dice, mean_iou, mean_cl_iou = np.mean(losses), np.mean(dices), np.mean(ious), np.mean(clious)
+        
+        return mean_loss, mean_dice, mean_iou, mean_cl_iou
     
     def show_prediction(self, model):
+        with open(self.experiment_report, "a") as f:
+            f.write(str(model) + "\n")
+        f.close()
         predictions_path = os.path.join(self.log_path, "predictions")
         os.makedirs(predictions_path, exist_ok=True)
         imgs = [self.test_data[i][0] for i in range(len(self.test_data))]
@@ -784,10 +864,12 @@ class ExperimentPC(Experiment):
     def save_model(self, model_name="pcnet"):
         with open(os.path.join(self.save_path, f"{model_name}.pkl"), "wb") as f:
             pickle.dump(self.model, f)
+        f.close()
 
     def load_model(self, model_name="pcnet"):
         with open(os.path.join(self.save_path, f"{model_name}.pkl"), "rb") as f:
             self.model = pickle.load(f)
+        f.close()
         
     def run(self):
         self.set_dataset(self.data_path, self.test_path)
@@ -809,7 +891,11 @@ class ExperimentPC(Experiment):
                 if self.test_ground_truth.dim() == 4 and self.test_ground_truth.size(1) == 1:
                     self.test_ground_truth = self.test_ground_truth.squeeze(1)
                 test_loader = self.get_dataloaders(TensorDataset(self.test_inputs, self.test_ground_truth))
-                self.evaluate(self.model, test_loader)
+                loss, dice, iou, cl_iou = self.evaluate(self.model, test_loader)
+                print_info("Test Loss:", loss, "Dice:", dice, "IoU:", iou, "CL IoU:", cl_iou)
+                with open(self.experiment_report, "a") as f:
+                    f.write(f"Test Loss: {loss}, Dice: {dice}, IoU: {iou}, CL IoU: {cl_iou}\n")
+                f.close()
                 self.show_prediction(self.model)
         elif self.execution_mode == "test":
             self.load_model(self.model_name)
