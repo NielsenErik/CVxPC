@@ -18,6 +18,7 @@ from skimage.color import rgb2hsv, rgb2lab
 from skimage.filters import gabor, laplace, sobel
 from torch import nn
 from tqdm import trange
+from collections import Counter
 
 from utils import print_configs, print_debugging, print_info
 
@@ -93,6 +94,11 @@ class InputNode(nn.Module, Node):
 
         # Mixture weights over distributions: [Gaussian, Laplace, Student-t]
         self.logits = nn.Parameter(torch.zeros(3, dtype=torch.float32, device=device))
+
+        # Mixture gate
+        self.gate = nn.Parameter(torch.tensor(1.0, device=device))  # learnable
+
+        # Feature name
         self.feature_name = f"feat_{feature_idx}"
 
     def _log_gaussian(self, x, mu, sigma):
@@ -161,7 +167,7 @@ class InputNode(nn.Module, Node):
         # log-sum-exp over distributions
         logpdfs = torch.stack([log_gauss, log_lapl, log_stud], dim=0)
         log_mix = torch.logsumexp(torch.log(weights).view(-1, *([1]*(logpdfs.ndim-1))) + logpdfs, dim=0)
-        return log_mix
+        return log_mix * self.gate # scale by gate
 
 
 
@@ -480,8 +486,6 @@ class PCNet(ProbabilisticCircuit):
                 return root
 
             nodes = self.prod_layer(nodes) if depth % 2 == 0 else self.sum_layer(nodes)
-
-
         
 
 
@@ -492,10 +496,10 @@ class PCNet(ProbabilisticCircuit):
         self.set_root(root)
         self.params = [n.weights for n in self.get_nodes() if isinstance(n, SumNode)]
         for i in input_nodes:
-            self.params.extend([i.mu, i.log_sigma])
+            self.params.extend([i.mu, i.log_sigma, i.log_nu, i.logits, i.gate])
         print_configs(f"Initialized PCNet with {len(self.get_nodes())} nodes, "
                       f"{sum(p.numel() for p in self.params)} trainable parameters")
-        print_debugging(self)
+        print_info(self.info())
 
     # --------------------------------------------------------
     # Training & Prediction
@@ -529,105 +533,213 @@ class PCNet(ProbabilisticCircuit):
         
     def __repr__(self):
         """
-        Nicely formatted hierarchical summary of the PCNet structure.
-        Includes node type, number of children, and feature indices.
+        Return a detailed string representation of the PCNet,
+        including architecture info and hierarchical tree structure.
         """
-        if not hasattr(self, "root") or self.root is None:
-            return "<PCNet: Uninitialized>"
+        if not hasattr(self, "graph") or not self.root:
+            return "<Uninitialized PCNet>"
 
+        nodes = list(self.get_nodes())
+
+        # Count node types
+        counts = {
+            "InputNode": sum(isinstance(n, InputNode) for n in nodes),
+            "SumNode": sum(isinstance(n, SumNode) for n in nodes),
+            "ProductNode": sum(isinstance(n, ProductNode) for n in nodes),
+            "ClassifierNode": sum(isinstance(n, ClassifierNode) for n in nodes),
+        }
+
+        # Count parameters
+        total_params = 0
+        param_summary = {}
+        for n in nodes:
+            if isinstance(n, InputNode):
+                p = sum(p.numel() for p in [n.mu, n.log_sigma, n.log_nu, n.logits])
+                param_summary["InputNode"] = param_summary.get("InputNode", 0) + p
+            elif isinstance(n, SumNode):
+                p = n.weights.numel()
+                param_summary["SumNode"] = param_summary.get("SumNode", 0) + p
+            total_params += p if "p" in locals() else 0
+
+        # ---------------------------------------------------------------------
+        # HEADER SECTION
+        # ---------------------------------------------------------------------
+        header = [
+            "─────────────────────────────────────────────",
+            "🧠  Probabilistic Circuit Network Summary",
+            "─────────────────────────────────────────────",
+            f"📦 Classes: {self.n_classes}",
+            f"📏 Input size: {self.input_size}",
+            f"⚙️  Depth: {self.max_depth}, Branching: {self.max_branching}",
+            f"💻 Device: {self.device}",
+            "─────────────────────────────────────────────",
+            "📊 Node counts:",
+        ]
+        for k, v in counts.items():
+            header.append(f"  • {k:<15}: {v}")
+        header.append("─────────────────────────────────────────────")
+        header.append(f"🧩 Trainable parameters: {total_params}")
+        for k, v in param_summary.items():
+            header.append(f"  • {k:<15}: {v}")
+        header.append("─────────────────────────────────────────────")
+        header.append("📚 Structure:")
+        header_text = "\n".join(header)
+
+        # ---------------------------------------------------------------------
+        # TREE SECTION
+        # ---------------------------------------------------------------------
         lines = []
-        node_counts = {"InputNode": 0, "SumNode": 0, "ProductNode": 0, "ClassifierNode": 0}
 
-        # recursive pretty-printer
-        def recurse(node, prefix="", depth=0, max_depth=6):
-            if depth > max_depth:
-                lines.append(prefix + "└─ (...) [truncated]")
-                return
+        def format_node(node, prefix="", is_last=True):
+            connector = "└─ " if is_last else "├─ "
 
-            name = type(node).__name__
-            node_counts[name] = node_counts.get(name, 0) + 1
-
-            # description depending on node type
-            if isinstance(node, InputNode):
-                desc = f"{name}({node.feature_name})"
+            # Node label
+            if isinstance(node, ClassifierNode):
+                label = f"ClassifierNode(classes={len(node.children)})"
             elif isinstance(node, SumNode):
-                desc = f"{name}(children={len(node.children)}, weights={len(node.weights)})"
+                label = f"SumNode(children={len(node.children)}, weights={len(node.weights)})"
             elif isinstance(node, ProductNode):
-                desc = f"{name}(children={len(node.children)})"
-            elif isinstance(node, ClassifierNode):
-                desc = f"{name}(classes={len(node.children)})"
+                label = f"ProductNode(children={len(node.children)})"
+            elif isinstance(node, InputNode):
+                label = f"InputNode({node.feature_name})"
             else:
-                desc = name
+                label = node.__class__.__name__
 
-            lines.append(f"{prefix}├─ {desc}")
+            lines.append(f"{prefix}{connector}{label}")
 
-            for i, child in enumerate(node.children):
-                connector = "│  " if i < len(node.children) - 1 else "   "
-                recurse(child, prefix + connector, depth + 1, max_depth)
+            # Recurse for children
+            if hasattr(node, "children") and node.children:
+                new_prefix = prefix + ("   " if is_last else "│  ")
+                for i, child in enumerate(node.children):
+                    format_node(child, new_prefix, i == len(node.children) - 1)
 
-        recurse(self.root)
+        format_node(self.root)
 
-        # summary
-        summary = " | ".join(f"{k}: {v}" for k, v in node_counts.items())
-        lines.append(f"\n[Summary] {summary}")
-        return "\n".join(lines)
-
-
-
-
-# ============================================================
-# EvoPCNet
-# ============================================================
-class EvoPCNet(PCNet):
-    """Evolutionary PCNet with population of circuits"""
-
-    def __init__(
-        self, input_size=(1, 28, 28), patch_size=(9, 9), n_classes=2,
-        distribution=None, device="cpu", max_depth=4, max_branching=3,
-        feature_extractor="handcrafted", seed=42, init_pop_size=10
-    ):
-        super().__init__(n_classes, distribution, device,
-                         max_depth, max_branching,
-                         feature_extractor, seed)
-        self.init_pop_size = init_pop_size
-        self.population = []
-
-    def initialize_population(self, images, masks):
-        self.population = []
-        for _ in range(self.init_pop_size):
-            depth = random.randint(3, self.max_depth)
-            branching = random.randint(2, self.max_branching)
-            pc = PCNet(
-                n_classes=self.n_classes,
-                distribution=self.distribution,
-                device=self.device,
-                max_depth=depth,
-                max_branching=branching,
-                feature_extractor=self.feature_extractor,
-                seed=random.randint(0, 10000),
-            )
-            self.population.append(pc)
-
-    def mutation(self):
-        # TODO: implement mutation operator
-        pass
-
-    def crossover(self):
-        # TODO: implement crossover operator
-        pass
-
-    def ask(self, images, masks):
-        if not self.population:
-            self.initialize_population(images, masks)
-        else:
-            for pc in self.population:
-                pc.mutation()
-        return self.population
-
-    def tell(self, fitnesses):
-        # TODO: use fitness values to evolve population
-        pass
+        tree_text = "\n".join(lines)
+        return f"{header_text}\n{tree_text}\n─────────────────────────────────────────────"
 
     
+    def info(self, show_layers=True, show_params=True, show_counts=True):
+        """
+        Print a structured summary of the PCNet architecture.
+
+        Args:
+            show_layers (bool): show hierarchical layer summary
+            show_params (bool): show learnable parameters per node type
+            show_counts (bool): show node counts per type
+        """
+        print("─────────────────────────────────────────────")
+        print("🧠  Probabilistic Circuit Network Summary")
+        print("─────────────────────────────────────────────")
+        print(f"📦 Classes: {self.n_classes}")
+        print(f"📏 Input size: {self.input_size}")
+        print(f"⚙️  Depth: {self.max_depth}, Branching: {self.max_branching}")
+        print(f"💻 Device: {self.device}")
+        print("─────────────────────────────────────────────")
+
+        nodes = list(self.get_nodes())
+        total_params = 0
+
+        if show_counts:
+            counts = {
+                "InputNode": sum(isinstance(n, InputNode) for n in nodes),
+                "SumNode": sum(isinstance(n, SumNode) for n in nodes),
+                "ProductNode": sum(isinstance(n, ProductNode) for n in nodes),
+                "ClassifierNode": sum(isinstance(n, ClassifierNode) for n in nodes),
+            }
+            print("📊 Node counts:")
+            for k, v in counts.items():
+                print(f"  • {k:<15}: {v}")
+            print("─────────────────────────────────────────────")
+
+        if show_params:
+            param_summary = []
+            for n in nodes:
+                if isinstance(n, InputNode):
+                    p = sum(p.numel() for p in [n.mu, n.log_sigma, n.log_nu, n.logits])
+                    param_summary.append(("InputNode", p))
+                elif isinstance(n, SumNode):
+                    p = n.weights.numel()
+                    param_summary.append(("SumNode", p))
+            total_params = sum(p for _, p in param_summary)
+            print(f"🧩 Trainable parameters: {total_params}")
+            by_type = {}
+            for t, p in param_summary:
+                by_type[t] = by_type.get(t, 0) + p
+            for t, p in by_type.items():
+                print(f"  • {t:<15}: {p}")
+            print("─────────────────────────────────────────────")
+
+        return {
+            "n_nodes": len(nodes),
+            "n_params": total_params,
+            "depth": self.max_depth,
+            "branching": self.max_branching,
+        }
+
+    def save_dict(self):
+        """
+        Return a compact summary dictionary of the PCNet model.
+        This does NOT include the entire structure, only metadata and key stats.
+        """
+        info = {}
+
+        # --- Basic info ---
+        info["model_type"] = self.__class__.__name__
+        info["device"] = str(self.device)
+        info["n_classes"] = self.n_classes
+        info["input_size"] = tuple(self.input_size)
+        info["max_depth"] = self.max_depth
+        info["max_branching"] = self.max_branching
+        info["seed"] = self.seed
+
+        # --- Structure statistics ---
+        nodes = list(self.get_nodes())
+        edges = list(self.get_edges())
+        info["n_nodes"] = len(nodes)
+        info["n_edges"] = len(edges)
+
+        type_counts = Counter([n.__class__.__name__ for n in nodes])
+        info["node_types"] = dict(type_counts)
+
+        # --- Parameter summary ---
+        all_params = []
+        mus, sigmas, nus = [], [], []
+        sum_weights = []
+        input_feats = []
+
+        for node in nodes:
+            if isinstance(node, InputNode):
+                input_feats.append(node.feature_name)
+                mus.append(node.mu.item())
+                sigmas.append(torch.exp(node.log_sigma).item())
+                nus.append(torch.exp(node.log_nu).item())
+            elif isinstance(node, SumNode):
+                w = torch.softmax(node.weights, dim=0).detach().cpu().numpy()
+                sum_weights.extend(w.tolist())
+            # ClassifierNode / ProductNode have no trainable params
+
+        # --- Compute stats safely ---
+        def safe_stats(x):
+            if len(x) == 0:
+                return {"mean": None, "std": None, "min": None, "max": None}
+            return {
+                "mean": float(np.mean(x)),
+                "std": float(np.std(x)),
+                "min": float(np.min(x)),
+                "max": float(np.max(x)),
+            }
+
+        info["parameter_summary"] = {
+            "mu": safe_stats(mus),
+            "sigma": safe_stats(sigmas),
+            "nu": safe_stats(nus),
+            "sum_weights": safe_stats(sum_weights),
+        }
+
+        info["n_parameters"] = sum(p.numel() for p in getattr(self, "params", []))
+        info["input_features"] = input_feats
+
+        return info
 
 
