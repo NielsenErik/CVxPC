@@ -15,6 +15,8 @@ import pickle
 import torch.nn.functional as F
 from torch.utils.data import TensorDataset
 
+from joblib import Parallel, delayed
+
 import pandas as pd
 from crackdata_processing import CrackDataset, CrackAugmentations
 
@@ -65,12 +67,7 @@ class Experiment:
 
     def set_dataset(self,train_path, test_path=None):
         self.images_path = train_path + "/images/"
-        self.ground_truth_path = train_path + "/masks/"
-        if test_path is not None:
-            self.test_images_path = test_path + "/images/"
-            self.test_ground_truth_path = test_path + "/masks/"
-            self.test_data = CrackDataset(self.test_images_path, self.test_ground_truth_path, augmentation_percentage=0.0,sample_size=10, resize_size=(self.resize_size[0], self.resize_size[1]))
-        
+        self.ground_truth_path = train_path + "/masks/"        
         self.data = CrackDataset(self.images_path, self.ground_truth_path, augmentation_percentage=0.1,sample_size=self.sample_size, resize_size=(self.resize_size[0], self.resize_size[1]))     
         if self.execution_mode == "train":
             if self.validation_split > 0:
@@ -82,6 +79,11 @@ class Experiment:
                 self.train_data = self.data
                 self.val_data = None
                 print_info(f"Training samples: {len(self.train_data)}")
+        if test_path is not None:
+            self.test_images_path = test_path + "/images/"
+            self.test_ground_truth_path = test_path + "/masks/"
+            self.test_data = CrackDataset(self.test_images_path, self.test_ground_truth_path, augmentation_percentage=0.0,sample_size=10, resize_size=(self.resize_size[0], self.resize_size[1]))
+            print_info(f"Test samples: {len(self.test_data)}")
         self.experiment_dict["dataset_size"] = {
             "train": len(self.data),
             "val": len(self.val_data) if self.validation_split > 0 else 0,
@@ -549,8 +551,9 @@ class ExperimentPC(Experiment):
                 pooled.append(out)
         return torch.cat(pooled, dim=1)
 
-    def get_handcrafted_features(self, images):
-        """Compute handcrafted features for RGB images"""
+    def get_handcrafted_features(self, images, n_jobs=8):
+        """Compute handcrafted features for RGB images in parallel across CPU cores."""
+        
         def process_one(img):
             if img.dtype != np.float32:
                 img = img.astype(np.float32) / 255.0
@@ -565,21 +568,26 @@ class ExperimentPC(Experiment):
             feats += [lab[..., c] for c in range(3)]
             feats += [hsv[..., c] for c in range(3)]
 
-            gray = cv2.cvtColor((img_hw3*255).astype(np.uint8), cv2.COLOR_RGB2GRAY) / 255.0
+            gray = cv2.cvtColor((img_hw3 * 255).astype(np.uint8), cv2.COLOR_RGB2GRAY) / 255.0
             feats += [sobel(gray), laplace(gray)]
 
             for theta in [0, np.pi/4, np.pi/2, 3*np.pi/4]:
                 real, imag = gabor(gray, frequency=0.2, theta=theta)
                 feats += [real, imag]
-            # feats = feats + 0.05 * torch.randn_like(feats)
+
             return np.stack(feats).astype(np.float32)
 
-        feats = [process_one(im) for im in tqdm.tqdm(images, desc="Handcrafted features")]
-        conv_feats = self.compute_conv_features(images, self.get_filter_bank(), device=self.device)
+        # --- Parallel computation across CPUs ---
+        print(f"⚙️ Using {n_jobs} CPU workers for handcrafted feature extraction...")
+        results = Parallel(n_jobs=n_jobs, backend="loky")(
+            delayed(process_one)(img) for img in tqdm.tqdm(images, desc="Handcrafted features (parallel)"))
         
+        feats = np.stack(results)  # (B, C, H, W)
+        
+        # --- Continue as before ---
+        conv_feats = self.compute_conv_features(images, self.get_filter_bank(), device=self.device)
         base_feats = np.concatenate([feats, conv_feats], axis=1)  # (B, C_total, H, W)
 
-        # ---- Multi-scale pooling ----
         base_tensor = torch.from_numpy(base_feats).float().to(self.device)
         pooled_feats = self.multi_scale_pooling(base_tensor, pool_sizes=self.filter_sizes, modes=("avg", "max"))
         pooled_feats = pooled_feats.cpu().numpy()
@@ -589,7 +597,7 @@ class ExperimentPC(Experiment):
 
     def get_feature_tensor(self, images):
         if self.feature_extractor == "handcrafted":
-            return self.get_handcrafted_features(images)
+            return self.get_handcrafted_features(images, n_jobs=self.n_cpus)
         raise ValueError(f"Unknown feature extractor {self.feature_extractor}")
     
     def get_dataloaders(self, data):
@@ -767,7 +775,7 @@ class ExperimentPC(Experiment):
             plt.axis("off")
             plt.savefig(os.path.join(predictions_path, f"prediction_{enum}.png")) 
 
-
+        print_debugging(self.log_path)
         model.visualize(save_path=self.log_path)
 
     def finetune(self):
