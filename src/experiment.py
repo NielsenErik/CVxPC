@@ -714,11 +714,13 @@ class ExperimentPC(Experiment):
         train_dices, val_dices = [], []
         train_ious, val_ious = [], []
         train_clious, val_clious = [], []
-
+        gates = []
         # --- Training loop ---
         pbar = tqdm.tqdm(range(epochs), desc="Training PCNet")
         for epoch in pbar:
             batch_losses, batch_dices, batch_ious, batch_clious = [], [], [], []
+
+            gates_values = []
 
             for ft_batch, t_batch in train_loader:
                 optimizer.zero_grad()
@@ -740,6 +742,10 @@ class ExperimentPC(Experiment):
                 batch_dices.append(dice_score)
                 batch_ious.append(iou_score)
                 batch_clious.append(cl_iou_score)
+            for n in model.get_nodes():
+                if isinstance(n, InputNode):
+                    gates_values.append(n.gate.item())
+            gates.append(gates_values)
 
             # --- Log training metrics ---
             epoch_loss = np.mean(batch_losses)
@@ -792,7 +798,22 @@ class ExperimentPC(Experiment):
             })
             df_val.to_csv(os.path.join(self.log_path, "validation.csv"), index=False)
 
+        # rearragne gates
+        gates = np.array(gates)
+        df_importance = pd.DataFrame(gates, columns=[f"gate_{i}" for i in range(gates.shape[1])])
+        df_importance.to_csv(os.path.join(self.log_path, "gates.csv"), index=False) 
         # --- Plot ---
+        # Gates each gate as a line over epoch
+        plt.figure(figsize=(8, 5))
+        for i in range(gates.shape[1]):
+            plt.plot(gates[:, i], label=f"Gate {i}")
+        plt.legend()
+        plt.title("Gates over Epochs")
+        plt.xlabel("Epoch")
+        plt.ylabel("Gate Value")
+        plt.savefig(os.path.join(self.log_path, "gates.png"))
+
+        # --- Loss ---
         plt.figure(figsize=(8, 5))
         plt.plot(train_losses, label="Train Loss")
         if val_loader:
@@ -800,6 +821,34 @@ class ExperimentPC(Experiment):
         plt.legend()
         plt.title("Training Loss over Epochs")
         plt.savefig(os.path.join(self.log_path, "training_plot.png"))
+
+        # --- Metrics ---
+        # Dice
+        plt.figure(figsize=(8, 5))
+        plt.plot(train_dices, label="Train Dice")
+        if val_loader:
+            plt.plot(val_dices, label="Val Dice")
+        plt.legend()
+        plt.title("Training Dice over Epochs")
+        plt.savefig(os.path.join(self.log_path, "dice_plot.png"))
+
+        # IoU
+        plt.figure(figsize=(8, 5))
+        plt.plot(train_ious, label="Train IoU")
+        if val_loader:
+            plt.plot(val_ious, label="Val IoU")
+        plt.legend()
+        plt.title("Training IoU over Epochs")
+        plt.savefig(os.path.join(self.log_path, "iou_plot.png"))
+
+        # CL IoU
+        plt.figure(figsize=(8, 5))
+        plt.plot(train_clious, label="Train CL IoU")
+        if val_loader:
+            plt.plot(val_clious, label="Val CL IoU")
+        plt.legend()
+        plt.title("Training CL IoU over Epochs")
+        plt.savefig(os.path.join(self.log_path, "cliou_plot.png"))
 
         print("✅ Training complete.")
         with open(self.experiment_report, "a") as f:

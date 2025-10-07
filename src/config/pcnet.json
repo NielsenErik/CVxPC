@@ -12,9 +12,9 @@
 
     "feature_extractor": "handcrafted",
 
-    "epochs": 5,
+    "epochs": 50,
     "batch_size": 4,
-    "sample_size": 10,
+    "sample_size": 50,
     "test_size": 20,
     "resize_size": [
         256,
