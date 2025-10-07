@@ -617,7 +617,6 @@ class ExperimentPC(Experiment):
 
     def get_handcrafted_features(self, images, n_jobs=8):
         """Compute handcrafted features for RGB images in parallel across CPU cores."""
-        
         def process_one(img):
             if img.dtype != np.float32:
                 img = img.astype(np.float32) / 255.0
@@ -628,8 +627,12 @@ class ExperimentPC(Experiment):
             feats = [img[c] for c in range(C)]
             img_hw3 = np.transpose(img, (1, 2, 0))
 
+            lab, hsv = rgb2lab(img_hw3), rgb2hsv(img_hw3)
+            feats += [lab[..., c] for c in range(3)]
+            feats += [hsv[..., c] for c in range(3)]
+
             gray = cv2.cvtColor((img_hw3 * 255).astype(np.uint8), cv2.COLOR_RGB2GRAY) / 255.0
-            feats = [gray, sobel(gray), laplace(gray)]
+            feats += [sobel(gray), laplace(gray)]
 
             for theta in [0, np.pi/4, np.pi/2, 3*np.pi/4]:
                 real, imag = gabor(gray, frequency=0.2, theta=theta)
