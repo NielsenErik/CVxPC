@@ -832,7 +832,7 @@ class ExperimentPC(Experiment):
     # Convolution Modules Tensor Extraction
     # ============================================================
 
-    def convolution_modules_tensor(self, images, cv_factory, return_maps=True, n_jobs=None, verbose=0):
+    def convolution_modules_tensor(self, images, cv_factory, return_maps=True, n_jobs=None, verbose=0, prune_features=None):
         """
         Generate a feature tensor using evolutionarily optimized convolution modules,
         with parallelized per-image evaluation.
@@ -874,11 +874,24 @@ class ExperimentPC(Experiment):
         # --- Define per-module computation
         def _process_image(img):
             feats_per_module = [m.get_output(img, return_map=return_maps) for m in modules]
-            return np.concatenate(feats_per_module, axis=0)
+            feats = np.concatenate(feats_per_module, axis=0)
+
+            if prune_features is not None:
+                if feats.ndim == 3:
+                    feats = feats[prune_features,:,:]
+                else:
+                    feats = feats[:,prune_features,:,:]
+            
+            return feats
 
         feature_list = Parallel(n_jobs=n_jobs, verbose=verbose)(
             delayed(_process_image)(img) for img in images
         )
+
+        # feature_list = []
+        # for img in images:
+        #     feats = _process_image(img)
+        #     feature_list.append(feats)
 
         feats = np.stack(feature_list, axis=0)
         # assert feats.shape[:2] == (len(images), _lambda), f"Unexpected shape: {feats.shape}"
@@ -888,7 +901,7 @@ class ExperimentPC(Experiment):
 
 
 
-    def get_feature_tensor(self, images):
+    def get_feature_tensor(self, images, prune_features=None):
         if self.feature_extractor == "handcrafted":
             return self.get_handcrafted_features(images, n_jobs=self.n_cpus)
         elif self.feature_extractor == "cv_modules":
@@ -896,7 +909,7 @@ class ExperimentPC(Experiment):
                 Optimizer={"class_name": "CMAES", "kwargs": {"n_params": 128, "lambda_": self.n_cv_modules}},
                 CVModule={"class_name": "ConvolutionModule", "kwargs": {"n_filters": self.n_filters, "filter_sizes": 5, "device": self.device}}
             )
-            return self.convolution_modules_tensor(images, cv_factory, return_maps=True, n_jobs=self.n_cpus)
+            return self.convolution_modules_tensor(images, cv_factory, return_maps=True, n_jobs=self.n_cpus, prune_features=prune_features)
 
         else:
             raise ValueError(f"Unknown feature extractor {self.feature_extractor}")
@@ -1248,24 +1261,41 @@ class ExperimentGEPC(ExperimentPC):
                     device=self.device,
                 )
         
+    def get_prune_features_idx(self, model):
+        feats = []
+        new_name = 0
+        for n in model.get_nodes():
+            if isinstance(n, InputNode):
+                feats.append(n.feature_idx)
+                n.feature_idx = new_name
+                new_name += 1
+
+        return feats
+        
     def run(self):
         self.set_dataset(self.data_path, self.test_path)
         print_info("Dataset size:", len(self.data))
         if self.execution_mode == "train":
             self.set_algorithm()
 
-            self.feature_tensor = self.get_feature_tensor(np.array([self.train_data[i][0] for i in range(len(self.train_data))]))
-            self.train_masks = np.array([self.train_data[i][1] for i in range(len(self.train_data))])
-            self.val_feature_tensor = self.get_feature_tensor(np.array([self.val_data[i][0] for i in range(len(self.val_data))]))
-            self.val_masks = np.array([self.val_data[i][1] for i in range(len(self.val_data))]) if self.validation_split > 0 else None
+            # self.feature_tensor = self.get_feature_tensor(np.array([self.train_data[i][0] for i in range(len(self.train_data))]))
+            # self.train_masks = np.array([self.train_data[i][1] for i in range(len(self.train_data))])
+            # self.val_feature_tensor = self.get_feature_tensor(np.array([self.val_data[i][0] for i in range(len(self.val_data))]))
+            # self.val_masks = np.array([self.val_data[i][1] for i in range(len(self.val_data))]) if self.validation_split > 0 else None
 
             ge_train_size = int(self.ge_config["train_split"] * len(self.train_data))
-            ge_X_train = torch.from_numpy(self.feature_tensor).float().to(self.device)[:ge_train_size]
-            ge_Y_train = torch.from_numpy(self.train_masks).long().to(self.device)[:ge_train_size]
+            
+            ge_X_train = torch.from_numpy(self.get_feature_tensor(np.array([self.train_data[i][0] for i in range(ge_train_size)]))).float().to(self.device)
+            ge_Y_train = torch.from_numpy(np.array([self.train_data[i][1] for i in range(ge_train_size)])).long().to(self.device)
             best_pc, best_genome, history = self.ge.evolve(ge_X_train, ge_Y_train, self.ge_config["generations"])
             print_info("Best genome:", best_genome)
             print_info("Best PC:", str(best_pc))
             self.model = best_pc
+            prune_features_idx = self.get_prune_features_idx(self.model)
+            self.feature_tensor = self.get_feature_tensor(np.array([self.train_data[i][0] for i in range(len(self.train_data))]), prune_features_idx)
+            self.train_masks = np.array([self.train_data[i][1] for i in range(len(self.train_data))])
+            self.val_feature_tensor = self.get_feature_tensor(np.array([self.val_data[i][0] for i in range(len(self.val_data))]), prune_features_idx)
+            self.val_masks = np.array([self.val_data[i][1] for i in range(len(self.val_data))]) if self.validation_split > 0 else None
 
             self.model = self.train(self.model, epochs=self.epochs, lr=self.learning_rate, n_cpus=self.n_cpus)
             self.save_model("pcnet-ge")
