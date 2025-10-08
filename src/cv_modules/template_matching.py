@@ -11,7 +11,7 @@
 """
 import cv2
 import numpy as np
-from cv_modules import CVMetaClass, CVProcessingElement
+from cv_modules.processing_element import CVMetaClass, CVProcessingElement
 
 
 class TemplateMatchingModule(CVProcessingElement, metaclass=CVMetaClass):

@@ -23,6 +23,8 @@ import json
 import pandas as pd
 from crackdata_processing import CrackDataset, CrackAugmentations
 
+from cv_modules.factories import CVModuleFactory
+
 
 
 def run_experiment(config):
@@ -822,12 +824,83 @@ class ExperimentPC(Experiment):
 
         return np.concatenate([base_feats, pooled_feats], axis=1)
 
-    # --------------------------------------------------------
-    # Public API
-    # --------------------------------------------------------
+    # ============================================================
+    # Convolution Modules Tensor Extraction
+    # ============================================================
+
+    def convolution_modules_tensor(self, images, cv_factory, return_maps=True, n_jobs=None, verbose=0):
+        """
+        Generate a feature tensor using evolutionarily optimized convolution modules,
+        with parallelized per-image evaluation.
+
+        Args:
+            images (np.ndarray or torch.Tensor):
+                Input images, shape (B, C, H, W) or (B, H, W, C)
+            cv_factory (CVModuleFactory or FixedCVModuleFactory):
+                Factory that provides evolved (or fixed) convolution modules.
+            return_maps (bool):
+                If True, use full convolution maps (dense tensor);
+                if False, use compact (x, y) coordinate features.
+            n_jobs (int or None):
+                Number of parallel workers (defaults to CPU count).
+            verbose (int):
+                Joblib verbosity level.
+
+        Returns:
+            torch.Tensor:
+                Feature tensor of shape:
+                    - (B, N_filters, H, W) if return_maps=True
+                    - (B, 2 * N_filters) if return_maps=False
+        """
+
+        # --- Normalize image array
+        if isinstance(images, torch.Tensor):
+            images = images.detach().cpu().numpy()
+        if images.ndim == 3:
+            images = np.expand_dims(images, 0)
+
+        n_jobs = n_jobs or min(16, multiprocessing.cpu_count())
+        print(f"⚙️ convolution_modules_tensor(): using {n_jobs} parallel workers")
+
+        # --- Retrieve convolution modules (usually 1 for FixedCVModuleFactory)
+        modules = cv_factory.ask_pop()
+        if not isinstance(modules, list):
+            modules = [modules]
+
+        feature_list = []
+
+        # --- Parallelized computation
+        for module in modules:
+            # Process all images in parallel
+            def _process(img):
+                return module.get_output(img, return_map=return_maps)
+
+            module_feats = Parallel(n_jobs=n_jobs, backend="threading", verbose=verbose)(
+                delayed(_process)(img) for img in images
+            )
+            module_feats = np.stack(module_feats, axis=0)  # (B, K, H, W) or (B, 2K)
+            feature_list.append(module_feats)
+
+        # --- Concatenate across modules
+        feats = np.concatenate(feature_list, axis=1)
+
+        # --- Convert to torch tensor and keep on target device
+        print(f"✅ convolution_modules_tensor(): generated {feats.shape}")
+
+        return feats
+
+
+
     def get_feature_tensor(self, images):
         if self.feature_extractor == "handcrafted":
             return self.get_handcrafted_features(images, n_jobs=self.n_cpus)
+        elif self.feature_extractor == "cv_modules":
+            cv_factory = CVModuleFactory(
+                Optimizer={"class_name": "CMAES", "kwargs": {"n_params": 128, "lambda_": 16}},
+                CVModule={"class_name": "ConvolutionModule", "kwargs": {"n_filters": 8, "filter_sizes": 5, "device": self.device}}
+            )
+            return self.convolution_modules_tensor(images, cv_factory, return_maps=True, n_jobs=self.n_cpus)
+
         else:
             raise ValueError(f"Unknown feature extractor {self.feature_extractor}")
 
@@ -1166,15 +1239,16 @@ class ExperimentPC(Experiment):
 class ExperimentGEPC(ExperimentPC):
     def __init__(self, config):
         super().__init__(config)
+        self.ge_config = self.config.get("ge_config", {"pop_size": 2, "genome_len": 96, "crossover_rate": 0.9, "mutation_rate": 0.05, "elite_k": 2})
         self.ge = GEOptimizer(
-                    pop_size=2,
-                    genome_len=96,
+                    pop_size=self.ge_config["pop_size"],
+                    genome_len=self.ge_config["genome_len"],
                     max_depth=self.max_depth,          # search budget
                     max_branching=self.max_branching,      # upper bound for sum fan-in
-                    crossover_rate=0.9,
-                    mutation_rate=0.05,
-                    elite_k=2,
-                    device="cpu",
+                    crossover_rate=self.ge_config["crossover_rate"],
+                    mutation_rate=self.ge_config["mutation_rate"],
+                    elite_k=self.ge_config["elite_k"],
+                    device=self.device,
                 )
         
     def run(self):

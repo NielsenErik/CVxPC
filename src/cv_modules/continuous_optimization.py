@@ -6,6 +6,51 @@ import os
 import cmaes
 import numpy as np
 
+#!/usr/bin/env python
+# -*- coding: utf-8 -*-
+"""
+    cv_modules.continuous_optimization
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+    Meta-class and registry for continuous optimizers used in CVModuleFactory.
+
+    This enables dynamic lookup of optimizers like 'CMAES' or 'UMDAc'
+    by name, mirroring how CVMetaClass works for CV modules.
+"""
+from cv_modules.processing_element import PEFMetaClass
+
+
+class ContinuousOptimizationMetaClass(type):
+    """
+    Registry for continuous optimization algorithms (e.g. CMA-ES, UMDAc).
+
+    Every class inheriting from ContinuousOptimizer will automatically
+    register itself under this meta-class, so that it can be retrieved by
+    its string name.
+    """
+
+    _registry = {}
+
+    def __init__(cls, clsname, bases, methods):
+        super().__init__(clsname, bases, methods)
+        ContinuousOptimizationMetaClass._registry[cls.__name__] = cls
+
+    @staticmethod
+    def get(class_name):
+        """
+        Retrieve an optimizer class by its string name.
+
+        Example:
+            optimizer_cls = ContinuousOptimizationMetaClass.get("CMAES")
+            opt = optimizer_cls(n_params=100)
+        """
+        try:
+            return ContinuousOptimizationMetaClass._registry[class_name]
+        except KeyError:
+            raise ValueError(
+                f"Optimizer '{class_name}' not found. "
+                f"Available optimizers: {list(ContinuousOptimizationMetaClass._registry.keys())}"
+            )
 
 class ContinuousOptimizer():
     """
@@ -105,7 +150,7 @@ class UMDAc(EDA):
                 f.write("[UMDAc] {}\n".format(msg))
 
 
-class CMAES(EDA):
+class CMAES(EDA, metaclass=ContinuousOptimizationMetaClass):
     """Wrapper for CMA-ES"""
 
     def __init__(self, n_params, lambda_=None):

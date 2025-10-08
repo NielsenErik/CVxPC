@@ -27,6 +27,14 @@
     "seed": 90,
     "filter_sizes": [15, 21],
 
+    "ge":{
+        "pop_size": 2,
+        "genome_len": 96,
+        "crossover_rate": 0.9,
+        "mutation_rate": 0.05,
+        "elite_k": 2
+    },
+
     "execution_mode": "train"
     
 

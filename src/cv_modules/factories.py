@@ -10,9 +10,11 @@
     :license: MIT, see LICENSE for more details.
 """
 import pickle
-from common import CVMetaClass
-from processing_element import ProcessingElementFactory, PEFMetaClass
-from continuous_optimization import ContinuousOptimizationMetaClass
+from cv_modules.common import CVMetaClass
+from cv_modules.processing_element import ProcessingElementFactory, PEFMetaClass
+from cv_modules.continuous_optimization import ContinuousOptimizationMetaClass
+from cv_modules.convolution import ConvolutionModule
+
 
 
 class CVModuleFactory(ProcessingElementFactory, metaclass=PEFMetaClass):

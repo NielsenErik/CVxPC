@@ -11,7 +11,7 @@
 """
 import torch
 import numpy as np
-from common import CVMetaClass, CVProcessingElement
+from cv_modules.common import CVMetaClass, CVProcessingElement
 
 
 class ConvolutionModule(CVProcessingElement, metaclass=CVMetaClass):
@@ -129,6 +129,42 @@ class ConvolutionModule(CVProcessingElement, metaclass=CVMetaClass):
             filters.append(new_filter)
 
         return ConvolutionModule(filters, device)
+    
+    def get_output(self, input_, return_map=False):
+        """
+        Returns either:
+        - (x, y) coordinates of max activation for each filter (default)
+        - or full convolution maps if return_map=True
+
+        Args:
+            input_ (ndarray): Input image, shape (C, H, W)
+            return_map (bool): If True, return full conv maps instead of coordinates
+
+        Returns:
+            np.ndarray: Either (2*K,) coordinate vector or (K, H, W) map tensor
+        """
+        X = torch.tensor(input_, dtype=torch.float32, device=self._device)
+        if X.ndim == 3:
+            X = X.unsqueeze(0)  # add batch dim
+
+        conv_output = torch.nn.functional.conv2d(X, self._filters, padding="same")
+        conv_np = conv_output.detach().cpu().numpy()[0]
+
+        # Case 1: return dense feature maps
+        if return_map:
+            return conv_np
+
+        # Case 2: return (x, y) coordinates of maxima
+        output = []
+        im_w = X.shape[-1]
+        for out in conv_np:
+            argmax = np.argmax(out)
+            x = argmax % im_w
+            y = argmax // im_w
+            output.extend([x, y])
+            self._hook(input_, x, y)
+        return np.array(output, dtype=np.float32)
+
 
     def __str__(self):
         return repr(self)

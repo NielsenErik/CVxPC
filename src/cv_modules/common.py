@@ -1,4 +1,4 @@
-from processing_element import ProcessingElement, abstractmethod
+from cv_modules.processing_element import ProcessingElement, abstractmethod
 
 
 class CVProcessingElement(ProcessingElement):
