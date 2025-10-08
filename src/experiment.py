@@ -15,6 +15,7 @@ from utils import *
 import pickle
 import torch.nn.functional as F
 from torch.utils.data import TensorDataset
+from skimage.filters import frangi
 
 from joblib import Parallel, delayed
 import json
@@ -648,8 +649,9 @@ class ExperimentPC(Experiment):
     # Feature extraction
     # --------------------------------------------------------
     def get_filter_bank(self):
-        # Minimal, crack-oriented bank
+        """Comprehensive crack-oriented filter bank."""
         filters = {
+            # Basic edge filters
             "sobel_x": np.array([[-1, 0, 1],
                                  [-2, 0, 2],
                                  [-1, 0, 1]], np.float32),
@@ -662,12 +664,21 @@ class ExperimentPC(Experiment):
             "sharpen": np.array([[ 0, -1,  0],
                                  [-1,  5, -1],
                                  [ 0, -1,  0]], np.float32),
-            "gauss3": (cv2.getGaussianKernel(3, 0.8) @ cv2.getGaussianKernel(3, 0.8).T).astype(np.float32),
+            "gauss3": (cv2.getGaussianKernel(3, 0.8) @
+                       cv2.getGaussianKernel(3, 0.8).T).astype(np.float32),
         }
+
+        # Directional Gabor filters
+        for theta in np.linspace(0, np.pi, 6, endpoint=False):
+            gabor = cv2.getGaborKernel((9, 9), 3.0, theta, 5.0, 0.5, 0, ktype=cv2.CV_32F)
+            filters[f"gabor_{int(theta * 180 / np.pi)}"] = gabor
+
         return filters
 
+    # --------------------------------------------------------
+    # Conv filter tensor building and caching
+    # --------------------------------------------------------
     def _build_filter_tensor_once(self, filters, device="cpu"):
-        """Build and cache the conv filter tensor (repeat over RGB channels) once."""
         if self.cached_filter_tensor is not None:
             return self.cached_filter_tensor
 
@@ -678,51 +689,47 @@ class ExperimentPC(Experiment):
         def pad_to(k, H, W):
             out = np.zeros((H, W), np.float32)
             h, w = k.shape
-            y0 = (H - h) // 2
-            x0 = (W - w) // 2
-            out[y0:y0+h, x0:x0+w] = k
+            y0, x0 = (H - h) // 2, (W - w) // 2
+            out[y0:y0 + h, x0:x0 + w] = k
             return out
 
         filt_padded = [pad_to(k, max_h, max_w) for k in filt_list]
-        filt_tensor = torch.from_numpy(np.stack(filt_padded)).float().unsqueeze(1)  # (K,1,H,W)
-        filt_tensor = filt_tensor.repeat(1, 3, 1, 1).to(device)  # (K,3,H,W)
+        filt_tensor = torch.from_numpy(np.stack(filt_padded)).float().unsqueeze(1)
+        filt_tensor = filt_tensor.repeat(1, 3, 1, 1).to(device)
         self.cached_filter_tensor = filt_tensor
         return self.cached_filter_tensor
 
+    # --------------------------------------------------------
+    # Convolutional feature computation
+    # --------------------------------------------------------
     def compute_conv_features(self, images, filters, device="cpu"):
-        """Apply a bank of conv filters to a batch of images (B,H,W,3 or B,3,H,W)."""
         if isinstance(images, list):
             images = torch.from_numpy(np.stack(images)).float()
         elif isinstance(images, np.ndarray):
             images = torch.from_numpy(images).float()
 
-        # Ensure NCHW with 3 channels
+        # Normalize to BCHW (3 channels)
         if images.ndim != 4:
             raise ValueError(f"Expected 4D images, got {images.shape}")
         if images.shape[1] != 3 and images.shape[-1] == 3:
-            images = images.permute(0, 3, 1, 2)  # BHWC -> BCHW
+            images = images.permute(0, 3, 1, 2)
         elif images.shape[1] not in (1, 3):
-            # expand 1-channel grayscale to 3-ch for filtering consistency
-            if images.shape[1] != 3 and images.shape[1] == 1:
+            if images.shape[1] == 1:
                 images = images.repeat(1, 3, 1, 1)
+            elif images.shape[-1] in (1, 3):
+                images = images.permute(0, 3, 1, 2)
             else:
-                # if CHW but C not 1/3, try last dim as channel
-                if images.shape[-1] in (1, 3):
-                    images = images.permute(0, 3, 1, 2)
-                else:
-                    raise ValueError(f"Unexpected image shape: {tuple(images.shape)}")
+                raise ValueError(f"Unexpected image shape: {tuple(images.shape)}")
 
         images = images.to(device)
         filt_tensor = self._build_filter_tensor_once(filters, device=device)
-        # depthwise cross-channel conv: sum over 3 input channels because K has in_channels=3
         conv = F.conv2d(images, filt_tensor, padding="same")  # (B, K, H, W)
         return conv
 
+    # --------------------------------------------------------
+    # Multi-scale pooling
+    # --------------------------------------------------------
     def multi_scale_pooling(self, feat_maps, pool_sizes=(3, 7, 15), modes=("avg", "max")):
-        """
-        feat_maps: torch.Tensor (B, C, H, W)
-        Returns: torch.Tensor (B, C * len(pool_sizes) * len(modes), H, W)
-        """
         pooled = []
         for k in pool_sizes:
             if k <= 1:
@@ -737,34 +744,34 @@ class ExperimentPC(Experiment):
                 pooled.append(out)
         return torch.cat(pooled, dim=1) if pooled else feat_maps
 
+    # --------------------------------------------------------
+    # Handcrafted features
+    # --------------------------------------------------------
     def get_handcrafted_features(self, images, n_jobs=8):
-        """Compute handcrafted features for images in parallel across CPU cores."""
+        """Compute handcrafted features for images in parallel."""
         def process_one(img):
-            # Accept (H,W), (H,W,3), (3,H,W)
             if isinstance(img, torch.Tensor):
                 img = img.detach().cpu().numpy()
             img = img.astype(np.float32)
-
-            # Normalize to [0,1] if looks like uint8 scale
             if img.max() > 1.0:
-                img = img / 255.0
+                img /= 255.0
 
-            # Ensure HWC
-            if img.ndim == 2:  # gray H,W
-                img_hwc = np.stack([img, img, img], axis=-1)
+            # Normalize to HWC
+            if img.ndim == 2:
+                img_hwc = np.stack([img] * 3, axis=-1)
             elif img.ndim == 3 and img.shape[0] == 3 and img.shape[-1] != 3:
-                img_hwc = np.transpose(img, (1, 2, 0))  # CHW -> HWC
+                img_hwc = np.transpose(img, (1, 2, 0))
             elif img.ndim == 3 and img.shape[-1] == 3:
                 img_hwc = img
             else:
-                raise ValueError(f"Unexpected image shape in process_one: {img.shape}")
+                raise ValueError(f"Unexpected image shape: {img.shape}")
 
-            # Gray
-            gray = cv2.cvtColor((img_hwc * 255).astype(np.uint8), cv2.COLOR_RGB2GRAY).astype(np.float32) / 255.0
-
-            # Simple color features (Lab + HSV)
-            lab = cv2.cvtColor((img_hwc * 255).astype(np.uint8), cv2.COLOR_RGB2LAB).astype(np.float32) / 255.0
-            hsv = cv2.cvtColor((img_hwc * 255).astype(np.uint8), cv2.COLOR_RGB2HSV).astype(np.float32) / 255.0
+            gray = cv2.cvtColor((img_hwc * 255).astype(np.uint8),
+                                cv2.COLOR_RGB2GRAY).astype(np.float32) / 255.0
+            lab = cv2.cvtColor((img_hwc * 255).astype(np.uint8),
+                               cv2.COLOR_RGB2LAB).astype(np.float32) / 255.0
+            hsv = cv2.cvtColor((img_hwc * 255).astype(np.uint8),
+                               cv2.COLOR_RGB2HSV).astype(np.float32) / 255.0
 
             feats = [
                 gray,
@@ -775,14 +782,25 @@ class ExperimentPC(Experiment):
                 cv2.Laplacian(gray, cv2.CV_32F),
             ]
 
-            # Gabor (OpenCV kernel -> fast, GIL-free)
+            # Gabor filters (4 orientations)
             for theta in [0, np.pi / 4, np.pi / 2, 3 * np.pi / 4]:
                 kernel = cv2.getGaborKernel((9, 9), 2.0, theta, 4.0, 0.5, 0, ktype=cv2.CV_32F)
                 feats.append(cv2.filter2D(gray, cv2.CV_32F, kernel))
 
-            return np.stack(feats, axis=0).astype(np.float32)  # (C, H, W)
+            # Optional Frangi (line enhancement)
+            # if self.use_frangi:
+            frangi_resp = frangi(gray, sigmas=(1, 5), scale_step=2,
+                                    beta=0.5)
+            feats.append(frangi_resp.astype(np.float32))
 
-        # Parallel extraction
+            # Optional High-pass
+            # if self.use_highpass:
+            blurred = cv2.GaussianBlur(gray, (0, 0), 5)
+            highpass = cv2.subtract(gray, blurred)
+            feats.append(highpass.astype(np.float32))
+
+            return np.stack(feats, axis=0).astype(np.float32)
+
         workers = min(n_jobs if n_jobs else multiprocessing.cpu_count(), 16)
         print(f"⚙️ Using {workers} CPU workers for handcrafted feature extraction...")
         feats_list = Parallel(n_jobs=workers, backend="loky", verbose=10)(
@@ -791,21 +809,28 @@ class ExperimentPC(Experiment):
         feats = np.stack(feats_list, axis=0)  # (B, C, H, W)
 
         # Conv bank (batched)
-        conv_feats = self.compute_conv_features(images, self.get_filter_bank(), device=self.device)  # torch (B,K,H,W)
+        conv_feats = self.compute_conv_features(images, self.get_filter_bank(), device=self.device)
         conv_feats = conv_feats.detach().cpu().numpy()
-        base_feats = np.concatenate([feats, conv_feats], axis=1)  # (B, C_total, H, W)
 
-        # Multi-scale pooling
+        base_feats = np.concatenate([feats, conv_feats], axis=1)
         base_tensor = torch.from_numpy(base_feats).float().to(self.device)
-        pooled_feats = self.multi_scale_pooling(base_tensor, pool_sizes=self.filter_sizes, modes=("avg", "max"))
+
+        pooled_feats = self.multi_scale_pooling(base_tensor,
+                                                pool_sizes=self.filter_sizes,
+                                                modes=("avg", "max"))
         pooled_feats = pooled_feats.cpu().numpy()
 
         return np.concatenate([base_feats, pooled_feats], axis=1)
 
+    # --------------------------------------------------------
+    # Public API
+    # --------------------------------------------------------
     def get_feature_tensor(self, images):
         if self.feature_extractor == "handcrafted":
             return self.get_handcrafted_features(images, n_jobs=self.n_cpus)
-        raise ValueError(f"Unknown feature extractor {self.feature_extractor}")
+        else:
+            raise ValueError(f"Unknown feature extractor {self.feature_extractor}")
+
 
     # --------------------------------------------------------
     # DataLoaders

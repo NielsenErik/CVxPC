@@ -9,10 +9,10 @@
     "save_path": "models/",
     "validation_split": 0.2,
     "feature_extractor": "handcrafted",
-    "epochs": 2,
+    "epochs": 10,
     "batch_size": 8,
     "sample_size": 50,
-    "test_size": 100,
+    "test_size": 10,
     "resize_size": [
         256,
         256

@@ -124,7 +124,7 @@ class PCBuilder:
             if isinstance(n, SumNode):
                 params.append(n.weights)
             elif isinstance(n, InputNode):
-                params.extend([n.mu, n.log_sigma, n.log_nu, n.logits])
+                params.extend([n.mu, n.log_sigma, n.log_nu, n.logits, n.gate])
         self.pc.params = params
         return root
 
