@@ -234,7 +234,17 @@ class GEOptimizer:
         balance = (1.0 / counts)
         balance = balance / balance.sum()
         criterion = DiceCELoss(pos_weight=balance.to(self.device)).to(self.device)
-        x, y = inputs.to(self.device), labels.to(self.device)
+        split = int(len(inputs) * 0.8)
+        # shuffle inputs and label pairs
+
+        rand_perm = torch.randperm(len(inputs))
+        inputs, labels = inputs[rand_perm], labels[rand_perm]
+
+        x, y = inputs[:split], labels[:split]
+        x, y = x.to(self.device), y.to(self.device)
+        x_val, y_val = inputs[split:], labels[split:]
+        x_val, y_val = x_val.to(self.device), y_val.to(self.device)
+        
         for _ in range(train_steps):
             optimizer.zero_grad()
             logits = pc.evaluate(x)
@@ -243,8 +253,8 @@ class GEOptimizer:
             optimizer.step()
 
         with torch.no_grad():
-            logits = pc.evaluate(x)
-            val_loss = criterion(logits, y).item()
+            logits = pc.evaluate(x_val)
+            val_loss = criterion(logits, y_val).item()
         return val_loss, pc
 
     def evaluate_population(self, population, inputs, labels, n_classes=2, train_steps=50, lr=1e-2):
