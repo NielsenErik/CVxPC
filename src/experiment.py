@@ -61,6 +61,7 @@ class Experiment:
         self.resize_size = self.config.get("resize_size", [256, 256])
         self.learning_rate = self.config.get("learning_rate", 0.001)
         self.threshold = self.config.get("threshold", 0.5)
+        self.n_classes = self.config.get("n_classes", 2)
         
         self.epochs = self.config.get("epochs", 10)
         self.model = None
@@ -79,29 +80,43 @@ class Experiment:
         pass
 
     def set_dataset(self,train_path, test_path=None):
-        self.images_path = train_path + "/images/"
-        self.ground_truth_path = train_path + "/masks/"        
-        self.data = CrackDataset(self.images_path, self.ground_truth_path, augmentation_percentage=0.1,sample_size=self.sample_size, resize_size=(self.resize_size[0], self.resize_size[1]))     
+
         if self.execution_mode == "train":
-            if self.validation_split > 0:
-                split_idx = int((1 - self.validation_split) * len(self.data))
-                self.train_data = torch.utils.data.Subset(self.data, list(range(0, split_idx)))
-                self.val_data = torch.utils.data.Subset(self.data, list(range(split_idx, len(self.data))))
-                print_info(f"Training samples: {len(self.train_data)}, Validation samples: {len(self.val_data)}")
-            else:
-                self.train_data = self.data
-                self.val_data = None
-                print_info(f"Training samples: {len(self.train_data)}")
-        if test_path is not None:
-            self.test_images_path = test_path + "/images/"
-            self.test_ground_truth_path = test_path + "/masks/"
-            self.test_data = CrackDataset(self.test_images_path, self.test_ground_truth_path, augmentation_percentage=0.0,sample_size=self.test_size, resize_size=(self.resize_size[0], self.resize_size[1]))
+            self.images_path = train_path + "/images/"
+            self.ground_truth_path = train_path + "/masks/"        
+            self.data = CrackDataset(self.images_path, self.ground_truth_path, augmentation_percentage=0.1,sample_size=self.sample_size, resize_size=(self.resize_size[0], self.resize_size[1]))     
+            if self.execution_mode == "train":
+                if self.validation_split > 0:
+                    split_idx = int((1 - self.validation_split) * len(self.data))
+                    self.train_data = torch.utils.data.Subset(self.data, list(range(0, split_idx)))
+                    self.val_data = torch.utils.data.Subset(self.data, list(range(split_idx, len(self.data))))
+                    print_info(f"Training samples: {len(self.train_data)}, Validation samples: {len(self.val_data)}")
+                else:
+                    self.train_data = self.data
+                    self.val_data = None
+                    print_info(f"Training samples: {len(self.train_data)}")
+            if test_path is not None:
+                self.test_images_path = test_path + "/images/"
+                self.test_ground_truth_path = test_path + "/masks/"
+                self.test_data = CrackDataset(self.test_images_path, self.test_ground_truth_path, augmentation_percentage=0.0,sample_size=self.test_size, resize_size=(self.resize_size[0], self.resize_size[1]))
+                print_info(f"Test samples: {len(self.test_data)}")
+            self.experiment_dict["dataset_size"] = {
+                "train": len(self.data),
+                "val": len(self.val_data) if self.validation_split > 0 else 0,
+                "test": len(self.test_data) if test_path is not None else 0
+            }
+        elif self.execution_mode == "test":
+            self.images_path = test_path + "/images/"
+            self.ground_truth_path = test_path + "/masks/"
+            self.test_data = CrackDataset(self.images_path, self.ground_truth_path, augmentation_percentage=0.0,sample_size=self.test_size, resize_size=(self.resize_size[0], self.resize_size[1]))
             print_info(f"Test samples: {len(self.test_data)}")
-        self.experiment_dict["dataset_size"] = {
-            "train": len(self.data),
-            "val": len(self.val_data) if self.validation_split > 0 else 0,
-            "test": len(self.test_data) if test_path is not None else 0
-        }
+            self.experiment_dict["dataset_size"] = {
+                "test": len(self.test_data)
+            }
+
+        else:
+            raise ValueError(f"Execution mode {self.execution_mode} not supported")
+        
         with open(self.experiment_report, "a") as f:
             f.write(f"Dataset sizes: {self.experiment_dict['dataset_size']}\n")
         f.close()
@@ -190,13 +205,22 @@ class Experiment:
             return dataloader
         dataloader = DataLoader(data, batch_size=self.batch_size, shuffle=True)
         return dataloader
+    
+    def compute_pos_weight(self, masks):
+        """
+        Computes pos_weight = num_neg / num_pos for BCEWithLogitsLoss
+        from a segmentation dataset.
+        """
+        # Class balance
+        flat = masks.view(-1)
+        counts = torch.bincount(flat, minlength=self.n_classes).float()
+        counts[counts == 0] = 1.0
+        balance = (1.0 / counts)
+        balance = balance / balance.sum()
+        return balance
 
     @abc.abstractmethod
     def setup(self, pos_weight=1.0):
-        pass
-
-    @abc.abstractmethod
-    def compute_pos_weight(self, dataset):
         pass
 
     @abc.abstractmethod
@@ -257,25 +281,13 @@ class ExperimentDL(Experiment):
     def set_loss(self, loss):
         self.loss = loss
     
-    def compute_pos_weight(self, dataset):
-        """
-        Computes pos_weight = num_neg / num_pos for BCEWithLogitsLoss
-        from a segmentation dataset.
-        """
-        total_pos = 0
-        total_neg = 0
-        
-        for _, mask in dataset:  # assuming dataset returns (image, mask)
-            mask = mask > 0  # ensure binary (1 = foreground, 0 = background)
-            total_pos += mask.sum().item()
-            total_neg += mask.numel() - mask.sum().item()
-        
-        if total_pos == 0:
-            raise ValueError("No positive pixels found in dataset!")
-        
-        pos_weight = total_neg / total_pos
-        return torch.tensor([pos_weight], dtype=torch.float32)
-
+    
+    def get_model_size_kb(self,model: torch.nn.Module):
+        """Return model size in kilobytes (KB)."""
+        param_size = sum(p.numel() * p.element_size() for p in model.parameters())
+        buffer_size = sum(b.numel() * b.element_size() for b in model.buffers())
+        total_size_bytes = param_size + buffer_size
+        return total_size_bytes / 1024  # Convert to KB
     # ----------------------------
     # Training loop
     # ----------------------------
@@ -310,8 +322,8 @@ class ExperimentDL(Experiment):
                 optimizer.step()
 
                 epoch_loss += loss.item()
-                epoch_dice += self.dice_coef(outputs, masks)
-                epoch_iou  += self.iou_score(outputs, masks)
+                epoch_dice += self.dice_coef(outputs, masks).item()
+                epoch_iou  += self.iou_score(outputs, masks).item()
                 epochs_cliou = self.cl_iou_score(outputs, masks)
 
             train_loss = epoch_loss / len(train_loader)
@@ -331,8 +343,8 @@ class ExperimentDL(Experiment):
                         images, masks = images.to(device), masks.to(device)
                         outputs = model(images)
                         val_loss += loss_function(outputs, masks).item()
-                        val_dice += self.dice_coef(outputs, masks)
-                        val_iou  += self.iou_score(outputs, masks)
+                        val_dice += self.dice_coef(outputs, masks).item()
+                        val_iou  += self.iou_score(outputs, masks).item()
                         val_cl_iou += self.cl_iou_score(outputs, masks)
 
                 val_loss /= len(val_loader)
@@ -364,12 +376,13 @@ class ExperimentDL(Experiment):
                 mlflow.log_metric("val_iou", val_iou, step=epoch)
                 mlflow.log_metric("val_cl_iou", val_cl_iou, step=epoch)
             
-        loss_df = pd.DataFrame({"train_loss": train_losses, "val_loss": val_losses, 
-                                "train_dice": train_dices, "val_dice": val_dices,
-                                "train_iou": train_ious, "val_iou": val_ious,
-                                "train_cl_iou": train_clious, "val_cl_iou": val_clious})
+        train_df = pd.DataFrame({"train_loss": train_losses, "train_dice": train_dices, "train_iou": train_ious, "train_cl_iou": train_clious})
+        train_df.to_csv(os.path.join(self.log_path, "training.csv"), index=False)
+        if val_loader:
+            val_df = pd.DataFrame({"val_loss": val_losses, "val_dice": val_dices, "val_iou": val_ious, "val_cl_iou": val_clious})
+            val_df.to_csv(os.path.join(self.log_path, "validation.csv"), index=False)
         
-        loss_df.to_csv(os.path.join(self.log_path, "training.csv"), index=False)
+        
         with open(self.experiment_report, "a") as f:
             f.write(f"Final Training Loss: {train_losses[-1]}, Dice: {train_dices[-1]}, IoU: {train_ious[-1]}, CL IoU: {train_clious[-1]}\n")
             if val_loader:
@@ -413,50 +426,65 @@ class ExperimentDL(Experiment):
         pass
 
     def show_predictions(self, model, dataset, device, num_samples=3, threshold=0.5):
-        with open(self.experiment_report, "a") as f:
-            f.write(model, "\n")
-        f.close()
+        # Save model info
         model_json = os.path.join(self.log_path, "model_info.json")
         json.dump(model.info(), open(model_json, "w"), indent=4)
+        model_memory = self.get_model_size_kb(model)
+        with open(self.experiment_report, "a") as f:
+            f.write(f"Model info: {model_json}\n")
+            f.write(f"Model size: {model_memory} KB\n")
+        f.close()
 
-        for j in range(4):
-            fig, axes = plt.subplots(num_samples, 3, figsize=(10, num_samples*4))
+        
+        predictions_dir = os.path.join(self.log_path, "predictions")
+        os.makedirs(predictions_dir, exist_ok=True)
+
+        # We’ll create up to num_samples * 3 total images per grid
+        total_samples = len(dataset)
+        num_groups = total_samples // num_samples
+
+        for j in range(num_groups):
+            fig, axes = plt.subplots(3, num_samples, figsize=(4 * num_samples, 9))  # 3 rows × num_samples columns
 
             for i in range(num_samples):
-                img, gt = dataset[i*j+i]  # one sample (no batching here)
-                img = img.unsqueeze(0).to(device)  # add batch dim
-                gt = gt.squeeze().cpu().numpy()
+                idx = j * num_samples + i
+                if idx >= total_samples:
+                    # Hide unused axes if dataset doesn't divide evenly
+                    for row in range(3):
+                        axes[row, i].axis("off")
+                    continue
+
+                img, gt = dataset[idx]
+                img = img.unsqueeze(0).to(device)
+                gt_np = gt.squeeze().cpu().numpy()
 
                 # Prediction
                 with torch.no_grad():
-                    pred = model(img).cpu().squeeze().numpy()
-                    prob = torch.sigmoid(torch.tensor(pred)).numpy()
-                # Threshold prediction (convert probability to binary mask)
+                    pred = model(img).cpu().squeeze()
+                    prob = torch.sigmoid(pred).numpy()
                 pred_mask = (prob > threshold).astype("uint8")
-                # Convert back image for plotting
+
+                # Convert input image for plotting
                 img_np = img.squeeze().permute(1, 2, 0).cpu().numpy()
 
-                # Debug
-                print("Pred:", pred.min(), pred.max(), pred.mean())
-                print("Prob:", prob.min(), prob.max(), prob.mean())
-                print("Pred Mask:", pred_mask.min(), pred_mask.max(), pred_mask.mean())
+                # Row 1: Input
+                axes[0, i].imshow(img_np)
+                axes[0, i].set_title(f"Input {idx}")
+                axes[0, i].axis("off")
 
-                # Plot: Input | Ground Truth | Prediction
-                axes[i, 0].imshow(img_np)
-                axes[i, 0].set_title("Input Image")
-                axes[i, 0].axis("off")
+                # Row 2: Ground Truth
+                axes[1, i].imshow(gt_np, cmap="gray")
+                axes[1, i].set_title(f"Ground Truth {idx}")
+                axes[1, i].axis("off")
 
-                axes[i, 1].imshow(gt, cmap="gray")
-                axes[i, 1].set_title("Ground Truth")
-                axes[i, 1].axis("off")
-
-                axes[i, 2].imshow(pred_mask, cmap="cool")
-                axes[i, 2].set_title("Prediction")
-                axes[i, 2].axis("off")
+                # Row 3: Prediction
+                axes[2, i].imshow(pred_mask, cmap="cool")
+                axes[2, i].set_title(f"Prediction {idx}")
+                axes[2, i].axis("off")
 
             plt.tight_layout()
-            plt.savefig(os.path.join(self.log_path, f"prediction_{j}.png"))
-            plt.show()
+            plt.savefig(os.path.join(predictions_dir, f"predictions_grid_{j}.png"))
+            plt.close(fig)
 
     @abc.abstractmethod
     def save_model(self, model_name="model"):
@@ -474,7 +502,11 @@ class ExperimentDL(Experiment):
         if self.execution_mode == "train":
             self.set_dataset(self.data_path, self.test_path)
             # get the class imbalance ratio
-            pos_weight = self.compute_pos_weight(self.data)
+            images = [img for img, mask in self.train_data]
+            masks = np.array([self.train_data[i][1] for i in range(len(self.train_data))])
+            masks = torch.from_numpy(masks).long().to(self.device)
+            pos_weight = self.compute_pos_weight(masks)
+            pos_weight = pos_weight[1]/pos_weight[0]
             self.setup(pos_weight=pos_weight)
             self.model = self.train(self.model, train_data=self.train_data, val_data=self.val_data, loss_function=self.loss, optimizer=self.optimizer, device=self.device, epochs=self.epochs, batch_size=self.batch_size)
             self.save_model(self.model_name)
@@ -818,13 +850,7 @@ class ExperimentPC(Experiment):
         if val_target is not None and val_target.dim() == 4 and val_target.size(1) == 1:
             val_target = val_target.squeeze(1)
 
-        # Class balance
-        flat = target.view(-1)
-        counts = torch.bincount(flat, minlength=self.n_classes).float()
-        counts[counts == 0] = 1.0
-        balance = (1.0 / counts)
-        balance = balance / balance.sum()
-        print("Class balance weights:", balance.cpu().numpy())
+        balance = self.compute_pos_weight(target)
 
         # Loss
         self.criterion = DiceCELoss(pos_weight=balance.detach().clone().to(self.device)).to(self.device)
@@ -1011,19 +1037,51 @@ class ExperimentPC(Experiment):
 
         predictions_path = os.path.join(self.log_path, "predictions")
         os.makedirs(predictions_path, exist_ok=True)
+
         imgs = [self.test_data[i][0] for i in range(len(self.test_data))]
 
-        for enum, (img, inputs, gt) in enumerate(zip(imgs, self.test_inputs, self.test_ground_truth)):
-            mask = model.predict(inputs)
-            img_np = img.squeeze().permute(1, 2, 0).cpu().numpy()
-            gt_np = gt.squeeze().cpu().numpy()
+        # Process images in groups of 3
+        group_size = 3
+        for start_idx in range(0, len(self.test_inputs), group_size):
+            end_idx = min(start_idx + group_size, len(self.test_inputs))
+            group = list(zip(
+                imgs[start_idx:end_idx],
+                self.test_inputs[start_idx:end_idx],
+                self.test_ground_truth[start_idx:end_idx]
+            ))
 
-            import matplotlib.pyplot as plt
-            plt.figure(figsize=(12, 6))
-            plt.subplot(1, 3, 1); plt.imshow(img_np); plt.title("Input Image"); plt.axis("off")
-            plt.subplot(1, 3, 2); plt.imshow(gt_np, cmap="gray"); plt.title("Ground Truth"); plt.axis("off")
-            plt.subplot(1, 3, 3); plt.imshow(mask[0][0], cmap="cool"); plt.title("Prediction"); plt.axis("off")
-            plt.savefig(os.path.join(predictions_path, f"prediction_{enum}.png")); plt.close()
+            fig, axes = plt.subplots(3, group_size, figsize=(4 * group_size, 9))
+
+            for col, (img, inputs, gt) in enumerate(group):
+                mask = model.predict(inputs)
+                img_np = img.squeeze().permute(1, 2, 0).cpu().numpy()
+                gt_np = gt.squeeze().cpu().numpy()
+                mask_np = mask[0][0] if isinstance(mask, (list, tuple)) else mask.squeeze()
+
+                # Row 1 → Input
+                axes[0, col].imshow(img_np)
+                axes[0, col].set_title(f"Input {start_idx + col}")
+                axes[0, col].axis("off")
+
+                # Row 2 → Ground Truth
+                axes[1, col].imshow(gt_np, cmap="gray")
+                axes[1, col].set_title(f"Ground Truth {start_idx + col}")
+                axes[1, col].axis("off")
+
+                # Row 3 → Prediction
+                axes[2, col].imshow(mask_np, cmap="cool")
+                axes[2, col].set_title(f"Prediction {start_idx + col}")
+                axes[2, col].axis("off")
+
+            # Hide any unused columns (in case last group < 3)
+            for col in range(len(group), group_size):
+                axes[0, col].axis("off")
+                axes[1, col].axis("off")
+                axes[2, col].axis("off")
+
+            plt.tight_layout()
+            plt.savefig(os.path.join(predictions_path, f"predictions_{start_idx//group_size}.png"))
+            plt.close(fig)
 
         print_debugging(self.log_path)
         model.visualize(save_path=self.log_path)
@@ -1099,7 +1157,6 @@ class ExperimentGEPC(ExperimentPC):
         print_info("Dataset size:", len(self.data))
         if self.execution_mode == "train":
             self.set_algorithm()
-            self.loss_function = BCEDiceLoss()
 
             self.feature_tensor = self.get_feature_tensor(np.array([self.train_data[i][0] for i in range(len(self.train_data))]))
             self.train_masks = np.array([self.train_data[i][1] for i in range(len(self.train_data))])

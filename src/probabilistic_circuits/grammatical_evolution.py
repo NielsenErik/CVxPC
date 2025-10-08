@@ -7,6 +7,8 @@ from typing import List, Union
 import random, math, numpy as np, torch, tqdm
 from joblib import Parallel, delayed
 from copy import deepcopy
+import os
+from probabilistic_circuits.probabilistic_circuits import *
 
 # ============================================================
 # Tree grammar specs
