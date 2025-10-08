@@ -618,6 +618,7 @@ class ExperimentPC(Experiment):
         self.n_cpus = self.config.get("n_cpus", None)
         self.batch_size = self.config.get("batch_size", 4)
         self.learning_rate = self.config.get("learning_rate", 1e-3)
+        self.n_filters = self.config.get("n_filters", 32)
 
         # cache for conv filter bank tensor
         self.cached_filter_tensor = None
@@ -896,7 +897,7 @@ class ExperimentPC(Experiment):
             return self.get_handcrafted_features(images, n_jobs=self.n_cpus)
         elif self.feature_extractor == "cv_modules":
             cv_factory = CVModuleFactory(
-                Optimizer={"class_name": "CMAES", "kwargs": {"n_params": 128, "lambda_": 16}},
+                Optimizer={"class_name": "CMAES", "kwargs": {"n_params": self.n_filters, "lambda_": 16}},
                 CVModule={"class_name": "ConvolutionModule", "kwargs": {"n_filters": 8, "filter_sizes": 5, "device": self.device}}
             )
             return self.convolution_modules_tensor(images, cv_factory, return_maps=True, n_jobs=self.n_cpus)
