@@ -618,7 +618,7 @@ class ExperimentPC(Experiment):
         self.n_cpus = self.config.get("n_cpus", None)
         self.batch_size = self.config.get("batch_size", 4)
         self.learning_rate = self.config.get("learning_rate", 1e-3)
-        self.n_filters = self.config.get("n_filters", 32)
+        self.n_cv_modules = self.config.get("n_cv_modules", 32)
 
         # cache for conv filter bank tensor
         self.cached_filter_tensor = None
@@ -868,26 +868,24 @@ class ExperimentPC(Experiment):
         if not isinstance(modules, list):
             modules = [modules]
 
-        feature_list = []
+        # --- Define per-module computation
+        def _process_module(module):
+            img_features = []
+            for img in images:
+                img_features.append(module.get_output(img, return_map=return_maps))
 
-        # --- Parallelized computation
-        for module in modules:
-            # Process all images in parallel
-            def _process(img):
-                return module.get_output(img, return_map=return_maps)
+            feats = np.concatenate(img_features, axis=0)
+            return feats
+        # --- Run modules in parallel
+        feature_list = Parallel(n_jobs=n_jobs, verbose=verbose)(
+            delayed(_process_module)(module) for module in modules
+        )
 
-            module_feats = Parallel(n_jobs=n_jobs, backend="threading", verbose=verbose)(
-                delayed(_process)(img) for img in images
-            )
-            module_feats = np.stack(module_feats, axis=0)  # (B, K, H, W) or (B, 2K)
-            feature_list.append(module_feats)
+        # --- concat across modules → (B, λ, H, W)
+        feats = np.stack(feature_list, axis=1)
+        # assert feats.shape[:2] == (len(images), _lambda), f"Unexpected shape: {feats.shape}"
 
-        # --- Concatenate across modules
-        feats = np.concatenate(feature_list, axis=1)
-
-        # --- Convert to torch tensor and keep on target device
         print(f"✅ convolution_modules_tensor(): generated {feats.shape}")
-
         return feats
 
 
@@ -897,7 +895,7 @@ class ExperimentPC(Experiment):
             return self.get_handcrafted_features(images, n_jobs=self.n_cpus)
         elif self.feature_extractor == "cv_modules":
             cv_factory = CVModuleFactory(
-                Optimizer={"class_name": "CMAES", "kwargs": {"n_params": self.n_filters, "lambda_": 16}},
+                Optimizer={"class_name": "CMAES", "kwargs": {"n_params": 128, "lambda_": self.n_cv_modules}},
                 CVModule={"class_name": "ConvolutionModule", "kwargs": {"n_filters": 8, "filter_sizes": 5, "device": self.device}}
             )
             return self.convolution_modules_tensor(images, cv_factory, return_maps=True, n_jobs=self.n_cpus)

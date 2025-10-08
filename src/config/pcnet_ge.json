@@ -14,7 +14,7 @@
 
     "epochs": 20,
     "batch_size": 16,
-    "sample_size": 500,
+    "sample_size": 50,
     "test_size": 20,
     "resize_size": [
         128,
@@ -26,7 +26,7 @@
     "max_branching": 3,
     "seed": 90,
     "filter_sizes": [15, 21],
-    "n_filters": 64,
+    "n_cv_modules ": 64,
 
     "ge":{
         "generations": 10,
