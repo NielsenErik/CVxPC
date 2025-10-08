@@ -234,7 +234,6 @@ class GEOptimizer:
         balance = (1.0 / counts)
         balance = balance / balance.sum()
         criterion = DiceCELoss(pos_weight=balance.to(self.device)).to(self.device)
-        print("Train")
         x, y = inputs.to(self.device), labels.to(self.device)
         for _ in range(train_steps):
             optimizer.zero_grad()
@@ -249,8 +248,6 @@ class GEOptimizer:
         return val_loss, pc
 
     def evaluate_population(self, population, inputs, labels, n_classes=2, train_steps=50, lr=1e-2):
-        inputs.share_memory_()
-        labels.share_memory_()
         """Parallel evaluation of population genomes."""
         results = Parallel(n_jobs=self.n_jobs, verbose=0)(
             delayed(self._evaluate_single)(genome, inputs, labels, n_classes, train_steps, lr, i)
