@@ -5,8 +5,8 @@
     "device": "cpu",
     "n_cpus": 8,
 
-    "data_path": "data/kaggle/crack_segmentation_dataset/train",
-    "test_path": "data/kaggle/crack_segmentation_dataset/test",
+    "data_path": "data/CrackSeg9k/train",
+    "test_path": "data/CrackSeg9k/test",
     "save_path": "models/",
     "validation_split": 0.2,
 
@@ -14,8 +14,8 @@
 
     "epochs": 20,
     "batch_size": 16,
-    "sample_size": 1000,
-    "test_size": 100,
+    "sample_size": 500,
+    "test_size": 20,
     "resize_size": [
         128,
         128
@@ -36,7 +36,7 @@
         "crossover_rate": 0.9,
         "mutation_rate": 0.05,
         "elite_k": 2,
-        "train_split": 0.01
+        "train_split": 0.05
     },
 
     "execution_mode": "train"

@@ -27,6 +27,7 @@
     "seed": 90,
     "filter_sizes": [15, 21],
     "n_cv_modules ": 64,
+    "n_filters": 4,
 
     "execution_mode": "train"
     
