@@ -1239,7 +1239,7 @@ class ExperimentPC(Experiment):
 class ExperimentGEPC(ExperimentPC):
     def __init__(self, config):
         super().__init__(config)
-        self.ge_config = self.config.get("ge_config", {"pop_size": 2, "genome_len": 96, "crossover_rate": 0.9, "mutation_rate": 0.05, "elite_k": 2})
+        self.ge_config = self.config.get("ge", {"generations": 10, "pop_size": 8, "genome_len": 96, "crossover_rate": 0.9, "mutation_rate": 0.05, "elite_k": 2, "train_split": 0.05})
         self.ge = GEOptimizer(
                     pop_size=self.ge_config["pop_size"],
                     genome_len=self.ge_config["genome_len"],
@@ -1262,10 +1262,10 @@ class ExperimentGEPC(ExperimentPC):
             self.val_feature_tensor = self.get_feature_tensor(np.array([self.val_data[i][0] for i in range(len(self.val_data))]))
             self.val_masks = np.array([self.val_data[i][1] for i in range(len(self.val_data))]) if self.validation_split > 0 else None
 
-            ge_train_size = int(0.1 * len(self.train_data))
+            ge_train_size = int(self.ge_config["train_split"] * len(self.train_data))
             ge_X_train = torch.from_numpy(self.feature_tensor).float().to(self.device)[:ge_train_size]
             ge_Y_train = torch.from_numpy(self.train_masks).long().to(self.device)[:ge_train_size]
-            best_pc, best_genome, history = self.ge.evolve(ge_X_train, ge_Y_train, self.epochs)
+            best_pc, best_genome, history = self.ge.evolve(ge_X_train, ge_Y_train, self.ge_config["generations"])
             print_info("Best genome:", best_genome)
             print_info("Best PC:", str(best_pc))
             self.model = best_pc

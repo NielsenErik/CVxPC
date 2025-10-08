@@ -225,7 +225,8 @@ class GEOptimizer:
                    max_depth=self.max_depth, max_branching=self.max_branching)
         builder = PCBuilder(pc)
         builder.build_classifier(trees, inputs)
-
+        if labels.dim() == 4 and labels.size(1) == 1:
+            labels = labels.squeeze(1)
         optimizer = torch.optim.Adam(pc.params, lr=lr)
         flat = labels.view(-1)
         counts = torch.bincount(flat, minlength=n_classes).float()
@@ -249,11 +250,12 @@ class GEOptimizer:
 
     def evaluate_population(self, population, inputs, labels, n_classes=2, train_steps=50, lr=1e-2):
         """Parallel evaluation of population genomes."""
-        results = Parallel(n_jobs=self.n_jobs, backend="loky", verbose=0)(
+        results = Parallel(n_jobs=self.n_jobs, backend="threading", verbose=0)(
             delayed(self._evaluate_single)(genome, inputs, labels, n_classes, train_steps, lr, i)
             for i, genome in enumerate(population)
         )
         return results
+
 
     # ----------------------------------------------
     # Evolutionary loop
