@@ -3,7 +3,7 @@
     "experiment": "crack_segmentation",
     "algorithm": "pcnet_ge",
     "device": "cpu",
-    "n_cpus": 60,
+    "n_cpus": 80,
 
     "data_path": "data/CrackSeg9k/train",
     "test_path": "data/CrackSeg9k/test",
