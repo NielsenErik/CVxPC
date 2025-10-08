@@ -17,8 +17,8 @@
     "sample_size": 1500,
     "test_size": 100,
     "resize_size": [
-        256,
-        256
+        128,
+        128
     ],
     "input_channels": 3,
     "n_classes": 2,
@@ -26,7 +26,7 @@
     "max_branching": 3,
     "seed": 90,
     "filter_sizes": [15, 21],
-    "n_filters": 64,
+    "n_filters": 81,
 
     "ge":{
         "generations": 10,

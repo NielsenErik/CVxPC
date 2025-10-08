@@ -14,8 +14,8 @@
     "sample_size": 1500,
     "test_size": 100,
     "resize_size": [
-        256,
-        256
+        128,
+        128
     ],
     "input_channels": 3,
     "n_classes": 2,
@@ -26,6 +26,7 @@
         15,
         21
     ],
+    "n_filters": 81,
     "ge": {
         "generations": 10,
         "pop_size": 10,
