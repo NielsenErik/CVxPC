@@ -23,6 +23,7 @@
     "max_branching": 3,
     "seed": 88,
     "n_cv_modules": 64,
+    "n_filters": 4,
 
     "execution_mode": "train"
     
