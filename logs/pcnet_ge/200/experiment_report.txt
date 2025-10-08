@@ -1,113 +1,89 @@
-Experiment Configurations: {'mlflow': None, 'experiment': 'crack_segmentation', 'algorithm': 'pcnet_ge', 'device': 'cpu', 'n_cpus': 8, 'data_path': 'data/kaggle/crack_segmentation_dataset/train', 'test_path': 'data/kaggle/crack_segmentation_dataset/test', 'save_path': 'models/', 'validation_split': 0.2, 'feature_extractor': 'cv_modules', 'epochs': 20, 'batch_size': 16, 'sample_size': 1000, 'test_size': 100, 'resize_size': [128, 128], 'input_channels': 3, 'n_classes': 2, 'max_depth': 5, 'max_branching': 3, 'seed': 200, 'filter_sizes': [15, 21], 'n_cv_modules': 16, 'n_filters': 4, 'ge': {'generations': 10, 'pop_size': 10, 'genome_len': 96, 'crossover_rate': 0.9, 'mutation_rate': 0.05, 'elite_k': 2, 'train_split': 0.01}, 'execution_mode': 'train', 'log_dir': 'logs/pcnet_ge/200'}
-Dataset sizes: {'train': 1000, 'val': 200, 'test': 100}
-Final Training Loss: 0.5524567532539367, Dice: 0.43687964618206027, IoU: 0.351259206533432, CL IoU: 0.1291787026822567
-Final Validation Loss: 0.913091914994376, Dice: 0.17822247530732835, IoU: 0.10177444240876607, CL IoU: 0.05672958280358996
-Test Loss: 0.8786171759877887, Dice: 0.2148596899850028, IoU: 0.13047375742878234, CL IoU: 0.061864553285496574
+Experiment Configurations: {'mlflow': None, 'experiment': 'crack_segmentation', 'algorithm': 'pcnet_ge', 'device': 'cpu', 'n_cpus': 8, 'data_path': 'data/kaggle/crack_segmentation_dataset/train', 'test_path': 'data/kaggle/crack_segmentation_dataset/test', 'save_path': 'models/', 'validation_split': 0.2, 'feature_extractor': 'cv_modules', 'epochs': 20, 'batch_size': 16, 'sample_size': 1500, 'test_size': 100, 'resize_size': [128, 128], 'input_channels': 3, 'n_classes': 2, 'max_depth': 5, 'max_branching': 3, 'seed': 200, 'filter_sizes': [15, 21], 'n_cv_modules': 32, 'n_filters': 4, 'ge': {'generations': 10, 'pop_size': 4, 'genome_len': 96, 'crossover_rate': 0.9, 'mutation_rate': 0.05, 'elite_k': 2, 'train_split': 0.05}, 'execution_mode': 'train', 'log_dir': 'logs/pcnet_ge/200'}
+Dataset sizes: {'train': 1500, 'val': 300, 'test': 100}
+Final Training Loss: 0.505950405995051, Dice: 0.49289615988731383, IoU: 0.40981573462486265, CL IoU: 0.18354784518480302
+Final Validation Loss: 0.7857421875, Dice: 0.4124887853860855, IoU: 0.31481256783008577, CL IoU: 0.07562843076884747
+Test Loss: 1.6645008155277796, Dice: 0.09712933323213033, IoU: 0.053936977471624105, CL IoU: 0.15453179819243296
 ─────────────────────────────────────────────
 🧠  Probabilistic Circuit Network Summary
 ─────────────────────────────────────────────
 📦 Classes: 2
-📏 Input size: torch.Size([64, 128, 128])
+📏 Input size: torch.Size([128, 128, 128])
 ⚙️  Depth: 5, Branching: 3
 💻 Device: cpu
 ─────────────────────────────────────────────
 📊 Node counts:
-  • InputNode      : 33
-  • SumNode        : 22
-  • ProductNode    : 14
+  • InputNode      : 34
+  • SumNode        : 15
+  • ProductNode    : 11
   • ClassifierNode : 1
 ─────────────────────────────────────────────
-🧩 Trainable parameters: 350
-  • InputNode      : 231
-  • SumNode        : 56
+🧩 Trainable parameters: 346
+  • InputNode      : 238
+  • SumNode        : 38
 ─────────────────────────────────────────────
-📚 Structure:Memory usage: 1.12 KB
+📚 Structure:Memory usage: 1.08 KB
 
 └─ ClassifierNode(classes=2)
    ├─ SumNode(children=2, weights=2)
-   │  ├─ ProductNode(children=2)
-   │  │  ├─ SumNode(children=3, weights=3)
-   │  │  │  ├─ InputNode(feat_6)
+   │  ├─ SumNode(children=3, weights=3)
+   │  │  ├─ InputNode(feat_51)
+   │  │  ├─ ProductNode(children=2)
    │  │  │  ├─ SumNode(children=3, weights=3)
-   │  │  │  │  ├─ InputNode(feat_6)
-   │  │  │  │  ├─ InputNode(feat_60)
-   │  │  │  │  └─ ProductNode(children=2)
-   │  │  │  │     ├─ InputNode(feat_3)
-   │  │  │  │     └─ InputNode(feat_56)
-   │  │  │  └─ SumNode(children=3, weights=3)
-   │  │  │     ├─ InputNode(feat_55)
-   │  │  │     ├─ InputNode(feat_51)
+   │  │  │  │  ├─ InputNode(feat_71)
+   │  │  │  │  ├─ ProductNode(children=2)
+   │  │  │  │  │  ├─ InputNode(feat_120)
+   │  │  │  │  │  └─ InputNode(feat_52)
+   │  │  │  │  └─ InputNode(feat_73)
+   │  │  │  └─ ProductNode(children=2)
+   │  │  │     ├─ ProductNode(children=2)
+   │  │  │     │  ├─ InputNode(feat_86)
+   │  │  │     │  └─ InputNode(feat_115)
    │  │  │     └─ ProductNode(children=2)
-   │  │  │        ├─ InputNode(feat_5)
-   │  │  │        └─ InputNode(feat_20)
-   │  │  └─ SumNode(children=2, weights=2)
-   │  │     ├─ InputNode(feat_32)
-   │  │     └─ ProductNode(children=2)
-   │  │        ├─ SumNode(children=2, weights=2)
-   │  │        │  ├─ InputNode(feat_23)
-   │  │        │  └─ InputNode(feat_13)
-   │  │        └─ ProductNode(children=2)
-   │  │           ├─ InputNode(feat_16)
-   │  │           └─ InputNode(feat_27)
-   │  └─ SumNode(children=2, weights=2)
-   │     ├─ ProductNode(children=2)
-   │     │  ├─ InputNode(feat_2)
+   │  │  │        ├─ InputNode(feat_94)
+   │  │  │        └─ InputNode(feat_46)
+   │  │  └─ InputNode(feat_72)
+   │  └─ ProductNode(children=2)
+   │     ├─ SumNode(children=2, weights=2)
+   │     │  ├─ SumNode(children=3, weights=3)
+   │     │  │  ├─ SumNode(children=2, weights=2)
+   │     │  │  │  ├─ InputNode(feat_23)
+   │     │  │  │  └─ InputNode(feat_13)
+   │     │  │  ├─ ProductNode(children=2)
+   │     │  │  │  ├─ InputNode(feat_16)
+   │     │  │  │  └─ InputNode(feat_91)
+   │     │  │  └─ SumNode(children=2, weights=2)
+   │     │  │     ├─ InputNode(feat_33)
+   │     │  │     └─ InputNode(feat_42)
    │     │  └─ ProductNode(children=2)
-   │     │     ├─ InputNode(feat_17)
+   │     │     ├─ ProductNode(children=2)
+   │     │     │  ├─ InputNode(feat_90)
+   │     │     │  └─ InputNode(feat_17)
    │     │     └─ ProductNode(children=2)
-   │     │        ├─ InputNode(feat_50)
-   │     │        └─ InputNode(feat_36)
+   │     │        ├─ InputNode(feat_114)
+   │     │        └─ InputNode(feat_100)
    │     └─ ProductNode(children=2)
    │        ├─ SumNode(children=2, weights=2)
    │        │  ├─ SumNode(children=3, weights=3)
-   │        │  │  ├─ InputNode(feat_55)
+   │        │  │  ├─ InputNode(feat_119)
    │        │  │  ├─ InputNode(feat_30)
    │        │  │  └─ InputNode(feat_11)
    │        │  └─ SumNode(children=3, weights=3)
    │        │     ├─ InputNode(feat_62)
-   │        │     ├─ InputNode(feat_2)
-   │        │     └─ InputNode(feat_44)
-   │        └─ SumNode(children=2, weights=2)
+   │        │     ├─ InputNode(feat_46)
+   │        │     └─ InputNode(feat_108)
+   │        └─ SumNode(children=3, weights=3)
    │           ├─ SumNode(children=3, weights=3)
-   │           │  ├─ InputNode(feat_19)
-   │           │  ├─ InputNode(feat_39)
-   │           │  └─ InputNode(feat_30)
-   │           └─ SumNode(children=2, weights=2)
-   │              ├─ InputNode(feat_11)
-   │              └─ InputNode(feat_48)
-   └─ SumNode(children=3, weights=3)
-      ├─ SumNode(children=3, weights=3)
-      │  ├─ InputNode(feat_58)
-      │  ├─ InputNode(feat_43)
-      │  └─ InputNode(feat_47)
-      ├─ ProductNode(children=2)
-      │  ├─ InputNode(feat_33)
-      │  └─ ProductNode(children=2)
-      │     ├─ InputNode(feat_15)
-      │     └─ SumNode(children=3, weights=3)
-      │        ├─ InputNode(feat_14)
-      │        ├─ ProductNode(children=2)
-      │        │  ├─ InputNode(feat_29)
-      │        │  └─ InputNode(feat_37)
-      │        └─ SumNode(children=2, weights=2)
-      │           ├─ InputNode(feat_6)
-      │           └─ InputNode(feat_39)
-      └─ SumNode(children=3, weights=3)
-         ├─ InputNode(feat_6)
-         ├─ SumNode(children=3, weights=3)
-         │  ├─ InputNode(feat_6)
-         │  ├─ InputNode(feat_60)
-         │  └─ ProductNode(children=2)
-         │     ├─ InputNode(feat_56)
-         │     └─ SumNode(children=3, weights=3)
-         │        ├─ InputNode(feat_2)
-         │        ├─ InputNode(feat_55)
-         │        └─ InputNode(feat_9)
-         └─ SumNode(children=2, weights=2)
-            ├─ InputNode(feat_20)
-            └─ SumNode(children=2, weights=2)
-               ├─ InputNode(feat_32)
-               └─ ProductNode(children=2)
-                  ├─ InputNode(feat_51)
-                  └─ InputNode(feat_58)
+   │           │  ├─ InputNode(feat_83)
+   │           │  ├─ InputNode(feat_103)
+   │           │  └─ InputNode(feat_94)
+   │           ├─ SumNode(children=2, weights=2)
+   │           │  ├─ InputNode(feat_75)
+   │           │  └─ InputNode(feat_48)
+   │           └─ SumNode(children=3, weights=3)
+   │              ├─ InputNode(feat_47)
+   │              ├─ InputNode(feat_121)
+   │              └─ InputNode(feat_84)
+   └─ SumNode(children=2, weights=2)
+      ├─ InputNode(feat_112)
+      └─ InputNode(feat_41)
 ─────────────────────────────────────────────
