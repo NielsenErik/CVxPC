@@ -1,0 +1,87 @@
+Experiment Configurations: {'mlflow': None, 'experiment': 'crack_segmentation', 'algorithm': 'pcnet_ge', 'device': 'cpu', 'n_cpus': 8, 'data_path': 'data/CrackSeg9k/train', 'test_path': 'data/CrackSeg9k/test', 'save_path': 'models/', 'validation_split': 0.2, 'feature_extractor': 'cv_modules', 'epochs': 2, 'batch_size': 16, 'sample_size': 50, 'test_size': 20, 'resize_size': [128, 128], 'input_channels': 3, 'n_classes': 2, 'max_depth': 5, 'max_branching': 3, 'seed': 150, 'filter_sizes': [15, 21], 'n_cv_modules': 16, 'ge': {'generations': 2, 'pop_size': 2, 'genome_len': 96, 'crossover_rate': 0.9, 'mutation_rate': 0.05, 'elite_k': 2, 'train_split': 0.05}, 'execution_mode': 'train', 'log_dir': 'logs/pcnet_ge/150'}
+Dataset sizes: {'train': 50, 'val': 10, 'test': 20}
+Final Training Loss: 1.323349396387736, Dice: 0.07022387782732646, IoU: 0.037846438586711884, CL IoU: 0.012606425521274408
+Final Validation Loss: 1.8007121086120605, Dice: 0.06893382221460342, IoU: 0.037131890654563904, CL IoU: 0.028102809563279152
+Test Loss: 1.027073860168457, Dice: 0.490007147192955, IoU: 0.46990789473056793, CL IoU: 0.057132136076688766
+─────────────────────────────────────────────
+🧠  Probabilistic Circuit Network Summary
+─────────────────────────────────────────────
+📦 Classes: 2
+📏 Input size: torch.Size([64, 128, 128])
+⚙️  Depth: 5, Branching: 3
+💻 Device: cpu
+─────────────────────────────────────────────
+📊 Node counts:
+  • InputNode      : 28
+  • SumNode        : 14
+  • ProductNode    : 12
+  • ClassifierNode : 1
+─────────────────────────────────────────────
+🧩 Trainable parameters: 272
+  • InputNode      : 196
+  • SumNode        : 34
+─────────────────────────────────────────────
+📚 Structure:Memory usage: 0.90 KB
+
+└─ ClassifierNode(classes=2)
+   ├─ SumNode(children=2, weights=2)
+   │  ├─ ProductNode(children=2)
+   │  │  ├─ SumNode(children=2, weights=2)
+   │  │  │  ├─ InputNode(feat_22)
+   │  │  │  └─ SumNode(children=3, weights=3)
+   │  │  │     ├─ InputNode(feat_6)
+   │  │  │     ├─ InputNode(feat_60)
+   │  │  │     └─ ProductNode(children=2)
+   │  │  │        ├─ InputNode(feat_55)
+   │  │  │        └─ InputNode(feat_9)
+   │  │  └─ ProductNode(children=2)
+   │  │     ├─ ProductNode(children=2)
+   │  │     │  ├─ SumNode(children=3, weights=3)
+   │  │     │  │  ├─ InputNode(feat_0)
+   │  │     │  │  ├─ InputNode(feat_30)
+   │  │     │  │  └─ InputNode(feat_46)
+   │  │     │  └─ InputNode(feat_8)
+   │  │     └─ ProductNode(children=2)
+   │  │        ├─ SumNode(children=2, weights=2)
+   │  │        │  ├─ InputNode(feat_11)
+   │  │        │  └─ InputNode(feat_49)
+   │  │        └─ SumNode(children=2, weights=2)
+   │  │           ├─ InputNode(feat_23)
+   │  │           └─ InputNode(feat_13)
+   │  └─ ProductNode(children=2)
+   │     ├─ SumNode(children=3, weights=3)
+   │     │  ├─ SumNode(children=2, weights=2)
+   │     │  │  ├─ ProductNode(children=2)
+   │     │  │  │  ├─ InputNode(feat_42)
+   │     │  │  │  └─ InputNode(feat_2)
+   │     │  │  └─ ProductNode(children=2)
+   │     │  │     ├─ InputNode(feat_26)
+   │     │  │     └─ InputNode(feat_17)
+   │     │  ├─ ProductNode(children=2)
+   │     │  │  ├─ InputNode(feat_36)
+   │     │  │  └─ ProductNode(children=2)
+   │     │  │     ├─ InputNode(feat_7)
+   │     │  │     └─ InputNode(feat_2)
+   │     │  └─ SumNode(children=3, weights=3)
+   │     │     ├─ ProductNode(children=2)
+   │     │     │  ├─ InputNode(feat_63)
+   │     │     │  └─ InputNode(feat_11)
+   │     │     ├─ SumNode(children=3, weights=3)
+   │     │     │  ├─ InputNode(feat_62)
+   │     │     │  ├─ InputNode(feat_46)
+   │     │     │  └─ InputNode(feat_44)
+   │     │     └─ SumNode(children=3, weights=3)
+   │     │        ├─ InputNode(feat_55)
+   │     │        ├─ InputNode(feat_41)
+   │     │        └─ InputNode(feat_19)
+   │     └─ InputNode(feat_30)
+   └─ SumNode(children=2, weights=2)
+      ├─ ProductNode(children=2)
+      │  ├─ InputNode(feat_54)
+      │  └─ InputNode(feat_47)
+      └─ SumNode(children=2, weights=2)
+         ├─ SumNode(children=2, weights=2)
+         │  ├─ InputNode(feat_48)
+         │  └─ InputNode(feat_41)
+         └─ InputNode(feat_33)
+─────────────────────────────────────────────

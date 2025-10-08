@@ -101,6 +101,9 @@ class InputNode(nn.Module, Node):
         # Feature name
         self.feature_name = f"feat_{feature_idx}"
 
+    def get_learnable_params(self):
+        return [self.mu, self.log_sigma, self.log_nu, self.logits, self.gate]
+
     def _log_gaussian(self, x, mu, sigma):
         return -0.5 * ((x - mu) / sigma)**2 - torch.log(sigma * (2 * np.pi)**0.5)
 
@@ -187,6 +190,9 @@ class SumNode(Node, nn.Module):
         log_w = torch.log(weights / weights.sum())
         self.weights = nn.Parameter(log_w, requires_grad=True)
         self.device = device
+
+    def get_learnable_params(self):
+        return [self.weights]
 
     def evaluate(self, x):
         """Compute log(∑_i w_i * p_i) = logsumexp(log w_i + log p_i)."""
@@ -494,9 +500,10 @@ class PCNet(ProbabilisticCircuit):
         input_nodes = self.set_input_nodes(inputs, labels)
         root = self.build_network(input_nodes)
         self.set_root(root)
-        self.params = [n.weights for n in self.get_nodes() if isinstance(n, SumNode)]
-        for i in input_nodes:
-            self.params.extend([i.mu, i.log_sigma, i.log_nu, i.logits, i.gate])
+        self.params = []
+        for n in self.get_nodes():
+            if isinstance(n, SumNode) or isinstance(n, InputNode):
+                self.params += n.get_learnable_params()
         print_configs(f"Initialized PCNet with {len(self.get_nodes())} nodes, "
                       f"{sum(p.numel() for p in self.params)} trainable parameters")
         print_info(self.info())
@@ -531,6 +538,74 @@ class PCNet(ProbabilisticCircuit):
             preds = torch.argmax(logits, dim=1, keepdim=True)
             return preds.cpu().numpy()
         
+    def save_dict(self):
+        """
+        Return a compact summary dictionary of the PCNet model.
+        This includes metadata, key stats, and memory usage in KB.
+        """
+        info = {}
+
+        # --- Basic info ---
+        info["model_type"] = self.__class__.__name__
+        info["device"] = str(self.device)
+        info["n_classes"] = self.n_classes
+        info["input_size"] = tuple(self.input_size)
+        info["max_depth"] = self.max_depth
+        info["max_branching"] = self.max_branching
+        info["seed"] = self.seed
+
+        # --- Structure statistics ---
+        nodes = list(self.get_nodes())
+        edges = list(self.get_edges())
+        info["n_nodes"] = len(nodes)
+        info["n_edges"] = len(edges)
+
+        type_counts = Counter([n.__class__.__name__ for n in nodes])
+        info["node_types"] = dict(type_counts)
+
+        # --- Parameter summary ---
+        all_params = []
+        mus, sigmas, nus, gates = [], [], [], []
+        sum_weights = []
+        input_feats = []
+
+        for node in nodes:
+            if isinstance(node, InputNode):
+                input_feats.append(node.feature_name)
+                mus.append(node.mu.item())
+                sigmas.append(torch.exp(node.log_sigma).item())
+                nus.append(torch.exp(node.log_nu).item())
+                gates.append(torch.sigmoid(node.gate).item())
+            elif isinstance(node, SumNode):
+                w = torch.softmax(node.weights, dim=0).detach().cpu().numpy()
+                sum_weights.extend(w.tolist())
+
+        def safe_stats(x):
+            if len(x) == 0:
+                return {"mean": None, "std": None, "min": None, "max": None}
+            return {
+                "mean": float(np.mean(x)),
+                "std": float(np.std(x)),
+                "min": float(np.min(x)),
+                "max": float(np.max(x)),
+            }
+
+        info["parameter_summary"] = {
+            "mu": safe_stats(mus),
+            "sigma": safe_stats(sigmas),
+            "nu": safe_stats(nus),
+            "sum_weights": safe_stats(sum_weights),
+        }
+
+        info["n_parameters"] = sum(p.numel() for p in getattr(self, "params", []))
+        info["input_features"] = input_feats
+
+        # --- Memory usage (KB) ---
+        model_memory_kb = sum(p.numel() * p.element_size() for p in self.params) / 1024
+        info["memory_kb"] = model_memory_kb
+
+        return info
+    
     def __repr__(self):
         """
         Return a detailed string representation of the PCNet,
@@ -554,7 +629,7 @@ class PCNet(ProbabilisticCircuit):
         param_summary = {}
         for n in nodes:
             if isinstance(n, InputNode):
-                p = sum(p.numel() for p in [n.mu, n.log_sigma, n.log_nu, n.logits])
+                p = sum(p.numel() for p in [n.mu, n.log_sigma, n.log_nu, n.logits, n.gate])
                 param_summary["InputNode"] = param_summary.get("InputNode", 0) + p
             elif isinstance(n, SumNode):
                 p = n.weights.numel()
@@ -584,6 +659,9 @@ class PCNet(ProbabilisticCircuit):
         header.append("─────────────────────────────────────────────")
         header.append("📚 Structure:")
         header_text = "\n".join(header)
+         # --- Memory usage (KB) ---
+        model_memory_kb = sum(p.numel() * p.element_size() for p in self.params) / 1024
+        header_text += f"Memory usage: {model_memory_kb:.2f} KB\n"
 
         # ---------------------------------------------------------------------
         # TREE SECTION
@@ -669,6 +747,10 @@ class PCNet(ProbabilisticCircuit):
             for t, p in by_type.items():
                 print(f"  • {t:<15}: {p}")
             print("─────────────────────────────────────────────")
+         # --- Memory usage (KB) ---
+        model_memory_kb = sum(p.numel() * p.element_size() for p in self.params) / 1024
+        print(f"📚 Memory usage: {model_memory_kb:.2f} KB")
+        print("─────────────────────────────────────────────")
 
         return {
             "n_nodes": len(nodes),
@@ -677,69 +759,5 @@ class PCNet(ProbabilisticCircuit):
             "branching": self.max_branching,
         }
 
-    def save_dict(self):
-        """
-        Return a compact summary dictionary of the PCNet model.
-        This does NOT include the entire structure, only metadata and key stats.
-        """
-        info = {}
-
-        # --- Basic info ---
-        info["model_type"] = self.__class__.__name__
-        info["device"] = str(self.device)
-        info["n_classes"] = self.n_classes
-        info["input_size"] = tuple(self.input_size)
-        info["max_depth"] = self.max_depth
-        info["max_branching"] = self.max_branching
-        info["seed"] = self.seed
-
-        # --- Structure statistics ---
-        nodes = list(self.get_nodes())
-        edges = list(self.get_edges())
-        info["n_nodes"] = len(nodes)
-        info["n_edges"] = len(edges)
-
-        type_counts = Counter([n.__class__.__name__ for n in nodes])
-        info["node_types"] = dict(type_counts)
-
-        # --- Parameter summary ---
-        all_params = []
-        mus, sigmas, nus = [], [], []
-        sum_weights = []
-        input_feats = []
-
-        for node in nodes:
-            if isinstance(node, InputNode):
-                input_feats.append(node.feature_name)
-                mus.append(node.mu.item())
-                sigmas.append(torch.exp(node.log_sigma).item())
-                nus.append(torch.exp(node.log_nu).item())
-            elif isinstance(node, SumNode):
-                w = torch.softmax(node.weights, dim=0).detach().cpu().numpy()
-                sum_weights.extend(w.tolist())
-            # ClassifierNode / ProductNode have no trainable params
-
-        # --- Compute stats safely ---
-        def safe_stats(x):
-            if len(x) == 0:
-                return {"mean": None, "std": None, "min": None, "max": None}
-            return {
-                "mean": float(np.mean(x)),
-                "std": float(np.std(x)),
-                "min": float(np.min(x)),
-                "max": float(np.max(x)),
-            }
-
-        info["parameter_summary"] = {
-            "mu": safe_stats(mus),
-            "sigma": safe_stats(sigmas),
-            "nu": safe_stats(nus),
-            "sum_weights": safe_stats(sum_weights),
-        }
-
-        info["n_parameters"] = sum(p.numel() for p in getattr(self, "params", []))
-        info["input_features"] = input_feats
-
-        return info
 
 
