@@ -212,6 +212,10 @@ class GEOptimizer:
             return g1[:], g2[:]
         cut = random.randint(1, len(g1) - 2)
         return g1[:cut] + g2[cut:], g2[:cut] + g1[cut:]
+    
+    def get_dataloader(self, train_inputs, train_labels, batch_size):
+        dataset = TensorDataset(train_inputs, train_labels)
+        return DataLoader(dataset, batch_size=batch_size, shuffle=True)
 
     # ----------------------------------------------
     # Fitness evaluation
@@ -250,22 +254,28 @@ class GEOptimizer:
         split = int(len(inputs) * 0.8)
         x, y = inputs[:split].to(self.device), labels[:split].to(self.device)
         x_val, y_val = inputs[split:].to(self.device), labels[split:].to(self.device)
+        dataloader = self.get_dataloader(x, y, batch_size=32)
+        val_dataloader = self.get_dataloader(x_val, y_val, batch_size=32)
 
         for _ in range(train_steps):
-            optimizer.zero_grad()
-            logits = pc.evaluate(x)
-            loss = criterion(logits, y)
-            loss.backward()
-            optimizer.step()
+            for x, y in dataloader:
+                logits = pc.evaluate(x)
+                loss = criterion(logits, y)
+                optimizer.zero_grad()
+                loss.backward()
+                optimizer.step()
 
         with torch.no_grad():
-            logits = pc.evaluate(x_val)
-            val_loss = criterion(logits, y_val).item()
+            val_loss = 0
+            for x, y in val_dataloader:
+                logits = pc.evaluate(x)
+                val_loss += criterion(logits, y).item()
+            val_loss /= len(val_dataloader)
 
         return val_loss, pc, global_index
 
 
-    def evaluate_population(self, population, inputs, labels, n_classes=2, train_steps=50, lr=1e-2):
+    def evaluate_population(self, population, inputs, labels, n_classes=2, train_steps=20, lr=1e-2):
         """
         If torch.distributed is initialized:
           - shard the population by rank (round-robin)
@@ -358,4 +368,4 @@ class GEOptimizer:
             population = new_pop
             print(f"✅ Gen {gen+1}: best loss={best_score:.4f}")
 
-        return best_pc, best_genome, history
+            return best_pc, best_genome, history

@@ -1533,6 +1533,7 @@ class ExperimentGEPC(ExperimentPC):
             prune_features_idx = self.get_prune_features_idx(self.model)
             with open(self.experiment_report, "a") as f:
                 f.write(str(self.model) + "\n")
+                f.write(f"History: {history}\n")
             self.feature_tensor = self.get_feature_tensor(np.array([self.train_data[i][0] for i in range(len(self.train_data))]), prune_features_idx)
             self.train_masks = np.array([self.train_data[i][1] for i in range(len(self.train_data))])
             self.val_feature_tensor = self.get_feature_tensor(np.array([self.val_data[i][0] for i in range(len(self.val_data))]), prune_features_idx)

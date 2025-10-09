@@ -13,7 +13,7 @@
     "feature_extractor": "cv_modules",
 
     "epochs": 20,
-    "batch_size": 16,
+    "batch_size": 64,
     "sample_size": 5000,
     "test_size": 500,
     "resize_size": [
@@ -22,7 +22,7 @@
     ],
     "input_channels": 3,
     "n_classes": 2,
-    "max_depth": 10,
+    "max_depth": 7,
     "max_branching": 5,
     "seed": 90,
     "filter_sizes": [15, 21],
@@ -31,7 +31,7 @@
 
     "ge":{
         "generations": 10,
-        "pop_size": 60,
+        "pop_size": 20,
         "genome_len": 96,
         "crossover_rate": 0.9,
         "mutation_rate": 0.05,
