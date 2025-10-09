@@ -9,6 +9,7 @@ from joblib import Parallel, delayed
 from copy import deepcopy
 import os
 from probabilistic_circuits.probabilistic_circuits import *
+from utils import *
 
 # ============================================================
 # Tree grammar specs
@@ -186,7 +187,12 @@ class GEOptimizer:
         self.mapper = GEMapper(max_wraps=2)
         self.rng = np.random.default_rng(seed)
         self.n_jobs = n_jobs or os.cpu_count()
-
+    def _local_n_jobs(self):
+        """Limit joblib workers per-rank to avoid oversubscription when using torchrun."""
+        if dist.is_available() and dist.is_initialized():
+            # often best to run *serial* inside each rank (set to 1)
+            return max(1, min(4, self.n_jobs))  # cap small to stay safe
+        return self.n_jobs
     # ----------------------------------------------
     # Genetic operators
     # ----------------------------------------------
@@ -210,8 +216,7 @@ class GEOptimizer:
     # ----------------------------------------------
     # Fitness evaluation
     # ----------------------------------------------
-    def _evaluate_single(self, genome, inputs, labels, n_classes, train_steps, lr, seed_offset=0):
-        # Independent RNG for each worker
+    def _evaluate_single(self, genome, inputs, labels, n_classes, train_steps, lr, seed_offset=0, global_index=None):
         torch.manual_seed(seed_offset)
         np.random.seed(seed_offset)
         random.seed(seed_offset)
@@ -219,32 +224,33 @@ class GEOptimizer:
         try:
             trees = self.mapper.map_model(genome, inputs.shape[1], self.max_depth, self.max_branching)
         except GEMappingError:
-            return math.inf, None
+            # return +inf and None PC, keep index for reassembly
+            return math.inf, None, global_index
 
         pc = PCNet(input_size=inputs.shape[1:], n_classes=n_classes, device=self.device,
                    max_depth=self.max_depth, max_branching=self.max_branching)
         builder = PCBuilder(pc)
         builder.build_classifier(trees, inputs)
+
         if labels.dim() == 4 and labels.size(1) == 1:
             labels = labels.squeeze(1)
+
         optimizer = torch.optim.Adam(pc.params, lr=lr)
+
         flat = labels.view(-1)
         counts = torch.bincount(flat, minlength=n_classes).float()
         counts[counts == 0] = 1.0
         balance = (1.0 / counts)
         balance = balance / balance.sum()
         criterion = DiceCELoss(pos_weight=balance.to(self.device)).to(self.device)
-        split = int(len(inputs) * 0.8)
-        # shuffle inputs and label pairs
 
+        # Shuffle then split
         rand_perm = torch.randperm(len(inputs))
         inputs, labels = inputs[rand_perm], labels[rand_perm]
+        split = int(len(inputs) * 0.8)
+        x, y = inputs[:split].to(self.device), labels[:split].to(self.device)
+        x_val, y_val = inputs[split:].to(self.device), labels[split:].to(self.device)
 
-        x, y = inputs[:split], labels[:split]
-        x, y = x.to(self.device), y.to(self.device)
-        x_val, y_val = inputs[split:], labels[split:]
-        x_val, y_val = x_val.to(self.device), y_val.to(self.device)
-        
         for _ in range(train_steps):
             optimizer.zero_grad()
             logits = pc.evaluate(x)
@@ -255,15 +261,64 @@ class GEOptimizer:
         with torch.no_grad():
             logits = pc.evaluate(x_val)
             val_loss = criterion(logits, y_val).item()
-        return val_loss, pc
+
+        return val_loss, pc, global_index
+
 
     def evaluate_population(self, population, inputs, labels, n_classes=2, train_steps=50, lr=1e-2):
-        """Parallel evaluation of population genomes."""
-        results = Parallel(n_jobs=self.n_jobs, verbose=0)(
-            delayed(self._evaluate_single)(genome, inputs, labels, n_classes, train_steps, lr, i)
+        """
+        If torch.distributed is initialized:
+          - shard the population by rank (round-robin)
+          - evaluate locally (optionally with small joblib parallelism)
+          - all_gather_object results, then reorder to original population
+        Else:
+          - evaluate whole population locally (joblib)
+        """
+        rank, world_size = ddp_init_if_needed(backend="gloo")
+
+        if world_size > 1:
+            # Shard indices: round-robin keeps load balanced
+            local_indices = list(range(rank, len(population), world_size))
+            local_genomes = [population[i] for i in local_indices]
+
+            # Evaluate local shard
+            nj = self._local_n_jobs()
+            if nj == 1:
+                local_results = [
+                    self._evaluate_single(genome, inputs, labels, n_classes, train_steps, lr, seed_offset=i, global_index=idx)
+                    for i, (genome, idx) in enumerate(zip(local_genomes, local_indices))
+                ]
+            else:
+                local_results = Parallel(n_jobs=nj, verbose=0)(
+                    delayed(self._evaluate_single)(genome, inputs, labels, n_classes, train_steps, lr, i, idx)
+                    for i, (genome, idx) in enumerate(zip(local_genomes, local_indices))
+                )
+
+            # Gather results from all ranks
+            gathered = [None for _ in range(world_size)]
+            dist.all_gather_object(gathered, local_results)
+
+            # Flatten and reorder by global index
+            all_results = [item for sub in gathered for item in sub]  # list of (loss, pc, global_idx)
+            # Rebuild results aligned with population order
+            ordered = [None] * len(population)
+            for loss, pc, gidx in all_results:
+                ordered[gidx] = (loss, pc)
+
+            return ordered
+
+        # ---- Single-process fallback (no torchrun) ----
+        nj = self._local_n_jobs()
+        results = Parallel(n_jobs=nj, verbose=0)(
+            delayed(self._evaluate_single)(genome, inputs, labels, n_classes, train_steps, lr, i, i)
             for i, genome in enumerate(population)
         )
-        return results
+        # Strip indices to match the original API
+        return [(loss, pc) for (loss, pc, _) in results]
+
+
+
+
 
 
     # ----------------------------------------------

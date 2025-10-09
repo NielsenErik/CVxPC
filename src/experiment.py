@@ -25,6 +25,23 @@ from crackdata_processing import CrackDataset, CrackAugmentations
 
 from cv_modules.factories import CVModuleFactory
 
+import torch
+import torch.distributed as dist
+from torch.nn.parallel import DistributedDataParallel as DDP
+from torch.utils.data import DataLoader, DistributedSampler, TensorDataset
+
+def average_gradients_across_workers(params):
+    """All-reduce gradients in-place and divide by world_size."""
+    if not (dist.is_available() and dist.is_initialized()):
+        return
+    world_size = dist.get_world_size()
+    if world_size == 1:
+        return
+    for p in params:
+        if p.grad is None:
+            continue
+        dist.all_reduce(p.grad, op=dist.ReduceOp.SUM)
+        p.grad /= world_size
 
 
 def run_experiment(config):
@@ -93,6 +110,7 @@ class Experiment:
                     split_idx = int((1 - self.validation_split) * len(self.data))
                     self.train_data = torch.utils.data.Subset(self.data, list(range(0, split_idx)))
                     self.val_data = torch.utils.data.Subset(self.data, list(range(split_idx, len(self.data))))
+                    
                     print_info(f"Training samples: {len(self.train_data)}, Validation samples: {len(self.val_data)}")
                 else:
                     self.train_data = self.data
@@ -201,13 +219,22 @@ class Experiment:
         return cl_iou.mean().item()
 
 
-    def get_dataloaders(self, data, labels=None):
+    from torch.utils.data import DataLoader, TensorDataset
+
+    def get_dataloaders(self, data, batch_size=None, labels=None, train_sampler=None, shuffle=True, num_workers=0):
+        """
+        If train_sampler is provided, shuffle must be False (sampler handles shuffling).
+        """
         if labels is not None:
             dataset = TensorDataset(data, labels)
-            dataloader = DataLoader(dataset, batch_size=self.batch_size, shuffle=True)
-            return dataloader
-        dataloader = DataLoader(data, batch_size=self.batch_size, shuffle=True)
-        return dataloader
+        else:
+            dataset = data
+
+        if train_sampler is not None:
+            return DataLoader(dataset, batch_size=batch_size, sampler=train_sampler, shuffle=False, num_workers=num_workers)
+        else:
+            return DataLoader(dataset, batch_size=batch_size, shuffle=shuffle, num_workers=num_workers)
+
     
     def compute_pos_weight(self, masks):
         """
@@ -305,8 +332,8 @@ class ExperimentDL(Experiment):
         if optimizer is None:
             optimizer = torch.optim.Adam(model.parameters(), lr=1e-3)
 
-        train_loader = self.get_dataloaders(train_data)
-        val_loader = self.get_dataloaders(val_data) if val_data else None
+        train_loader = self.get_dataloaders(train_data, batch_size=batch_size)
+        val_loader = self.get_dataloaders(val_data, batch_size=batch_size) if val_data else None
 
         model.to(device)
         train_losses, val_losses, train_dices, train_clious, val_dices, train_ious, val_ious, val_clious = [], [], [], [], [], [], [] , []
@@ -914,27 +941,10 @@ class ExperimentPC(Experiment):
         else:
             raise ValueError(f"Unknown feature extractor {self.feature_extractor}")
 
-
-    # --------------------------------------------------------
-    # DataLoaders
-    # --------------------------------------------------------
-    def get_dataloaders(self, dataset, shuffle=True, batch_size=None):
-        if batch_size is None:
-            batch_size = self.batch_size
-        loader = DataLoader(
-            dataset,
-            batch_size=batch_size,
-            shuffle=shuffle,
-            num_workers=max(1, self.n_cpus // 2),
-            pin_memory=False,
-            persistent_workers=True
-        )
-        return loader
-
     # --------------------------------------------------------
     # Training & Evaluation
     # --------------------------------------------------------
-    def train(self, model, epochs=10, lr=1e-3, n_cpus=8):
+    def train(self, model, epochs=10, lr=1e-3):
         # Unify threading
         self._setup_cpu_env()
 
@@ -970,7 +980,7 @@ class ExperimentPC(Experiment):
             val_loader = self.get_dataloaders(
                 TensorDataset(val_feature_tensor, val_target),
                 shuffle=False,
-                batch_size=self.batch_size * 2
+                batch_size=self.batch_size
             )
 
         # Logs
@@ -1117,6 +1127,230 @@ class ExperimentPC(Experiment):
                 f.write(f"Final Validation Loss: {val_losses[-1]}, Dice: {val_dices[-1]}, IoU: {val_ious[-1]}, CL IoU: {val_clious[-1]}\n")
 
         return model
+    
+    def train_parallel(self, model, epochs=10, lr=1e-3, n_cpus=8):
+        # Initialize distributed (if torchrun used)
+        rank, world_size = ddp_init_if_needed(backend="gloo")
+
+        # Avoid oversubscription: let PyTorch use 1 thread per process
+        torch.set_num_threads(1)
+        os.environ["OMP_NUM_THREADS"] = "1"
+        os.environ["MKL_NUM_THREADS"] = "1"
+
+        optimizer = torch.optim.Adam(model.params, lr=lr, weight_decay=1e-4)
+        if is_main_process():
+            print(f"Number of trainable parameters: {sum(p.numel() for p in model.params)}")
+            print(f"[dist] world_size={world_size} rank={rank}")
+
+        # Prepare tensors
+        feature_tensor = torch.from_numpy(self.feature_tensor).float().to(self.device)
+        target = torch.from_numpy(self.train_masks).long().to(self.device)
+
+        val_feature_tensor = (
+            torch.from_numpy(self.val_feature_tensor).float().to(self.device)
+            if getattr(self, "val_feature_tensor", None) is not None else None
+        )
+        val_target = (
+            torch.from_numpy(self.val_masks).long().to(self.device)
+            if getattr(self, "val_masks", None) is not None else None
+        )
+
+        if target.dim() == 4 and target.size(1) == 1:
+            target = target.squeeze(1)
+        if val_target is not None and val_target.dim() == 4 and val_target.size(1) == 1:
+            val_target = val_target.squeeze(1)
+
+        balance = self.compute_pos_weight(target)
+        self.criterion = DiceCELoss(pos_weight=balance.detach().clone().to(self.device)).to(self.device)
+
+        # Dataset & (distributed) sampler
+        dataset = TensorDataset(feature_tensor, target)
+        train_sampler = DistributedSampler(dataset, num_replicas=world_size, rank=rank, shuffle=True) if world_size > 1 else None
+        train_loader = self.get_dataloaders(dataset, batch_size=self.batch_size, train_sampler=train_sampler, shuffle=(train_sampler is None), num_workers=0)
+
+        val_loader = None
+        if val_feature_tensor is not None and val_target is not None:
+            val_dataset = TensorDataset(val_feature_tensor, val_target)
+            # For validation, deterministic order ⇒ no shuffle; also you *can* shard, but simplest is to let each rank eval its shard and average metrics at the end
+            val_sampler = DistributedSampler(val_dataset, num_replicas=world_size, rank=rank, shuffle=False) if world_size > 1 else None
+            val_loader = self.get_dataloaders(val_dataset, batch_size=self.batch_size * 2, train_sampler=val_sampler, shuffle=False, num_workers=0)
+
+        # Logs (only collect on rank 0)
+        train_losses, val_losses = [], []
+        train_dices, val_dices = [], []
+        train_ious, val_ious = [], []
+        train_clious, val_clious = [], []
+        gates_over_epochs = []
+
+        epoch_iter = range(epochs)
+        if is_main_process():
+            import tqdm as _tqdm
+            epoch_iter = _tqdm.tqdm(epoch_iter, desc="Training PCNet")
+
+        for epoch in epoch_iter:
+            if train_sampler is not None:
+                train_sampler.set_epoch(epoch)
+
+            # Per-epoch accumulators (local to rank)
+            batch_losses, batch_dices, batch_ious, batch_clious = [], [], [], []
+
+            for ft_batch, t_batch in train_loader:
+                optimizer.zero_grad()
+                logits = model.evaluate(ft_batch)                     # (B, C, H, W) log-probs
+                loss = self.criterion(logits, t_batch)
+                loss.backward()
+
+                # ⬇️ Synchronize gradients across ranks
+                average_gradients_across_workers(model.params)
+
+                optimizer.step()
+
+                # Local metrics
+                with torch.no_grad():
+                    pred_mask = torch.argmax(logits, dim=1, keepdim=True).float()   # (B,1,H,W)
+                    true_mask = t_batch.unsqueeze(1).float()
+                    dice_score = self.dice_coef(logits, t_batch)
+                    iou_score = self.iou_score(logits, t_batch)
+                    cl_iou_score = self.cl_iou_score(pred_mask, true_mask)
+
+                batch_losses.append(loss.item())
+                batch_dices.append(float(torch.as_tensor(dice_score).detach().mean()))
+                batch_ious.append(float(torch.as_tensor(iou_score).detach().mean()))
+                batch_clious.append(float(torch.as_tensor(cl_iou_score).detach()))
+
+            # Reduce epoch stats: average across workers
+            def _reduce_mean(v: float) -> float:
+                t = torch.tensor([v], dtype=torch.float32)
+                if dist.is_available() and dist.is_initialized():
+                    dist.all_reduce(t, op=dist.ReduceOp.SUM)
+                    t /= dist.get_world_size()
+                return float(t.item())
+
+            epoch_loss = _reduce_mean(np.mean(batch_losses) if batch_losses else 0.0)
+            epoch_dice = _reduce_mean(np.mean(batch_dices) if batch_dices else 0.0)
+            epoch_iou  = _reduce_mean(np.mean(batch_ious)  if batch_ious  else 0.0)
+            epoch_cliou= _reduce_mean(np.mean(batch_clious)if batch_clious else 0.0)
+
+            if is_main_process():
+                train_losses.append(epoch_loss)
+                train_dices.append(epoch_dice)
+                train_ious.append(epoch_iou)
+                train_clious.append(epoch_cliou)
+                mlflow.log_metrics({
+                    "train_loss": epoch_loss,
+                    "train_dice": epoch_dice,
+                    "train_iou": epoch_iou,
+                    "train_cl_iou": epoch_cliou
+                }, step=epoch)
+
+            # (Optional) collect gate values on each rank 0 only
+            if is_main_process():
+                gates_values = []
+                for n in model.get_nodes():
+                    if hasattr(n, "gate"):
+                        with torch.no_grad():
+                            gates_values.append(float(n.gate.item()))
+                if gates_values:
+                    gates_over_epochs.append(gates_values)
+
+            # Validation (each rank on its shard → average)
+            if val_loader is not None:
+                val_loss, val_dice, val_iou, val_cl_iou = self.evaluate(model, val_loader)
+                # reduce across ranks
+                val_loss   = _reduce_mean(val_loss)
+                val_dice   = _reduce_mean(val_dice)
+                val_iou    = _reduce_mean(val_iou)
+                val_cl_iou = _reduce_mean(val_cl_iou)
+
+                if is_main_process():
+                    val_losses.append(val_loss)
+                    val_dices.append(val_dice)
+                    val_ious.append(val_iou)
+                    val_clious.append(val_cl_iou)
+                    mlflow.log_metrics({
+                        "val_loss": val_loss,
+                        "val_dice": val_dice,
+                        "val_iou": val_iou,
+                        "val_cl_iou": val_cl_iou
+                    }, step=epoch)
+
+                if is_main_process():
+                    # tqdm postfix on main only
+                    epoch_iter.set_postfix({
+                        "train_loss": f"{epoch_loss:.4f}",
+                        "val_loss": f"{val_losses[-1]:.4f}" if val_losses else None
+                    })
+
+        # End of training
+        ddp_cleanup_if_needed()
+
+        # ---- Save & plots only by rank 0 ----
+        if is_main_process():
+            df_train = pd.DataFrame({
+                "train_loss": train_losses,
+                "train_dice": train_dices,
+                "train_iou":  train_ious,
+                "train_cl_iou": train_clious
+            })
+            df_train.to_csv(os.path.join(self.log_path, "training.csv"), index=False)
+
+            if val_loader is not None:
+                df_val = pd.DataFrame({
+                    "val_loss": val_losses,
+                    "val_dice": val_dices,
+                    "val_iou":  val_ious,
+                    "val_cl_iou": val_clious
+                })
+                df_val.to_csv(os.path.join(self.log_path, "validation.csv"), index=False)
+
+            # Save gates (if any)
+            if gates_over_epochs:
+                gates = np.array([np.pad(g, (0, max(map(len, gates_over_epochs)) - len(g)), constant_values=np.nan)
+                                for g in gates_over_epochs], dtype=np.float32)
+                df_importance = pd.DataFrame(gates, columns=[f"gate_{i}" for i in range(gates.shape[1])])
+                df_importance.to_csv(os.path.join(self.log_path, "gates.csv"), index=False)
+
+            # Plots
+            import matplotlib.pyplot as plt
+            plt.figure(figsize=(8, 5))
+            plt.plot(train_losses, label="Train Loss")
+            if len(val_losses):
+                plt.plot(val_losses, label="Val Loss")
+            plt.legend(); plt.title("Training Loss over Epochs")
+            plt.savefig(os.path.join(self.log_path, "training_plot.png")); plt.close()
+
+            plt.figure(figsize=(8, 5))
+            plt.plot(train_dices, label="Train Dice")
+            if len(val_dices):
+                plt.plot(val_dices, label="Val Dice")
+            plt.legend(); plt.title("Training Dice over Epochs")
+            plt.savefig(os.path.join(self.log_path, "dice_plot.png")); plt.close()
+
+            plt.figure(figsize=(8, 5))
+            plt.plot(train_ious, label="Train IoU")
+            if len(val_ious):
+                plt.plot(val_ious, label="Val IoU")
+            plt.legend(); plt.title("Training IoU over Epochs")
+            plt.savefig(os.path.join(self.log_path, "iou_plot.png")); plt.close()
+
+            plt.figure(figsize=(8, 5))
+            plt.plot(train_clious, label="Train CL IoU")
+            if len(val_clious):
+                plt.plot(val_clious, label="Val CL IoU")
+            plt.legend(); plt.title("Training CL IoU over Epochs")
+            plt.savefig(os.path.join(self.log_path, "cliou_plot.png")); plt.close()
+            print("✅ Training complete.")
+            with open(self.experiment_report, "a") as f:
+                f.write(f"Final Training Loss: {train_losses[-1] if train_losses else float('nan')}, "
+                        f"Dice: {train_dices[-1] if train_dices else float('nan')}, "
+                        f"IoU: {train_ious[-1] if train_ious else float('nan')}, "
+                        f"CL IoU: {train_clious[-1] if train_clious else float('nan')}\n")
+                if len(val_losses):
+                    f.write(f"Final Validation Loss: {val_losses[-1]}, Dice: {val_dices[-1]}, "
+                            f"IoU: {val_ious[-1]}, CL IoU: {val_clious[-1]}\n")
+
+        return model
+
 
     @torch.no_grad()
     def evaluate(self, model, dataloader):
@@ -1222,7 +1456,12 @@ class ExperimentPC(Experiment):
             self.val_masks = np.array([self.val_data[i][1] for i in range(len(self.val_data))]) if self.validation_split > 0 else None
 
             self.model.init_network(self.feature_tensor, self.train_masks)
-            self.model = self.train(self.model, epochs=self.epochs, lr=self.learning_rate, n_cpus=self.n_cpus)
+            with open(self.experiment_report, "a") as f:
+                f.write(str(self.model) + "\n")
+            if self.device == "cuda":
+                self.model = self.train(self.model, epochs=self.epochs, lr=self.learning_rate, n_cpus=self.n_cpus)
+            else:
+                self.model = self.train_parallel(self.model, epochs=self.epochs, lr=self.learning_rate, n_cpus=self.n_cpus)
             self.save_model()
 
             if self.test_path is not None:
@@ -1231,7 +1470,7 @@ class ExperimentPC(Experiment):
                 if self.test_ground_truth.dim() == 4 and self.test_ground_truth.size(1) == 1:
                     self.test_ground_truth = self.test_ground_truth.squeeze(1)
 
-                test_loader = self.get_dataloaders(TensorDataset(self.test_inputs, self.test_ground_truth), shuffle=False, batch_size=self.batch_size*2)
+                test_loader = self.get_dataloaders(TensorDataset(self.test_inputs, self.test_ground_truth), shuffle=False, batch_size=self.batch_size)
                 loss, dice, iou, cl_iou = self.evaluate(self.model, test_loader)
                 print_info("Test Loss:", loss, "Dice:", dice, "IoU:", iou, "CL IoU:", cl_iou)
                 with open(self.experiment_report, "a") as f:
@@ -1292,19 +1531,23 @@ class ExperimentGEPC(ExperimentPC):
             print_info("Best PC:", str(best_pc))
             self.model = best_pc
             prune_features_idx = self.get_prune_features_idx(self.model)
+            with open(self.experiment_report, "a") as f:
+                f.write(str(self.model) + "\n")
             self.feature_tensor = self.get_feature_tensor(np.array([self.train_data[i][0] for i in range(len(self.train_data))]), prune_features_idx)
             self.train_masks = np.array([self.train_data[i][1] for i in range(len(self.train_data))])
             self.val_feature_tensor = self.get_feature_tensor(np.array([self.val_data[i][0] for i in range(len(self.val_data))]), prune_features_idx)
             self.val_masks = np.array([self.val_data[i][1] for i in range(len(self.val_data))]) if self.validation_split > 0 else None
-
-            self.model = self.train(self.model, epochs=self.epochs, lr=self.learning_rate, n_cpus=self.n_cpus)
+            if self.device == "cuda":
+                self.model = self.train(self.model, epochs=self.epochs, lr=self.learning_rate, n_cpus=self.n_cpus)
+            else:
+                self.model = self.train_parallel(self.model, epochs=self.epochs, lr=self.learning_rate, n_cpus=self.n_cpus)
             self.save_model("pcnet-ge")
             if self.test_path is not None:
                 self.test_inputs = torch.from_numpy(self.get_feature_tensor(np.array([self.test_data[i][0] for i in range(len(self.test_data))]))).float().to(self.device)
                 self.test_ground_truth = torch.from_numpy(np.array([self.test_data[i][1] for i in range(len(self.test_data))])).long().to(self.device)
                 if self.test_ground_truth.dim() == 4 and self.test_ground_truth.size(1) == 1:
                     self.test_ground_truth = self.test_ground_truth.squeeze(1)
-                test_loader = self.get_dataloaders(TensorDataset(self.test_inputs, self.test_ground_truth))
+                test_loader = self.get_dataloaders(TensorDataset(self.test_inputs, self.test_ground_truth), shuffle=False, batch_size=self.batch_size*2)
                 loss, dice, iou, cl_iou = self.evaluate(self.model, test_loader)
                 print_info("Test Loss:", loss, "Dice:", dice, "IoU:", iou, "CL IoU:", cl_iou)
                 with open(self.experiment_report, "a") as f:
