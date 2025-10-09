@@ -4,6 +4,11 @@ import numpy as np
 from skimage import data, color
 import cv2
 import matplotlib.pyplot as plt
+import torch
+import torch.distributed as dist
+from torch.nn.parallel import DistributedDataParallel as DDP
+from torch.utils.data import DataLoader, DistributedSampler, TensorDataset
+import os
 
 def get_logdir_name():
     """
@@ -181,3 +186,32 @@ def plot_filters(img=None):
     plt.tight_layout()
     plt.show()
 
+def ddp_init_if_needed(backend="gloo"):
+    """Initialize dist if launched by torchrun; return (rank, world_size)."""
+    if dist.is_available() and not dist.is_initialized():
+        # torchrun sets these
+        rank = int(os.environ.get("RANK", "0"))
+        world_size = int(os.environ.get("WORLD_SIZE", "1"))
+        if world_size > 1:
+            master_addr = os.environ.get("MASTER_ADDR", "127.0.0.1")
+            master_port = os.environ.get("MASTER_PORT", "29500")
+            dist.init_process_group(
+                backend=backend,
+                init_method=f"tcp://{master_addr}:{master_port}",
+                rank=rank,
+                world_size=world_size,
+            )
+        else:
+            rank, world_size = 0, 1
+    else:
+        rank = dist.get_rank() if dist.is_initialized() else 0
+        world_size = dist.get_world_size() if dist.is_initialized() else 1
+    return rank, world_size
+
+def ddp_cleanup_if_needed():
+    if dist.is_available() and dist.is_initialized():
+        dist.barrier()
+        dist.destroy_process_group()
+
+def is_main_process():
+    return (not dist.is_available()) or (not dist.is_initialized()) or dist.get_rank() == 0
