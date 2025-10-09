@@ -1,0 +1,43 @@
+11:12:02 [[1m[94mCONFIGS[0m] Experiment Configurations: {'mlflow': None, 'experiment': 'crack_segmentation', 'algorithm': 'pcnet', 'device': 'cpu', 'n_jobs': 80, 'data_path': 'data/kaggle/crack_segmentation_dataset/train', 'test_path': 'data/kaggle/crack_segmentation_dataset/test', 'save_path': 'models/', 'validation_split': 0.2, 'feature_extractor': 'cv_modules', 'epochs': 50, 'batch_size': 64, 'sample_size': 5000, 'test_size': 1000, 'resize_size': [128, 128], 'input_channels': 3, 'n_classes': 2, 'max_depth': 5, 'max_branching': 3, 'seed': 4, 'n_cv_modules ': 32, 'n_filters': 4, 'execution_mode': 'train', 'log_dir': 'logs/pcnet/4'}
+
+⚙️ Using 48 CPU cores (torch threads)
+⚙️ Using 48 CPU cores (torch threads)
+11:12:03 [[1m[92mINFO[0m] Training samples: 4000, Validation samples: 1000
+
+11:12:03 [[1m[92mINFO[0m] Test samples: 1000
+
+11:12:03 [[1m[92mINFO[0m] Dataset size: 5000
+
+⚙️ convolution_modules_tensor(): using 48 parallel workers
+✅ convolution_modules_tensor(): generated (4000, 128, 128, 128)
+⚙️ convolution_modules_tensor(): using 48 parallel workers
+✅ convolution_modules_tensor(): generated (1000, 128, 128, 128)
+16:09:48 [[1m[94mCONFIGS[0m] Inputs tensor shape: (4000, 128, 128, 128)
+
+[DEBUG] Final children = 2, expected = 2
+16:15:23 [[1m[94mCONFIGS[0m] Initialized PCNet with 225 nodes, 1056 trainable parameters
+
+─────────────────────────────────────────────
+🧠  Probabilistic Circuit Network Summary
+─────────────────────────────────────────────
+📦 Classes: 2
+📏 Input size: (256, 256)
+⚙️  Depth: 5, Branching: 3
+💻 Device: cpu
+─────────────────────────────────────────────
+📊 Node counts:
+  • InputNode      : 128
+  • SumNode        : 65
+  • ProductNode    : 31
+  • ClassifierNode : 1
+─────────────────────────────────────────────
+🧩 Trainable parameters: 928
+  • InputNode      : 768
+  • SumNode        : 160
+─────────────────────────────────────────────
+📚 Memory usage: 4.12 KB
+─────────────────────────────────────────────
+16:15:23 [[1m[92mINFO[0m] {'n_nodes': 225, 'n_params': 928, 'depth': 5, 'branching': 3}
+
+⚙️ Using 48 CPU cores (torch threads)
+Number of trainable parameters: 1056
