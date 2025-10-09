@@ -4,14 +4,11 @@
     "algorithm": "pcnet_ge",
     "device": "cpu",
     "n_cpus": 10,
-
     "data_path": "data/kaggle/crack_segmentation_dataset/train",
     "test_path": "data/kaggle/crack_segmentation_dataset/test",
     "save_path": "models/",
     "validation_split": 0.2,
-
     "feature_extractor": "cv_modules",
-
     "epochs": 20,
     "batch_size": 16,
     "sample_size": 1000,
@@ -24,12 +21,14 @@
     "n_classes": 2,
     "max_depth": 7,
     "max_branching": 5,
-    "seed": 90,
-    "filter_sizes": [15, 21],
+    "seed": 201,
+    "filter_sizes": [
+        15,
+        21
+    ],
     "n_cv_modules": 16,
     "n_filters": 4,
-
-    "ge":{
+    "ge": {
         "generations": 10,
         "pop_size": 10,
         "genome_len": 96,
@@ -38,8 +37,6 @@
         "elite_k": 2,
         "train_split": 0.1
     },
-
-    "execution_mode": "train"
-    
-
+    "execution_mode": "train",
+    "log_dir": "logs/pcnet_ge/201"
 }
