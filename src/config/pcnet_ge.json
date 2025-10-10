@@ -14,7 +14,7 @@
 
     "epochs": 20,
     "batch_size": 16,
-    "sample_size": 1000,
+    "sample_size": 100,
     "test_size": 20,
     "resize_size": [
         128,

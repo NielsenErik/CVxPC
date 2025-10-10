@@ -218,11 +218,12 @@ class GEOptimizer:
     def get_dataloader(self, inputs, labels, batch_size):
         dataset = TensorDataset(inputs, labels)
         return DataLoader(dataset, batch_size=batch_size, shuffle=True)
+    
+    # -----------------------------
+    # Fitness evaluation (loss only)
+    # -----------------------------
+    def _evaluate_single(self, genome, inputs, labels, n_classes, train_steps, lr, seed_offset=0, global_index=None):
 
-    # -----------------------------
-    # Build + train a PC from genome
-    # -----------------------------
-    def _build_and_train(self, genome, inputs, labels, n_classes, train_steps, lr, seed_offset=0):
         torch.manual_seed(seed_offset)
         np.random.seed(seed_offset)
         random.seed(seed_offset)
@@ -271,15 +272,6 @@ class GEOptimizer:
                 val_loss += criterion(logits, yb).item()
             val_loss /= max(1, len(val_loader))
 
-        return val_loss, pc
-
-    # -----------------------------
-    # Fitness evaluation (loss only)
-    # -----------------------------
-    def _evaluate_single_loss(self, genome, inputs, labels, n_classes, train_steps, lr, seed_offset=0, global_index=None):
-        val_loss, _pc = self._build_and_train(
-            genome, inputs, labels, n_classes, train_steps, lr, seed_offset=seed_offset
-        )
         return val_loss, global_index
 
     def evaluate_population(self, population, inputs, labels, n_classes=2, train_steps=20, lr=1e-2):
@@ -296,12 +288,12 @@ class GEOptimizer:
             nj = self._local_n_jobs()
             if nj == 1:
                 local_results = [
-                    self._evaluate_single_loss(g, inputs, labels, n_classes, train_steps, lr, i, idx)
+                    self._evaluate_single(g, inputs, labels, n_classes, train_steps, lr, i, idx)
                     for i, (g, idx) in enumerate(zip(local_genomes, local_indices))
                 ]
             else:
                 local_results = Parallel(n_jobs=nj, verbose=0)(
-                    delayed(self._evaluate_single_loss)(g, inputs, labels, n_classes, train_steps, lr, i, idx)
+                    delayed(self._evaluate_singles)(g, inputs, labels, n_classes, train_steps, lr, i, idx)
                     for i, (g, idx) in enumerate(zip(local_genomes, local_indices))
                 )
 
@@ -374,8 +366,11 @@ class GEOptimizer:
             print(f"✅ Gen {gen+1}: best loss so far = {best_score:.4f}")
 
         # After evolution, rebuild + train best genome once and return that PC
-        final_loss, best_pc = self._build_and_train(
-            best_genome, train_inputs, train_labels, n_classes=n_classes, train_steps=train_steps, lr=lr, seed_offset=0
-        )
+        trees = self.mapper.map_model(best_genome, train_inputs.shape[1], self.max_depth, self.max_branching)
+
+        best_pc = PCNet(input_size=train_inputs.shape[1:], n_classes=n_classes, device=self.device,
+                   max_depth=self.max_depth, max_branching=self.max_branching)
+        builder = PCBuilder(best_pc)
+        builder.build_classifier(trees, train_inputs)
         # Optionally, you could append final_loss to history (it should be close to the best_score)
         return best_pc, best_genome, history
