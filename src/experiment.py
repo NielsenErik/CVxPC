@@ -29,6 +29,8 @@ import torch
 import torch.distributed as dist
 from torch.nn.parallel import DistributedDataParallel as DDP
 from torch.utils.data import DataLoader, DistributedSampler, TensorDataset
+from torch.utils.data.distributed import DistributedSampler
+from torch import multiprocessing
 
 def average_gradients_across_workers(params):
     """All-reduce gradients in-place and divide by world_size."""
@@ -600,33 +602,6 @@ class ConvAEExperiment(ExperimentDL):
     def load_model(self, model_name="convae"):
         self.model.load_state_dict(torch.load(os.path.join(self.save_path, f"{model_name}.pth")))
 
-# ============================================================
-# HPC-optimized ExperimentPC
-# ============================================================
-import os
-import cv2
-import mlflow
-import tqdm
-import torch
-import pickle
-import random
-import numpy as np
-import pandas as pd
-import multiprocessing
-
-from joblib import Parallel, delayed
-from torch.utils.data import DataLoader, TensorDataset
-import torch.nn.functional as F
-
-from skimage.color import rgb2hsv, rgb2lab
-from skimage.filters import gabor, laplace, sobel
-
-# Assumes you already have:
-# - Experiment base class
-# - PCNet
-# - DiceCELoss, BCEDiceLoss
-# - self.dice_coef, self.iou_score, self.cl_iou_score
-# - utils.print_* functions
 
 
 class ExperimentPC(Experiment):
@@ -1015,6 +990,12 @@ class ExperimentPC(Experiment):
 
         else:
             raise ValueError(f"Unknown feature extractor {self.feature_extractor}")
+        
+    def set_criterion(self, target):
+        if target.dim() == 4 and target.size(1) == 1:
+            target = target.squeeze(1)
+        balance = self.compute_pos_weight(target)
+        self.criterion = DiceCELoss(pos_weight=balance.detach().clone().to(self.device)).to(self.device)
 
     # --------------------------------------------------------
     # Training & Evaluation
@@ -1235,9 +1216,6 @@ class ExperimentPC(Experiment):
         if val_target is not None and val_target.dim() == 4 and val_target.size(1) == 1:
             val_target = val_target.squeeze(1)
 
-        balance = self.compute_pos_weight(target)
-        self.criterion = DiceCELoss(pos_weight=balance.detach().clone().to(self.device)).to(self.device)
-
         # Dataset & (distributed) sampler
         dataset = TensorDataset(feature_tensor, target)
         train_sampler = DistributedSampler(dataset, num_replicas=world_size, rank=rank, shuffle=True) if world_size > 1 else None
@@ -1275,7 +1253,7 @@ class ExperimentPC(Experiment):
                 loss = self.criterion(logits, t_batch)
                 loss.backward()
 
-                # ⬇️ Synchronize gradients across ranks
+                # Synchronize gradients across ranks
                 average_gradients_across_workers(model.params)
 
                 optimizer.step()
@@ -1585,17 +1563,51 @@ class ExperimentGEPC(ExperimentPC):
                 new_name += 1
 
         return feats
+    
+    def train_cv_modules(self, model, train_data, target, prune_features_idx):
+        if target.dim() == 4 and target.size(1) == 1:
+            target = target.squeeze(1)
+        optimizer = torch.optim.Adam(model.params, lr=1e-3, weight_decay=1e-4)
+        balance = self.compute_pos_weight(target)
+        self.criterion = DiceCELoss(pos_weight=balance.detach().clone().to(self.device)).to(self.device)
+
+        for i in range(20):
+            feature_tensor = self.get_feature_tensor(train_data, prune_features_idx)
+            data_loader = self.get_dataloaders(TensorDataset(torch.from_numpy(feature_tensor).float().to(self.device), target.to(self.device)), shuffle=False, batch_size=self.batch_size)
+            for _ in range(20):
+                for X, y in data_loader:
+                    y_pred = model.evaluate(X)
+                    loss = self.criterion(y_pred, y)
+                    optimizer.zero_grad()
+                    loss.backward()
+                    optimizer.step()
+            
+            fitness = []
+            history = []
+            for n in model.get_nodes():
+                if isinstance(n, InputNode):
+                    fitness.append(n.gate.item())
+
+            history.append(fitness)
+            print_info("Fitness:", fitness)
+            self.cv_factory.tell_pop(fitness)
+
+        history = np.array(history)
+        plt.plot(history)
+        plt.xlabel("Generation")
+        plt.ylabel("Fitness")
+        plt.show()
+
+        
         
     def run(self):
+        
         self.set_dataset(self.data_path, self.test_path)
         print_info("Dataset size:", len(self.data))
         if self.execution_mode == "train":
             self.set_algorithm()
 
-            # self.feature_tensor = self.get_feature_tensor(np.array([self.train_data[i][0] for i in range(len(self.train_data))]))
-            # self.train_masks = np.array([self.train_data[i][1] for i in range(len(self.train_data))])
-            # self.val_feature_tensor = self.get_feature_tensor(np.array([self.val_data[i][0] for i in range(len(self.val_data))]))
-            # self.val_masks = np.array([self.val_data[i][1] for i in range(len(self.val_data))]) if self.validation_split > 0 else None
+            # 1st training step, find optimal structure
 
             ge_train_size = int(self.ge_config["train_split"] * len(self.train_data))
             
@@ -1606,6 +1618,14 @@ class ExperimentGEPC(ExperimentPC):
             print_info("Best PC:", str(best_pc))
             self.model = best_pc
             prune_features_idx = self.get_prune_features_idx(self.model)
+
+            # 2nd training step, optimize the convolutional modules
+            cv_X_train = torch.from_numpy(np.array([self.train_data[i][0] for i in range(ge_train_size,2*ge_train_size)])).float().to(self.device)
+            cv_Y_train = torch.from_numpy(np.array([self.train_data[i][1] for i in range(ge_train_size,2*ge_train_size)])).long().to(self.device)
+            self.train_cv_modules(self.model, cv_X_train, cv_Y_train, prune_features_idx)
+
+
+
             with open(self.experiment_report, "a") as f:
                 f.write(str(self.model) + "\n")
                 f.write(f"History: {history}\n")
