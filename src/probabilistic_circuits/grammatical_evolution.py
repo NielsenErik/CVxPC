@@ -309,7 +309,7 @@ class GEOptimizer:
         # single-process
         nj = self._local_n_jobs()
         results = Parallel(n_jobs=nj, verbose=0)(
-            delayed(self._evaluate_single_loss)(g, inputs, labels, n_classes, train_steps, lr, i, i)
+            delayed(self._evaluate_single)(g, inputs, labels, n_classes, train_steps, lr, i, i)
             for i, g in enumerate(population)
         )
         losses = [None] * len(population)
@@ -331,7 +331,7 @@ class GEOptimizer:
         history, best_score, best_genome = [], math.inf, None
 
         for gen in range(generations):
-            print(f"🧬 Generation {gen+1}/{generations} (evaluating {len(population)} genomes in parallel)")
+            print_info(f"🧬 Generation {gen+1}/{generations} (evaluating {len(population)} genomes in parallel)")
             losses = self.evaluate_population(population, train_inputs, train_labels,
                                               n_classes=n_classes, train_steps=train_steps, lr=lr)
 
@@ -363,7 +363,7 @@ class GEOptimizer:
                     new_pop.append(self.mutate(c2))
 
             population = new_pop
-            print(f"✅ Gen {gen+1}: best loss so far = {best_score:.4f}")
+            print_info(f"✅ Gen {gen+1}: best loss so far = {best_score:.4f}")
 
         # After evolution, rebuild + train best genome once and return that PC
         trees = self.mapper.map_model(best_genome, train_inputs.shape[1], self.max_depth, self.max_branching)

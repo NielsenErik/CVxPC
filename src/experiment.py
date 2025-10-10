@@ -907,9 +907,6 @@ class ExperimentPC(Experiment):
         else:
             n_jobs = int(n_jobs or min(8, hw_threads))
 
-        if rank == 0:
-            print(f"⚙️ convolution_modules_tensor(): rank {rank}/{world_size} using {n_jobs} workers on {total_images} images")
-
         # ---------------------------------------------------------
         # Shard images among ranks (round-robin to keep sizes balanced)
         # ---------------------------------------------------------
@@ -1001,9 +998,6 @@ class ExperimentPC(Experiment):
         else:
             feats_np = local_feats_np  # single process
 
-        if rank == 0:
-            print(f"✅ convolution_modules_tensor(): generated {feats_np.shape}")
-
         return feats_np
 
 
@@ -1030,7 +1024,7 @@ class ExperimentPC(Experiment):
         self._setup_cpu_env()
 
         optimizer = torch.optim.Adam(model.params, lr=lr, weight_decay=1e-4)
-        print(f"Number of trainable parameters: {sum(p.numel() for p in model.params)}")
+        print_info(f"Number of trainable parameters: {sum(p.numel() for p in model.params)}")
 
         # Prepare tensors
         feature_tensor = torch.from_numpy(self.feature_tensor).float().to(self.device)
@@ -1201,7 +1195,7 @@ class ExperimentPC(Experiment):
         plt.legend(); plt.title("Training CL IoU over Epochs")
         plt.savefig(os.path.join(self.log_path, "cliou_plot.png")); plt.close()
 
-        print("✅ Training complete.")
+        print_info("✅ Training complete.")
         with open(self.experiment_report, "a") as f:
             f.write(f"Final Training Loss: {train_losses[-1]}, Dice: {train_dices[-1]}, IoU: {train_ious[-1]}, CL IoU: {train_clious[-1]}\n")
             if val_loader:
@@ -1220,8 +1214,8 @@ class ExperimentPC(Experiment):
 
         optimizer = torch.optim.Adam(model.params, lr=lr, weight_decay=1e-4)
         if is_main_process():
-            print(f"Number of trainable parameters: {sum(p.numel() for p in model.params)}")
-            print(f"[dist] world_size={world_size} rank={rank}")
+            print_info(f"Number of trainable parameters: {sum(p.numel() for p in model.params)}")
+            print_info(f"[dist] world_size={world_size} rank={rank}")
 
         # Prepare tensors
         feature_tensor = torch.from_numpy(self.feature_tensor).float().to(self.device)
@@ -1420,7 +1414,7 @@ class ExperimentPC(Experiment):
                 plt.plot(val_clious, label="Val CL IoU")
             plt.legend(); plt.title("Training CL IoU over Epochs")
             plt.savefig(os.path.join(self.log_path, "cliou_plot.png")); plt.close()
-            print("✅ Training complete.")
+            print_info("✅ Training complete.")
             with open(self.experiment_report, "a") as f:
                 f.write(f"Final Training Loss: {train_losses[-1] if train_losses else float('nan')}, "
                         f"Dice: {train_dices[-1] if train_dices else float('nan')}, "

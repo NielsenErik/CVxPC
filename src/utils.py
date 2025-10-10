@@ -37,22 +37,28 @@ def now():
     return datetime.now().strftime("%H:%M:%S")
 
 def print_error(*args, **kwargs):
-    print(now()+" ["+colors.BOLD+colors.FAIL+"ERROR"+colors.ENDC+"] " +" ".join(map(str,args))+"\n", **kwargs)
+    if not (dist.is_available() and dist.is_initialized()) or dist.get_rank() == 0:
+        print(now()+" ["+colors.BOLD+colors.FAIL+"ERROR"+colors.ENDC+"] " +" ".join(map(str,args))+"\n", **kwargs)
     
 def print_warning(*args, **kwargs):
-    print(now()+" ["+colors.BOLD+colors.ORANGE+"WARNING"+colors.ENDC+"] " +" ".join(map(str,args))+ "\n", **kwargs)
+    if not (dist.is_available() and dist.is_initialized()) or dist.get_rank() == 0:
+        print(now()+" ["+colors.BOLD+colors.ORANGE+"WARNING"+colors.ENDC+"] " +" ".join(map(str,args))+ "\n", **kwargs)
 
 def print_debugging(*args, **kwargs):
-    print(now()+" ["+colors.BOLD+colors.DEBUGGING+"DEBUG"+colors.ENDC+"] " +" ".join(map(str,args))+"\n", **kwargs)
+    if not (dist.is_available() and dist.is_initialized()) or dist.get_rank() == 0:
+        print(now()+" ["+colors.BOLD+colors.DEBUGGING+"DEBUG"+colors.ENDC+"] " +" ".join(map(str,args))+"\n", **kwargs)
     
 def print_info(*args, **kwargs):
-    print(now()+" ["+colors.BOLD+colors.OKGREEN+"INFO"+colors.ENDC+"] "+" ".join(map(str,args))+"\n", **kwargs)
+    if not (dist.is_available() and dist.is_initialized()) or dist.get_rank() == 0:
+        print(now()+" ["+colors.BOLD+colors.OKGREEN+"INFO"+colors.ENDC+"] "+" ".join(map(str,args))+"\n", **kwargs)
 
 def print_configs(*args, **kwargs):
-    print(now()+" ["+colors.BOLD+colors.OKBLUE+"CONFIGS"+colors.ENDC+"] "+" ".join(map(str,args))+"\n", **kwargs)
+    if not (dist.is_available() and dist.is_initialized()) or dist.get_rank() == 0:
+        print(now()+" ["+colors.BOLD+colors.OKBLUE+"CONFIGS"+colors.ENDC+"] "+" ".join(map(str,args))+"\n", **kwargs)
     
 def print_results(*args, **kwargs):
-    print(now()+" ["+colors.BOLD+colors.RESULT+"RESULTS"+colors.ENDC+"] "+" ".join(map(str,args))+"\n", **kwargs)
+    if not (dist.is_available() and dist.is_initialized()) or dist.get_rank() == 0:
+        print(now()+" ["+colors.BOLD+colors.RESULT+"RESULTS"+colors.ENDC+"] "+" ".join(map(str,args))+"\n", **kwargs)
 
 
 def crackseg9k_split():
