@@ -187,15 +187,16 @@ class GEOptimizer:
         self.mapper = GEMapper(max_wraps=2)
         self.rng = np.random.default_rng(seed)
         self.n_jobs = n_jobs or os.cpu_count()
+
     def _local_n_jobs(self):
         """Limit joblib workers per-rank to avoid oversubscription when using torchrun."""
         if dist.is_available() and dist.is_initialized():
-            # often best to run *serial* inside each rank (set to 1)
-            return max(1, min(4, self.n_jobs))  # cap small to stay safe
+            return max(1, min(4, self.n_jobs))
         return self.n_jobs
-    # ----------------------------------------------
+
+    # -----------------------------
     # Genetic operators
-    # ----------------------------------------------
+    # -----------------------------
     def init_population(self):
         return [self.rng.integers(0, 256, size=self.genome_len, dtype=np.int32).tolist()
                 for _ in range(self.pop_size)]
@@ -213,19 +214,19 @@ class GEOptimizer:
         cut = random.randint(1, len(g1) - 2)
         return g1[:cut] + g2[cut:], g2[:cut] + g1[cut:]
 
-    # ----------------------------------------------
-    # Fitness evaluation
-    # ----------------------------------------------
-    def _evaluate_single(self, genome, inputs, labels, n_classes, train_steps, lr, seed_offset=0, global_index=None):
+    def get_dataloader(self, inputs, labels, batch_size):
+        dataset = TensorDataset(inputs, labels)
+        return DataLoader(dataset, batch_size=batch_size, shuffle=True)
+
+    # -----------------------------
+    # Build + train a PC from genome
+    # -----------------------------
+    def _build_and_train(self, genome, inputs, labels, n_classes, train_steps, lr, seed_offset=0):
         torch.manual_seed(seed_offset)
         np.random.seed(seed_offset)
         random.seed(seed_offset)
 
-        try:
-            trees = self.mapper.map_model(genome, inputs.shape[1], self.max_depth, self.max_branching)
-        except GEMappingError:
-            # return +inf and None PC, keep index for reassembly
-            return math.inf, None, global_index
+        trees = self.mapper.map_model(genome, inputs.shape[1], self.max_depth, self.max_branching)
 
         pc = PCNet(input_size=inputs.shape[1:], n_classes=n_classes, device=self.device,
                    max_depth=self.max_depth, max_branching=self.max_branching)
@@ -245,108 +246,121 @@ class GEOptimizer:
         criterion = DiceCELoss(pos_weight=balance.to(self.device)).to(self.device)
 
         # Shuffle then split
-        rand_perm = torch.randperm(len(inputs))
-        inputs, labels = inputs[rand_perm], labels[rand_perm]
+        perm = torch.randperm(len(inputs))
+        inputs, labels = inputs[perm], labels[perm]
         split = int(len(inputs) * 0.8)
-        x, y = inputs[:split].to(self.device), labels[:split].to(self.device)
-        x_val, y_val = inputs[split:].to(self.device), labels[split:].to(self.device)
+        x_tr, y_tr = inputs[:split].to(self.device), labels[:split].to(self.device)
+        x_va, y_va = inputs[split:].to(self.device), labels[split:].to(self.device)
+
+        train_loader = self.get_dataloader(x_tr, y_tr, batch_size=32)
+        val_loader = self.get_dataloader(x_va, y_va, batch_size=32)
 
         for _ in range(train_steps):
-            optimizer.zero_grad()
-            logits = pc.evaluate(x)
-            loss = criterion(logits, y)
-            loss.backward()
-            optimizer.step()
+            for xb, yb in train_loader:
+                logits = pc.evaluate(xb)
+                loss = criterion(logits, yb)
+                optimizer.zero_grad()
+                loss.backward()
+                optimizer.step()
 
         with torch.no_grad():
-            logits = pc.evaluate(x_val)
-            val_loss = criterion(logits, y_val).item()
+            val_loss = 0.0
+            for xb, yb in val_loader:
+                logits = pc.evaluate(xb)
+                val_loss += criterion(logits, yb).item()
+            val_loss /= max(1, len(val_loader))
 
-        return val_loss, pc, global_index
+        return val_loss, pc
 
+    # -----------------------------
+    # Fitness evaluation (loss only)
+    # -----------------------------
+    def _evaluate_single_loss(self, genome, inputs, labels, n_classes, train_steps, lr, seed_offset=0, global_index=None):
+        val_loss, _pc = self._build_and_train(
+            genome, inputs, labels, n_classes, train_steps, lr, seed_offset=seed_offset
+        )
+        return val_loss, global_index
 
-    def evaluate_population(self, population, inputs, labels, n_classes=2, train_steps=50, lr=1e-2):
+    def evaluate_population(self, population, inputs, labels, n_classes=2, train_steps=20, lr=1e-2):
         """
-        If torch.distributed is initialized:
-          - shard the population by rank (round-robin)
-          - evaluate locally (optionally with small joblib parallelism)
-          - all_gather_object results, then reorder to original population
-        Else:
-          - evaluate whole population locally (joblib)
+        Returns: list of losses aligned with `population` order.
+        No PC objects are returned.
         """
         rank, world_size = ddp_init_if_needed(backend="gloo")
 
         if world_size > 1:
-            # Shard indices: round-robin keeps load balanced
             local_indices = list(range(rank, len(population), world_size))
             local_genomes = [population[i] for i in local_indices]
 
-            # Evaluate local shard
             nj = self._local_n_jobs()
             if nj == 1:
                 local_results = [
-                    self._evaluate_single(genome, inputs, labels, n_classes, train_steps, lr, seed_offset=i, global_index=idx)
-                    for i, (genome, idx) in enumerate(zip(local_genomes, local_indices))
+                    self._evaluate_single_loss(g, inputs, labels, n_classes, train_steps, lr, i, idx)
+                    for i, (g, idx) in enumerate(zip(local_genomes, local_indices))
                 ]
             else:
                 local_results = Parallel(n_jobs=nj, verbose=0)(
-                    delayed(self._evaluate_single)(genome, inputs, labels, n_classes, train_steps, lr, i, idx)
-                    for i, (genome, idx) in enumerate(zip(local_genomes, local_indices))
+                    delayed(self._evaluate_single_loss)(g, inputs, labels, n_classes, train_steps, lr, i, idx)
+                    for i, (g, idx) in enumerate(zip(local_genomes, local_indices))
                 )
 
-            # Gather results from all ranks
             gathered = [None for _ in range(world_size)]
             dist.all_gather_object(gathered, local_results)
 
-            # Flatten and reorder by global index
-            all_results = [item for sub in gathered for item in sub]  # list of (loss, pc, global_idx)
-            # Rebuild results aligned with population order
-            ordered = [None] * len(population)
-            for loss, pc, gidx in all_results:
-                ordered[gidx] = (loss, pc)
+            all_results = [item for sub in gathered for item in sub]  # (loss, global_idx)
+            losses = [None] * len(population)
+            for loss, gidx in all_results:
+                losses[gidx] = loss
+            return losses
 
-            return ordered
-
-        # ---- Single-process fallback (no torchrun) ----
+        # single-process
         nj = self._local_n_jobs()
         results = Parallel(n_jobs=nj, verbose=0)(
-            delayed(self._evaluate_single)(genome, inputs, labels, n_classes, train_steps, lr, i, i)
-            for i, genome in enumerate(population)
+            delayed(self._evaluate_single_loss)(g, inputs, labels, n_classes, train_steps, lr, i, i)
+            for i, g in enumerate(population)
         )
-        # Strip indices to match the original API
-        return [(loss, pc) for (loss, pc, _) in results]
+        losses = [None] * len(population)
+        for loss, idx in results:
+            losses[idx] = loss
+        return losses
 
-
-
-
-
-
-    # ----------------------------------------------
+    # -----------------------------
     # Evolutionary loop
-    # ----------------------------------------------
-    def evolve(self, train_inputs, train_labels, generations=10):
+    # -----------------------------
+    def evolve(self, train_inputs, train_labels, generations=10, n_classes=2, train_steps=20, lr=1e-2):
+        """
+        Runs evolution returning:
+          - best_pc: the final rebuilt-and-trained PC (once, at the end)
+          - best_genome: list[int]
+          - history: list[float] of best loss per generation
+        """
         population = self.init_population()
-        history, best_score, best_pc, best_genome = [], math.inf, None, None
+        history, best_score, best_genome = [], math.inf, None
 
         for gen in range(generations):
             print(f"🧬 Generation {gen+1}/{generations} (evaluating {len(population)} genomes in parallel)")
-            results = self.evaluate_population(population, train_inputs, train_labels)
-            scored = [(s, g, p) for (s, p), g in zip(results, population)]
+            losses = self.evaluate_population(population, train_inputs, train_labels,
+                                              n_classes=n_classes, train_steps=train_steps, lr=lr)
 
+            # pair (loss, genome), find best
+            scored = list(zip(losses, population))
             scored.sort(key=lambda x: x[0])
             history.append(scored[0][0])
 
             if scored[0][0] < best_score:
-                best_score, best_genome, best_pc = scored[0]
+                best_score = scored[0][0]
+                best_genome = deepcopy(scored[0][1])
 
-            elites = [deepcopy(scored[i][1]) for i in range(min(self.elite_k, len(scored)))]
+            # elites
+            elites = [deepcopy(s[1]) for s in scored[:min(self.elite_k, len(scored))]]
             new_pop = elites[:]
 
-            # tournament selection
+            # tournament selection helper
             def pick():
                 i, j = random.randrange(len(scored)), random.randrange(len(scored))
                 return scored[i] if scored[i][0] < scored[j][0] else scored[j]
 
+            # fill population
             while len(new_pop) < self.pop_size:
                 p1 = pick()[1]
                 p2 = pick()[1]
@@ -356,6 +370,11 @@ class GEOptimizer:
                     new_pop.append(self.mutate(c2))
 
             population = new_pop
-            print(f"✅ Gen {gen+1}: best loss={best_score:.4f}")
+            print(f"✅ Gen {gen+1}: best loss so far = {best_score:.4f}")
 
+        # After evolution, rebuild + train best genome once and return that PC
+        final_loss, best_pc = self._build_and_train(
+            best_genome, train_inputs, train_labels, n_classes=n_classes, train_steps=train_steps, lr=lr, seed_offset=0
+        )
+        # Optionally, you could append final_loss to history (it should be close to the best_score)
         return best_pc, best_genome, history

@@ -22,17 +22,9 @@ NPROC_PER_NODE=10                               # match ncpus per node
 NODE_RANK=$(grep -n $(hostname) $PBS_NODEFILE | head -n 1 | cut -d: -f1)
 NODE_RANK=$((NODE_RANK - 1))
 
-echo "MASTER_ADDR: $MASTER_ADDR"
-echo "MASTER_PORT: $MASTER_PORT"
-echo "NNODES: $NNODES"
-echo "NPROC_PER_NODE: $NPROC_PER_NODE"
-echo "NODE_RANK: $NODE_RANK"
-
 # Launch distributed training
 torchrun \
     --nnodes=$NNODES \
     --nproc_per_node=$NPROC_PER_NODE \
     --node_rank=$NODE_RANK \
-    --master_addr=$MASTER_ADDR \
-    --master_port=$MASTER_PORT \
     $PWD/src/main.py $PWD/src/config/hpc/pcnet_ge.json $PBS_ARRAY_INDEX
