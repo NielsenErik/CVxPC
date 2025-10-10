@@ -191,7 +191,8 @@ class GEOptimizer:
     def _local_n_jobs(self):
         """Limit joblib workers per-rank to avoid oversubscription when using torchrun."""
         if dist.is_available() and dist.is_initialized():
-            return max(1, min(4, self.n_jobs))
+            return 1  # Avoid loky in distributed ranks
+
         return self.n_jobs
 
     # -----------------------------

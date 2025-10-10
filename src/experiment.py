@@ -860,93 +860,152 @@ class ExperimentPC(Experiment):
     # ============================================================
 
     def convolution_modules_tensor(
-        self, images, cv_factory, return_maps=True, n_jobs=None, verbose=0, prune_features=None
-    ):
+            self, images, cv_factory, return_maps=True, n_jobs=None, verbose=0, prune_features=None
+        ):
         """
-        Torchrun-friendly version: each rank processes a subset of images and gathers results.
+        Torchrun-friendly version:
+        - Each rank processes a disjoint shard of images.
+        - Intra-rank parallelism uses joblib "threading" (no forking).
+        - Results are gathered with torch.distributed all_gather on TENSORS (not objects).
+        - Output shape: [N_images, C, H, W] or [N_images, H, W] depending on your modules.
         """
+        import os, numpy as np, torch
+        import torch.distributed as dist
+        from joblib import Parallel, delayed
 
         # ---------------------------------------------------------
-        # Setup DDP context
+        # DDP context
         # ---------------------------------------------------------
-        rank = 0
-        world_size = 1
-        if dist.is_available() and dist.is_initialized():
-            rank = dist.get_rank()
-            world_size = dist.get_world_size()
+        is_ddp = dist.is_available() and dist.is_initialized()
+        rank = dist.get_rank() if is_ddp else 0
+        world_size = dist.get_world_size() if is_ddp else 1
 
         # ---------------------------------------------------------
-        # Normalize input
+        # Normalize input to numpy
         # ---------------------------------------------------------
         if isinstance(images, torch.Tensor):
             images = images.detach().cpu().numpy()
         if images.ndim == 3:
-            images = np.expand_dims(images, 0)
-
+            images = np.expand_dims(images, 0)  # [1, H, W]
         total_images = len(images)
-        n_jobs = n_jobs or min(8, multiprocessing.cpu_count() // world_size)
+
+        # ---------------------------------------------------------
+        # Choose safe intra-rank parallelism
+        #   - threading backend only
+        #   - keep thread count modest to avoid oversubscription
+        # ---------------------------------------------------------
+        hw_threads = max(1, os.cpu_count() or 1)
+        if is_ddp:
+            # split threads across ranks; cap to avoid oversubscription with OpenCV/NumPy
+            max_threads_per_rank = max(1, hw_threads // world_size)
+            n_jobs = int(n_jobs or min(4, max_threads_per_rank))
+            # good hygiene for BLAS/OpenMP libs that also spawn threads
+            os.environ.setdefault("OMP_NUM_THREADS", "1")
+            os.environ.setdefault("MKL_NUM_THREADS", "1")
+            os.environ.setdefault("OPENBLAS_NUM_THREADS", "1")
+            os.environ.setdefault("NUMEXPR_NUM_THREADS", "1")
+        else:
+            n_jobs = int(n_jobs or min(8, hw_threads))
+
         if rank == 0:
             print(f"⚙️ convolution_modules_tensor(): rank {rank}/{world_size} using {n_jobs} workers on {total_images} images")
 
         # ---------------------------------------------------------
-        # Shard images among ranks
+        # Shard images among ranks (round-robin to keep sizes balanced)
         # ---------------------------------------------------------
-        shard = list(range(rank, total_images, world_size))
-        local_imgs = images[shard]
+        shard_idx = list(range(rank, total_images, world_size))
+        local_imgs = images[shard_idx]
 
         # ---------------------------------------------------------
-        # Get modules
+        # Get modules (make sure all ranks have the same setup)
         # ---------------------------------------------------------
         modules = cv_factory.ask_pop()
         if not isinstance(modules, list):
             modules = [modules]
 
         # ---------------------------------------------------------
-        # Define per-image processing
+        # Per-image work
         # ---------------------------------------------------------
         def _process_image(img):
             feats_per_module = [m.get_output(img, return_map=return_maps) for m in modules]
-            feats = np.concatenate(feats_per_module, axis=0)
+            feats = np.concatenate(feats_per_module, axis=0)  # expect [C, H, W] after concat
 
             if prune_features is not None:
-                if feats.ndim == 3:
+                if feats.ndim == 3:        # [C, H, W]
                     feats = feats[prune_features, :, :]
-                else:
+                else:                       # [*, C, H, W] fallback
                     feats = feats[:, prune_features, :, :]
-            return feats
+            return feats  # [C, H, W]
 
         # ---------------------------------------------------------
-        # Local parallelism (intra-rank)
+        # Intra-rank parallelism (threading)
         # ---------------------------------------------------------
         feature_list = Parallel(n_jobs=n_jobs, verbose=verbose, backend="threading")(
             delayed(_process_image)(img) for img in local_imgs
         )
-        local_feats = np.stack(feature_list, axis=0)
 
-        # ---------------------------------------------------------
-        # Gather results from all ranks
-        # ---------------------------------------------------------
-        gathered = [None for _ in range(world_size)]
-        dist.all_gather_object(gathered, local_feats.tolist()) if world_size > 1 else None
-
-        if world_size > 1:
-            # Flatten and reconstruct in original order
-            all_feats = []
-            for r, shard_feats in enumerate(gathered):
-                if shard_feats is None:
-                    continue
-                for i, f in zip(range(r, total_images, world_size), shard_feats):
-                    all_feats.append((i, np.array(f)))
-            # Sort by original index
-            all_feats = [x[1] for x in sorted(all_feats, key=lambda x: x[0])]
-            feats = np.stack(all_feats, axis=0)
+        if len(feature_list) == 0:
+            # Nothing on this rank; create a minimal tensor for gathering
+            local_feats_np = np.zeros((0, 1, 1, 1), dtype=np.float32)
         else:
-            feats = local_feats
+            # Stack -> [n_local, C, H, W]
+            local_feats_np = np.stack(feature_list, axis=0)
+            # ensure a consistent dtype / contiguous memory
+            local_feats_np = np.ascontiguousarray(local_feats_np, dtype=np.float32)
+
+        # ---------------------------------------------------------
+        # Gather across ranks using tensors (pad to the same n_local)
+        # ---------------------------------------------------------
+        if is_ddp:
+            with torch.no_grad():
+                device = torch.device("cpu")  # keep on CPU for large gathers
+                local_t = torch.from_numpy(local_feats_np).to(device)  # [n_local, C, H, W]
+                n_local = torch.tensor([local_t.shape[0]], dtype=torch.int32, device=device)
+
+                # 1) gather sizes
+                sizes = [torch.empty_like(n_local) for _ in range(world_size)]
+                dist.all_gather(sizes, n_local)
+                sizes = [int(s.item()) for s in sizes]
+                max_local = max(sizes)
+
+                # 2) pad along batch dim to max_local so all_gather works
+                if max_local == 0:
+                    # degenerate case: no data anywhere
+                    gathered = []
+                else:
+                    if local_t.shape[0] < max_local:
+                        pad_shape = (max_local - local_t.shape[0],) + tuple(local_t.shape[1:])
+                        pad = torch.zeros(pad_shape, dtype=local_t.dtype, device=device)
+                        local_t = torch.cat([local_t, pad], dim=0)
+
+                    # 3) gather tensors
+                    gathered = [torch.empty_like(local_t) for _ in range(world_size)]
+                    dist.all_gather(gathered, local_t)
+
+                # 4) unpad and restore original ordering
+                # gathered[r][:sizes[r]] corresponds to shard indices: range(r, N, world_size)
+                per_rank_arrays = []
+                for r, gt in enumerate(gathered):
+                    if sizes[r] == 0:
+                        continue
+                    per_rank_arrays.append((r, gt[:sizes[r]].cpu().numpy()))
+
+                # Rebuild full list in original order
+                recon = [None] * total_images
+                for r, arr in per_rank_arrays:
+                    for i, f in zip(range(r, total_images, world_size), arr):
+                        recon[i] = f
+
+                feats_np = np.stack(recon, axis=0) if total_images > 0 else np.zeros((0, 1, 1, 1), dtype=np.float32)
+
+        else:
+            feats_np = local_feats_np  # single process
 
         if rank == 0:
-            print(f"✅ convolution_modules_tensor(): generated {feats.shape}")
+            print(f"✅ convolution_modules_tensor(): generated {feats_np.shape}")
 
-        return feats
+        return feats_np
+
 
 
 
