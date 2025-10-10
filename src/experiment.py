@@ -859,71 +859,93 @@ class ExperimentPC(Experiment):
     # Convolution Modules Tensor Extraction
     # ============================================================
 
-    def convolution_modules_tensor(self, images, cv_factory, return_maps=True, n_jobs=None, verbose=0, prune_features=None):
+    def convolution_modules_tensor(
+        self, images, cv_factory, return_maps=True, n_jobs=None, verbose=0, prune_features=None
+    ):
         """
-        Generate a feature tensor using evolutionarily optimized convolution modules,
-        with parallelized per-image evaluation.
-
-        Args:
-            images (np.ndarray or torch.Tensor):
-                Input images, shape (B, C, H, W) or (B, H, W, C)
-            cv_factory (CVModuleFactory or FixedCVModuleFactory):
-                Factory that provides evolved (or fixed) convolution modules.
-            return_maps (bool):
-                If True, use full convolution maps (dense tensor);
-                if False, use compact (x, y) coordinate features.
-            n_jobs (int or None):
-                Number of parallel workers (defaults to CPU count).
-            verbose (int):
-                Joblib verbosity level.
-
-        Returns:
-            torch.Tensor:
-                Feature tensor of shape:
-                    - (B, N_filters, H, W) if return_maps=True
-                    - (B, 2 * N_filters) if return_maps=False
+        Torchrun-friendly version: each rank processes a subset of images and gathers results.
         """
 
-        # --- Normalize image array
+        # ---------------------------------------------------------
+        # Setup DDP context
+        # ---------------------------------------------------------
+        rank = 0
+        world_size = 1
+        if dist.is_available() and dist.is_initialized():
+            rank = dist.get_rank()
+            world_size = dist.get_world_size()
+
+        # ---------------------------------------------------------
+        # Normalize input
+        # ---------------------------------------------------------
         if isinstance(images, torch.Tensor):
             images = images.detach().cpu().numpy()
         if images.ndim == 3:
             images = np.expand_dims(images, 0)
 
-        n_jobs = n_jobs or min(16, multiprocessing.cpu_count())
-        print(f"⚙️ convolution_modules_tensor(): using {n_jobs} parallel workers")
+        total_images = len(images)
+        n_jobs = n_jobs or min(8, multiprocessing.cpu_count() // world_size)
+        if rank == 0:
+            print(f"⚙️ convolution_modules_tensor(): rank {rank}/{world_size} using {n_jobs} workers on {total_images} images")
 
-        # --- Retrieve convolution modules (usually 1 for FixedCVModuleFactory)
+        # ---------------------------------------------------------
+        # Shard images among ranks
+        # ---------------------------------------------------------
+        shard = list(range(rank, total_images, world_size))
+        local_imgs = images[shard]
+
+        # ---------------------------------------------------------
+        # Get modules
+        # ---------------------------------------------------------
         modules = cv_factory.ask_pop()
         if not isinstance(modules, list):
             modules = [modules]
 
-        # --- Define per-module computation
+        # ---------------------------------------------------------
+        # Define per-image processing
+        # ---------------------------------------------------------
         def _process_image(img):
             feats_per_module = [m.get_output(img, return_map=return_maps) for m in modules]
             feats = np.concatenate(feats_per_module, axis=0)
 
             if prune_features is not None:
                 if feats.ndim == 3:
-                    feats = feats[prune_features,:,:]
+                    feats = feats[prune_features, :, :]
                 else:
-                    feats = feats[:,prune_features,:,:]
-            
+                    feats = feats[:, prune_features, :, :]
             return feats
 
-        feature_list = Parallel(n_jobs=n_jobs, verbose=verbose)(
-            delayed(_process_image)(img) for img in images
+        # ---------------------------------------------------------
+        # Local parallelism (intra-rank)
+        # ---------------------------------------------------------
+        feature_list = Parallel(n_jobs=n_jobs, verbose=verbose, backend="threading")(
+            delayed(_process_image)(img) for img in local_imgs
         )
+        local_feats = np.stack(feature_list, axis=0)
 
-        # feature_list = []
-        # for img in images:
-        #     feats = _process_image(img)
-        #     feature_list.append(feats)
+        # ---------------------------------------------------------
+        # Gather results from all ranks
+        # ---------------------------------------------------------
+        gathered = [None for _ in range(world_size)]
+        dist.all_gather_object(gathered, local_feats.tolist()) if world_size > 1 else None
 
-        feats = np.stack(feature_list, axis=0)
-        # assert feats.shape[:2] == (len(images), _lambda), f"Unexpected shape: {feats.shape}"
+        if world_size > 1:
+            # Flatten and reconstruct in original order
+            all_feats = []
+            for r, shard_feats in enumerate(gathered):
+                if shard_feats is None:
+                    continue
+                for i, f in zip(range(r, total_images, world_size), shard_feats):
+                    all_feats.append((i, np.array(f)))
+            # Sort by original index
+            all_feats = [x[1] for x in sorted(all_feats, key=lambda x: x[0])]
+            feats = np.stack(all_feats, axis=0)
+        else:
+            feats = local_feats
 
-        print(f"✅ convolution_modules_tensor(): generated {feats.shape}")
+        if rank == 0:
+            print(f"✅ convolution_modules_tensor(): generated {feats.shape}")
+
         return feats
 
 
@@ -932,11 +954,11 @@ class ExperimentPC(Experiment):
         if self.feature_extractor == "handcrafted":
             return self.get_handcrafted_features(images, n_jobs=self.n_cpus)
         elif self.feature_extractor == "cv_modules":
-            cv_factory = CVModuleFactory(
+            self.cv_factory = CVModuleFactory(
                 Optimizer={"class_name": "CMAES", "kwargs": {"n_params": 128, "lambda_": self.n_cv_modules}},
                 CVModule={"class_name": "ConvolutionModule", "kwargs": {"n_filters": self.n_filters, "filter_sizes": 5, "device": self.device}}
             )
-            return self.convolution_modules_tensor(images, cv_factory, return_maps=True, n_jobs=self.n_cpus, prune_features=prune_features)
+            return self.convolution_modules_tensor(images, self.cv_factory, return_maps=True, n_jobs=self.n_cpus, prune_features=prune_features)
 
         else:
             raise ValueError(f"Unknown feature extractor {self.feature_extractor}")
