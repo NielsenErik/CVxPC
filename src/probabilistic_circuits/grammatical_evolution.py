@@ -228,6 +228,35 @@ class GEOptimizer:
             return 1  # Avoid loky in distributed ranks
 
         return self.n_jobs
+    
+    def cl_iou_score(self,pred_mask, true_mask, tau=2):
+        """
+        pred_mask, true_mask: (B,1,H,W)
+        """
+        B = pred_mask.shape[0]
+        device = pred_mask.device
+        pred_mask = (pred_mask > 0.5).float()
+        true_mask = (true_mask > 0.5).float()
+
+        # Skeletonization approximation
+        kernel_3 = torch.ones((1, 1, 3, 3), device=device)
+        eroded_true = F.max_pool2d(1 - true_mask, 3, 1, 1)
+        eroded_pred = F.max_pool2d(1 - pred_mask, 3, 1, 1)
+        skel_true = torch.relu(true_mask - (1 - eroded_true))
+        skel_pred = torch.relu(pred_mask - (1 - eroded_pred))
+
+        # --- Dilation ---
+        k_np = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (2*tau+1, 2*tau+1))
+        k = torch.tensor(k_np, dtype=torch.float32, device=device)[None, None, :, :]
+        dil_true = (F.conv2d(skel_true, k, padding=tau, groups=1) > 0).float()
+        dil_pred = (F.conv2d(skel_pred, k, padding=tau, groups=1) > 0).float()
+
+        TPcl = (skel_true * dil_pred).sum(dim=(1,2,3))
+        FPcl = (skel_pred * (1 - dil_true)).sum(dim=(1,2,3))
+        FNcl = (skel_true * (1 - dil_pred)).sum(dim=(1,2,3))
+
+        cl_iou = TPcl / (TPcl + FPcl + FNcl + 1e-8)
+        return cl_iou.mean().item()
 
     # -----------------------------
     # Genetic operators
@@ -291,6 +320,7 @@ class GEOptimizer:
         train_loader = self.get_dataloader(x_tr, y_tr, batch_size=32)
         val_loader = self.get_dataloader(x_va, y_va, batch_size=32)
 
+
         for _ in range(train_steps):
             for xb, yb in train_loader:
                 logits = pc.evaluate(xb)
@@ -301,12 +331,23 @@ class GEOptimizer:
 
         with torch.no_grad():
             val_loss = 0.0
+            cl_iou = 0.0
             for xb, yb in val_loader:
                 logits = pc.evaluate(xb)
                 val_loss += criterion(logits, yb).item()
+                pred_mask = torch.argmax(logits, dim=1, keepdim=True).float()
+                true_mask = yb.unsqueeze(1).float()
+                cl_iou += self.cl_iou_score(pred_mask, true_mask)
             val_loss /= max(1, len(val_loader))
+            cl_iou = cl_iou/len(val_loader)
 
-        return val_loss, global_index
+        del pc, builder, optimizer, train_loader, val_loader, x_tr, y_tr, x_va, y_va, logits, loss
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+        import gc; gc.collect()
+        
+
+        return cl_iou, global_index
 
     def evaluate_population(self, population, inputs, labels, n_classes=2, train_steps=20, lr=1e-2):
         """
@@ -362,7 +403,7 @@ class GEOptimizer:
           - history: list[float] of best loss per generation
         """
         population = self.init_population()
-        history, best_score, best_genome = [], math.inf, None
+        history, best_score, best_genome = [], -math.inf, None
 
         for gen in range(generations):
             print_info(f"🧬 Generation {gen+1}/{generations} (evaluating {len(population)} genomes in parallel)")
@@ -374,7 +415,7 @@ class GEOptimizer:
             scored.sort(key=lambda x: x[0])
             history.append(scored[0][0])
 
-            if scored[0][0] < best_score:
+            if scored[-1][0] > best_score:
                 best_score = scored[0][0]
                 best_genome = deepcopy(scored[0][1])
 
