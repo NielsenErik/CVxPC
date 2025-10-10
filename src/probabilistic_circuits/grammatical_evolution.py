@@ -390,6 +390,7 @@ class GEOptimizer:
         losses = [None] * len(population)
         for loss, idx in results:
             losses[idx] = loss
+        print_info(f"🧬{losses}")
         return losses
 
     # -----------------------------
@@ -416,8 +417,8 @@ class GEOptimizer:
             history.append(scored[0][0])
 
             if scored[-1][0] > best_score:
-                best_score = scored[0][0]
-                best_genome = deepcopy(scored[0][1])
+                best_score = scored[-1][0]
+                best_genome = deepcopy(scored[-1][1])
 
             # elites
             elites = [deepcopy(s[1]) for s in scored[:min(self.elite_k, len(scored))]]

@@ -1586,7 +1586,10 @@ class ExperimentGEPC(ExperimentPC):
             history = []
             for n in model.get_nodes():
                 if isinstance(n, InputNode):
-                    fitness.append(n.gate.item())
+                    if n.feature_idx in prune_features_idx:
+                        fitness.append(n.gate.item())
+                    else:
+                        fitness.append(0.0)
 
             history.append(fitness)
             print_info("Fitness:", fitness)
