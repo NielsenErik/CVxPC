@@ -221,3 +221,62 @@ def ddp_cleanup_if_needed():
 
 def is_main_process():
     return (not dist.is_available()) or (not dist.is_initialized()) or dist.get_rank() == 0
+
+def ddp_barrier():
+    if dist.is_available() and dist.is_initialized():
+        dist.barrier()
+
+def ddp_is_initialized():
+    return dist.is_available() and dist.is_initialized()
+
+# --------- Logging ---------
+def rank0_print(*a, **k):
+    if not ddp_is_initialized() or dist.get_rank() == 0:
+        print(*a, **k)
+
+# --------- Thread hygiene (call early, once) ---------
+def tame_threads():
+    os.environ.setdefault("OMP_NUM_THREADS", "1")
+    os.environ.setdefault("MKL_NUM_THREADS", "1")
+    os.environ.setdefault("OPENBLAS_NUM_THREADS", "1")
+    os.environ.setdefault("NUMEXPR_NUM_THREADS", "1")
+
+# --------- Robust tensor all_gather for 1D vectors ---------
+@torch.no_grad()
+def all_gather_vector_robust(local_vec: torch.Tensor, pad_fill: float = float("inf")):
+    """
+    local_vec: 1D CPU tensor (float32/int64 etc.)
+    Returns: concatenated list of (rank_idx, unpadded tensor)
+    Safe if some ranks have zero length; no Python object pickling.
+    """
+    assert local_vec.device.type == "cpu" and local_vec.dim() == 1
+    if not ddp_is_initialized():
+        return [(0, local_vec)]
+
+    world = dist.get_world_size()
+    n_local = torch.tensor([local_vec.numel()], dtype=torch.int32)
+    size_list = [torch.empty_like(n_local) for _ in range(world)]
+    dist.all_gather(size_list, n_local)
+    sizes = [int(s.item()) for s in size_list]
+    max_local = max(sizes)
+
+    if local_vec.numel() < max_local:
+        pad = torch.full((max_local - local_vec.numel(),), pad_fill,
+                         dtype=local_vec.dtype)
+        local_vec = torch.cat([local_vec, pad], dim=0)
+
+    gathered = [torch.empty_like(local_vec) for _ in range(world)]
+    dist.all_gather(gathered, local_vec)
+
+    out = []
+    for r in range(world):
+        cnt = sizes[r]
+        if cnt == 0: 
+            out.append((r, local_vec[:0].clone()))
+        else:
+            out.append((r, gathered[r][:cnt].clone()))
+    return out
+
+# --------- Round-robin sharding ---------
+def shard_indices(n_items, rank, world):
+    return list(range(rank, n_items, world))
