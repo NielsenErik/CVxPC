@@ -42,54 +42,88 @@ TreeSpec = Union[LeafSpec, SumSpec, ProdSpec]
 class GEMappingError(Exception): pass
 
 class GEMapper:
-    """Grammar-based mapper from codon sequence to TreeSpec."""
+    """Grammar-based mapper from codon sequence to TreeSpec (total/robust)."""
     def __init__(self, max_wraps=2):
         self.max_wraps = max_wraps
 
     def map_model(self, codons: List[int], n_features: int, max_depth: int, max_branching: int):
         specs, idx, wraps = [], 0, 0
         for _ in range(2):  # binary classifier = 2 trees
-            tree, idx, wraps = self._expand_tree(codons, idx, wraps, n_features, max_depth, max_branching, 0)
+            tree, idx, wraps = self._expand_tree(
+                codons, idx, wraps, n_features, max_depth, max_branching, depth=0
+            )
             specs.append(tree)
         return specs
 
+    # ---------- helpers ----------
     def _next_codon(self, codons, idx, wraps):
+        """
+        Returns (codon_or_None, next_idx, wraps, exhausted_flag).
+        When codons are exhausted beyond max_wraps, codon is None and exhausted=True.
+        """
         if idx >= len(codons):
             wraps += 1
             if wraps > self.max_wraps:
-                raise GEMappingError("Exceeded max codon wraps.")
+                # Do NOT raise; signal exhaustion to callers
+                return None, idx, wraps, True
             idx = 0
-        return codons[idx], idx + 1, wraps
+        return codons[idx], idx + 1, wraps, False
 
+    def _fallback_feature(self, idx, depth, n_features):
+        # Deterministic fallback (no RNG) to keep runs reproducible
+        if n_features <= 0:
+            return 0
+        return (depth * 31 + idx) % n_features
+
+    # ---------- expansion ----------
     def _expand_tree(self, codons, idx, wraps, n_features, max_depth, max_branching, depth):
+        # Depth cap ⇒ must be a leaf
         if depth >= max_depth:
-            feature, idx, wraps = self._pick_feature(codons, idx, wraps, n_features)
-            return LeafSpec("input", feature), idx, wraps
+            f, idx, wraps = self._pick_feature(codons, idx, wraps, n_features, depth)
+            return LeafSpec("input", f), idx, wraps
 
-        c, idx, wraps = self._next_codon(codons, idx, wraps)
-        node_type = c % 3
+        c, idx, wraps, exhausted = self._next_codon(codons, idx, wraps)
+        if exhausted:
+            # No more codons we can legally read → emit a leaf
+            f = self._fallback_feature(idx, depth, n_features)
+            return LeafSpec("input", f), idx, wraps
+
+        node_type = c % 3  # 0: leaf, 1: sum, 2: prod
 
         if node_type == 0:  # leaf
-            f, idx, wraps = self._pick_feature(codons, idx, wraps, n_features)
+            f, idx, wraps = self._pick_feature(codons, idx, wraps, n_features, depth)
             return LeafSpec("input", f), idx, wraps
 
         elif node_type == 1:  # sum
-            kcod, idx, wraps = self._next_codon(codons, idx, wraps)
-            k = 2 + (kcod % max(1, max_branching - 1))
+            kcod, idx, wraps, exhausted_k = self._next_codon(codons, idx, wraps)
+            if exhausted_k:
+                k = 2  # fallback
+            else:
+                k = 2 + (kcod % max(1, max_branching - 1))
+            # Build children with increased depth; children count is bounded by k
             children = []
             for _ in range(k):
-                ch, idx, wraps = self._expand_tree(codons, idx, wraps, n_features, max_depth, max_branching, depth + 1)
+                ch, idx, wraps = self._expand_tree(
+                    codons, idx, wraps, n_features, max_depth, max_branching, depth + 1
+                )
                 children.append(ch)
             return SumSpec("sum", k, children), idx, wraps
 
         else:  # prod
-            left, idx, wraps = self._expand_tree(codons, idx, wraps, n_features, max_depth, max_branching, depth + 1)
-            right, idx, wraps = self._expand_tree(codons, idx, wraps, n_features, max_depth, max_branching, depth + 1)
+            left,  idx, wraps = self._expand_tree(
+                codons, idx, wraps, n_features, max_depth, max_branching, depth + 1
+            )
+            right, idx, wraps = self._expand_tree(
+                codons, idx, wraps, n_features, max_depth, max_branching, depth + 1
+            )
             return ProdSpec("prod", left, right), idx, wraps
 
-    def _pick_feature(self, codons, idx, wraps, n_features):
-        c, idx, wraps = self._next_codon(codons, idx, wraps)
+    def _pick_feature(self, codons, idx, wraps, n_features, depth):
+        c, idx, wraps, exhausted = self._next_codon(codons, idx, wraps)
+        if exhausted:
+            return self._fallback_feature(idx, depth, n_features), idx, wraps
         return c % n_features, idx, wraps
+
 
 
 # ============================================================
