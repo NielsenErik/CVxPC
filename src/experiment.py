@@ -312,13 +312,12 @@ class ExperimentDL(Experiment):
         self.set_loss(BCEDiceLoss(pos_weight=pos_weight))
 
     def set_optimizer(self, optimizer):
-        self.optimizer = optimizer.to(self.device)
-
+        self.optimizer = optimizer
     def set_scheduler(self, scheduler):
-        self.scheduler = scheduler.to(self.device)
+        self.scheduler = scheduler
 
     def set_loss(self, loss):
-        self.loss = loss.to(self.device)
+        self.loss = loss
     
     
     def get_model_size_kb(self,model: torch.nn.Module):
@@ -447,17 +446,29 @@ class ExperimentDL(Experiment):
     def evaluate(self, model, test_data, loss_function=torch.nn.BCEWithLogitsLoss()):
         test_loader = DataLoader(test_data, batch_size=self.batch_size, shuffle=False)
         model.eval()
-        test_loss = 0
+        test_loss, test_dice, test_iou, test_cliou = 0,0,0,0
         with torch.no_grad():
             for images, masks in test_loader:
                 images, masks = images.to(self.device), masks.to(self.device)
                 outputs = model(images)
                 loss = loss_function(outputs, masks)
                 test_loss += loss.item()
+                test_dice += self.dice_coef(outputs, masks).item()
+                test_iou  += self.iou_score(outputs, masks).item()
+                test_cliou += self.cl_iou_score(outputs, masks)
         print(f"Test Loss: {test_loss/len(test_loader)}")
         mlflow.log_metric("test_loss", test_loss/len(test_loader))
+        print(f"Test Loss: {test_dice/len(test_loader)}")
+        mlflow.log_metric("test_dice", test_dice/len(test_loader))
+        print(f"Test Loss: {test_iou/len(test_loader)}")
+        mlflow.log_metric("test_iou", test_iou/len(test_loader))
+        print(f"Test Loss: {test_cliou/len(test_loader)}")
+        mlflow.log_metric("test_cliou", test_cliou/len(test_loader))
         with open(self.experiment_report, "a") as f:
             f.write(f"Test Loss: {test_loss/len(test_loader)}\n")
+            f.write(f"Test dice: {test_dice/len(test_loader)}\n")
+            f.write(f"Test iou: {test_iou/len(test_loader)}\n")
+            f.write(f"Test cliou: {test_cliou/len(test_loader)}\n")
         f.close()
         return test_loss/len(test_loader)        
 
@@ -610,7 +621,7 @@ class ConvAEExperiment(ExperimentDL):
     def load_model(self, model_name="convae"):
         self.model.load_state_dict(torch.load(os.path.join(self.save_path, f"{model_name}.pth")))
 
-class ExperimentUnetPlus(Experiment):
+class ExperimentUnetPlus(ExperimentDL):
     def __init__(self, config):
         super().__init__(config)
         self.model_name = self.config.get("model_name", "unetplus")

@@ -274,8 +274,25 @@ class UNetPlusPlus(nn.Module):
     Paper: https://arxiv.org/abs/1807.10165 (for reference)
     This is an encoder-decoder with dense skip connections between same-resolution nodes.
     """
-    def __init__(self, in_channels=3, num_classes=1, deep_supervision: bool=False, filters=(64,128,256,512,1024)):
+    def __init__(self, in_channels=3, n_classes=1, deep_supervision: bool=False, filters=(64,128,256,512,1024)):
         super().__init__()
+
+        self.deep_supervision = deep_supervision
+
+        # Encoder blocks (downsampling)
+        self.conv00 = DoubleConv(in_channels, filters[0])
+        self.pool0 = nn.MaxPool2d(2)
+
+        self.conv10 = DoubleConv(filters[0], filters[1])
+        self.pool1 = nn.MaxPool2d(2)
+
+        self.conv20 = DoubleConv(filters[1], filters[2])
+        self.pool2 = nn.MaxPool2d(2)
+
+        self.conv30 = DoubleConv(filters[2], filters[3])
+        self.pool3 = nn.MaxPool2d(2)
+
+        self.conv40 = DoubleConv(filters[3], filters[4])
 
         # Up-convolutions
         self.up01 = nn.ConvTranspose2d(filters[1], filters[0], 2, stride=2)
@@ -309,12 +326,12 @@ class UNetPlusPlus(nn.Module):
 
         # Final classifiers
         if deep_supervision:
-            self.final1 = nn.Conv2d(filters[0], num_classes, kernel_size=1)
-            self.final2 = nn.Conv2d(filters[0], num_classes, kernel_size=1)
-            self.final3 = nn.Conv2d(filters[0], num_classes, kernel_size=1)
-            self.final4 = nn.Conv2d(filters[0], num_classes, kernel_size=1)
+            self.final1 = nn.Conv2d(filters[0], n_classes, kernel_size=1)
+            self.final2 = nn.Conv2d(filters[0], n_classes, kernel_size=1)
+            self.final3 = nn.Conv2d(filters[0], n_classes, kernel_size=1)
+            self.final4 = nn.Conv2d(filters[0], n_classes, kernel_size=1)
         else:
-            self.final = nn.Conv2d(filters[0], num_classes, kernel_size=1)
+            self.final = nn.Conv2d(filters[0], n_classes, kernel_size=1)
 
     def forward(self, x):
         # Encoder
@@ -347,3 +364,13 @@ class UNetPlusPlus(nn.Module):
             return [out1, out2, out3, out4]
         else:
             return self.final(x04)
+        
+    def info(self):
+        title = "ConvAutoEncoder"
+        class_type = __class__.__name__
+        num_params = sum(p.numel() for p in self.parameters())
+        trainable_params = sum(p.numel() for p in self.parameters() if p.requires_grad)
+        text = (f"Model: {title} ({class_type})\n"
+                f"Total parameters: {num_params}\n"
+                f"Trainable parameters: {trainable_params}\n")
+        return text
