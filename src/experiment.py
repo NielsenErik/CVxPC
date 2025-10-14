@@ -1625,7 +1625,7 @@ class ExperimentGEPC(ExperimentPC):
             # 2nd training step, optimize the convolutional modules
             cv_X_train = torch.from_numpy(np.array([self.train_data[i][0] for i in range(ge_train_size,2*ge_train_size)])).float().to(self.device)
             cv_Y_train = torch.from_numpy(np.array([self.train_data[i][1] for i in range(ge_train_size,2*ge_train_size)])).long().to(self.device)
-            self.train_cv_modules(self.model, cv_X_train, cv_Y_train, prune_features_idx)
+            # self.train_cv_modules(self.model, cv_X_train, cv_Y_train, prune_features_idx)
 
 
 
