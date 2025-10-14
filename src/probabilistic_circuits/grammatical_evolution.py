@@ -308,7 +308,7 @@ class GEOptimizer:
         counts[counts == 0] = 1.0
         balance = (1.0 / counts)
         balance = balance / balance.sum()
-        criterion = DiceCELoss(pos_weight=balance.to(self.device)).to(self.device)
+        criterion = DiceCELoss(pos_weight=balance.to(self.device))
 
         # Shuffle then split
         perm = torch.randperm(len(inputs))
@@ -346,8 +346,8 @@ class GEOptimizer:
             torch.cuda.empty_cache()
         import gc; gc.collect()
         
-
-        return cl_iou, global_index
+        print_info(f"    - Genome {global_index} loss: {val_loss:.4f}, clIoU: {cl_iou:.4f}")
+        return val_loss, global_index
 
     def evaluate_population(self, population, inputs, labels, n_classes=2, train_steps=20, lr=1e-2):
         """
@@ -404,7 +404,7 @@ class GEOptimizer:
           - history: list[float] of best loss per generation
         """
         population = self.init_population()
-        history, best_score, best_genome = [], -math.inf, None
+        history, best_score, best_genome = [], math.inf, None
 
         for gen in range(generations):
             print_info(f"🧬 Generation {gen+1}/{generations} (evaluating {len(population)} genomes in parallel)")
@@ -416,8 +416,8 @@ class GEOptimizer:
             scored.sort(key=lambda x: x[0])
             history.append(scored[0][0])
 
-            if scored[-1][0] > best_score:
-                best_score = scored[-1][0]
+            if scored[0][0] < best_score:
+                best_score = scored[0][0]
                 best_genome = deepcopy(scored[-1][1])
 
             # elites

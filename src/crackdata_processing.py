@@ -94,7 +94,7 @@ class CrackDataset(Dataset):
     Returns:
         torch.utils.data.Dataset: Dataset object for loading crack images and masks.
     '''
-    def __init__(self, images_path, ground_truths_path, resize_size=(256, 256), augmentation_percentage=None, sample_size=224):
+    def __init__(self, images_path, ground_truths_path, resize_size=(256, 256), sample_size=224):
         self.sample_size = sample_size
         image_exts = ["*.jpg", "*.jpeg", "*.png"]
         mask_exts = ["*.jpg", "*.jpeg", "*.png"]
@@ -106,8 +106,8 @@ class CrackDataset(Dataset):
             [p for ext in mask_exts for p in glob.glob(os.path.join(ground_truths_path, ext))]
         )[:sample_size]
         self.resize_size = resize_size
-        self.augmentation_percentage = augmentation_percentage
-        
+
+
 
     def resize_img(self, image, w, h):
         transform = transforms.Compose([

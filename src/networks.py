@@ -258,8 +258,92 @@ class ConvAutoEncoder(nn.Module):
                 f"Total parameters: {num_params}\n"
                 f"Trainable parameters: {trainable_params}\n")
         return text
-    
-class EvoSegNet(nn.Module):
-    def __init__(self):
-        pass
-    
+
+class ConvBNReLU(nn.Module):
+    def __init__(self, in_ch, out_ch, k=3, s=1, p=1):
+        super().__init__()
+        self.conv = nn.Conv2d(in_ch, out_ch, k, s, p, bias=False)
+        self.bn = nn.BatchNorm2d(out_ch)
+        self.relu = nn.ReLU(inplace=True)
+
+    def forward(self, x):
+        return self.relu(self.bn(self.conv(x)))
+
+class UNetPlusPlus(nn.Module):
+    """UNet++ (Nested U-Net) with optional deep supervision.
+    Paper: https://arxiv.org/abs/1807.10165 (for reference)
+    This is an encoder-decoder with dense skip connections between same-resolution nodes.
+    """
+    def __init__(self, in_channels=3, num_classes=1, deep_supervision: bool=False, filters=(64,128,256,512,1024)):
+        super().__init__()
+
+        # Up-convolutions
+        self.up01 = nn.ConvTranspose2d(filters[1], filters[0], 2, stride=2)
+        self.up11 = nn.ConvTranspose2d(filters[2], filters[1], 2, stride=2)
+        self.up21 = nn.ConvTranspose2d(filters[3], filters[2], 2, stride=2)
+        self.up31 = nn.ConvTranspose2d(filters[4], filters[3], 2, stride=2)
+
+        self.up02 = nn.ConvTranspose2d(filters[1], filters[0], 2, stride=2)
+        self.up12 = nn.ConvTranspose2d(filters[2], filters[1], 2, stride=2)
+        self.up22 = nn.ConvTranspose2d(filters[3], filters[2], 2, stride=2)
+
+        self.up03 = nn.ConvTranspose2d(filters[1], filters[0], 2, stride=2)
+        self.up13 = nn.ConvTranspose2d(filters[2], filters[1], 2, stride=2)
+
+        self.up04 = nn.ConvTranspose2d(filters[1], filters[0], 2, stride=2)
+
+        # Decoder nested convs (dense skip concatenations)
+        self.conv01 = DoubleConv(filters[0] + filters[0], filters[0])
+        self.conv11 = DoubleConv(filters[1] + filters[1], filters[1])
+        self.conv21 = DoubleConv(filters[2] + filters[2], filters[2])
+        self.conv31 = DoubleConv(filters[3] + filters[3], filters[3])
+
+        self.conv02 = DoubleConv(filters[0]*2 + filters[0], filters[0])
+        self.conv12 = DoubleConv(filters[1]*2 + filters[1], filters[1])
+        self.conv22 = DoubleConv(filters[2]*2 + filters[2], filters[2])
+
+        self.conv03 = DoubleConv(filters[0]*3 + filters[0], filters[0])
+        self.conv13 = DoubleConv(filters[1]*3 + filters[1], filters[1])
+
+        self.conv04 = DoubleConv(filters[0]*4 + filters[0], filters[0])
+
+        # Final classifiers
+        if deep_supervision:
+            self.final1 = nn.Conv2d(filters[0], num_classes, kernel_size=1)
+            self.final2 = nn.Conv2d(filters[0], num_classes, kernel_size=1)
+            self.final3 = nn.Conv2d(filters[0], num_classes, kernel_size=1)
+            self.final4 = nn.Conv2d(filters[0], num_classes, kernel_size=1)
+        else:
+            self.final = nn.Conv2d(filters[0], num_classes, kernel_size=1)
+
+    def forward(self, x):
+        # Encoder
+        x00 = self.conv00(x)
+        x10 = self.conv10(self.pool0(x00))
+        x20 = self.conv20(self.pool1(x10))
+        x30 = self.conv30(self.pool2(x20))
+        x40 = self.conv40(self.pool3(x30))
+
+        # Decoder with nested dense skip connections
+        x01 = self.conv01(torch.cat([x00, self.up01(x10)], dim=1))
+        x11 = self.conv11(torch.cat([x10, self.up11(x20)], dim=1))
+        x21 = self.conv21(torch.cat([x20, self.up21(x30)], dim=1))
+        x31 = self.conv31(torch.cat([x30, self.up31(x40)], dim=1))
+
+        x02 = self.conv02(torch.cat([x00, x01, self.up02(x11)], dim=1))
+        x12 = self.conv12(torch.cat([x10, x11, self.up12(x21)], dim=1))
+        x22 = self.conv22(torch.cat([x20, x21, self.up22(x31)], dim=1))
+
+        x03 = self.conv03(torch.cat([x00, x01, x02, self.up03(x12)], dim=1))
+        x13 = self.conv13(torch.cat([x10, x11, x12, self.up13(x22)], dim=1))
+
+        x04 = self.conv04(torch.cat([x00, x01, x02, x03, self.up04(x13)], dim=1))
+
+        if self.deep_supervision:
+            out1 = self.final1(x01)
+            out2 = self.final2(x02)
+            out3 = self.final3(x03)
+            out4 = self.final4(x04)
+            return [out1, out2, out3, out4]
+        else:
+            return self.final(x04)
