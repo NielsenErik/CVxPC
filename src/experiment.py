@@ -304,6 +304,7 @@ class Experiment:
 class ExperimentDL(Experiment):
     def __init__(self, config):
         super().__init__(config)
+        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
     def setup(self, pos_weight=1.0):
         self.set_optimizer(torch.optim.Adam(self.model.parameters(), lr=self.learning_rate))
@@ -311,13 +312,13 @@ class ExperimentDL(Experiment):
         self.set_loss(BCEDiceLoss(pos_weight=pos_weight))
 
     def set_optimizer(self, optimizer):
-        self.optimizer = optimizer
+        self.optimizer = optimizer.to(self.device)
 
     def set_scheduler(self, scheduler):
-        self.scheduler = scheduler
+        self.scheduler = scheduler.to(self.device)
 
     def set_loss(self, loss):
-        self.loss = loss
+        self.loss = loss.to(self.device)
     
     
     def get_model_size_kb(self,model: torch.nn.Module):
