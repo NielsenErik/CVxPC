@@ -163,10 +163,14 @@ class CMAES(EDA, metaclass=ContinuousOptimizationMetaClass):
         EDA.__init__(self, None, lambda_, n_params)
 
         self._cmaes = cmaes.CMA([0] * n_params, 1, population_size=lambda_)
+        self.best = None
+
 
     def _generate(self):
         self._individuals = [self._cmaes.ask() for _ in range(self._cmaes.population_size)]
         return self._individuals
 
     def tell(self, fitnesses):
-        self._cmaes.tell([(a, -f) for a, f in zip(self._individuals, fitnesses)])
+        pop = [(a, f) for a, f in zip(self._individuals, fitnesses)]
+        self.best = sorted(pop, key=lambda x: x[1], reverse=True)[0]
+        self._cmaes.tell([(a, f) for a, f in zip(self._individuals, fitnesses)])

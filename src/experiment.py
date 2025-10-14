@@ -50,6 +50,10 @@ def run_experiment(config):
     if config["algorithm"] == "unet":
         experiment = UNetExperiment(config)
         experiment.run()
+    
+    elif config["algorithm"] == "unetplus":
+        experiment = ExperimentUnetPlus(config)
+        experiment.run()
 
     elif config["algorithm"] == "convae":
         experiment = ConvAEExperiment(config)
@@ -106,7 +110,9 @@ class Experiment:
         if self.execution_mode == "train":
             self.images_path = train_path + "/images/"
             self.ground_truth_path = train_path + "/masks/"        
-            self.data = CrackDataset(self.images_path, self.ground_truth_path, augmentation_percentage=0.1,sample_size=self.sample_size, resize_size=(self.resize_size[0], self.resize_size[1]))     
+            self.data = CrackDataset(self.images_path, self.ground_truth_path,sample_size=self.sample_size, resize_size=(self.resize_size[0], self.resize_size[1]))
+            indices = torch.randperm(len(self.data))
+            self.data = torch.utils.data.Subset(self.data, indices)
             if self.execution_mode == "train":
                 if self.validation_split > 0:
                     split_idx = int((1 - self.validation_split) * len(self.data))
@@ -121,7 +127,7 @@ class Experiment:
             if test_path is not None:
                 self.test_images_path = test_path + "/images/"
                 self.test_ground_truth_path = test_path + "/masks/"
-                self.test_data = CrackDataset(self.test_images_path, self.test_ground_truth_path, augmentation_percentage=0.0,sample_size=self.test_size, resize_size=(self.resize_size[0], self.resize_size[1]))
+                self.test_data = CrackDataset(self.test_images_path, self.test_ground_truth_path,sample_size=self.test_size, resize_size=(self.resize_size[0], self.resize_size[1]))
                 print_info(f"Test samples: {len(self.test_data)}")
             self.experiment_dict["dataset_size"] = {
                 "train": len(self.data),
@@ -566,6 +572,7 @@ class ExperimentDL(Experiment):
             self.show_predictions(self.model, self.test_data, self.device, num_samples=2, threshold=self.threshold)
 
 class UNetExperiment(ExperimentDL):
+
     def __init__(self, config):
         super().__init__(config)
         self.model_name = self.config.get("model_name", "unet")
@@ -602,7 +609,13 @@ class ConvAEExperiment(ExperimentDL):
     def load_model(self, model_name="convae"):
         self.model.load_state_dict(torch.load(os.path.join(self.save_path, f"{model_name}.pth")))
 
+class ExperimentUnetPlus(Experiment):
+    def __init__(self, config):
+        super().__init__(config)
+        self.model_name = self.config.get("model_name", "unetplus")
 
+    def set_algorithm(self):
+        self.model = UNetPlusPlus(n_classes=1)
 
 class ExperimentPC(Experiment):
     def __init__(self, config):
@@ -624,6 +637,7 @@ class ExperimentPC(Experiment):
         self.n_filters = self.config.get("n_filters", 4)
         self.set_algorithm()
         self._setup_cpu_env()
+        self.cv_factory = None
 
         # cache for conv filter bank tensor
         self.cached_filter_tensor = None
@@ -755,7 +769,7 @@ class ExperimentPC(Experiment):
     # --------------------------------------------------------
     # Handcrafted features
     # --------------------------------------------------------
-    def get_handcrafted_features(self, images, n_jobs=8):
+    def get_handcrafted_features(self, images, n_jobs=8, prune_features_idx=None):
         """Compute handcrafted features for images in parallel."""
         def process_one(img):
             if isinstance(img, torch.Tensor):
@@ -827,12 +841,49 @@ class ExperimentPC(Experiment):
                                                 pool_sizes=self.filter_sizes,
                                                 modes=("avg", "max"))
         pooled_feats = pooled_feats.cpu().numpy()
+        final_feats = np.concatenate([base_feats, pooled_feats], axis=1)
+        if prune_features_idx is not None:
+            final_feats = final_feats[:, prune_features_idx, :, :]
 
-        return np.concatenate([base_feats, pooled_feats], axis=1)
+        return final_feats
 
     # ============================================================
     # Convolution Modules Tensor Extraction
     # ============================================================
+
+
+    import numpy as np
+
+    def feature_stats_unsup(self, maps_bchw):
+        # maps_bchw: (N, K, H, W)
+        # per-channel variance & entropy (discretized)
+        N, K, H, W = maps_bchw.shape
+        X = maps_bchw.reshape(N*K, -1)
+        # normalize per-channel
+        X = (X - X.mean(axis=1, keepdims=True)) / (X.std(axis=1, keepdims=True) + 1e-8)
+        var = X.var(axis=1).mean()  # ↑ better
+        # entropy on z-scored values binned
+        bins = np.clip(((X + 3.0) / 6.0 * 32).astype(int), 0, 31)  # 32 bins within ±3σ
+        Hs = []
+        for row in bins:
+            hist = np.bincount(row, minlength=32).astype(np.float64)
+            p = hist / (hist.sum() + 1e-8)
+            Hs.append(-(p * np.log(p + 1e-12)).sum())
+        ent = np.mean(Hs)  # ↑ better
+        return var, ent
+
+    def decorrelation_penalty(self, maps_bchw):
+        # penalize redundant filters (mean absolute corr across channels)
+        N, K, H, W = maps_bchw.shape
+        X = maps_bchw.transpose(1,0,2,3).reshape(K, -1)  # (K, N*H*W)
+        X = (X - X.mean(axis=1, keepdims=True)) / (X.std(axis=1, keepdims=True) + 1e-8)
+        C = np.corrcoef(X)
+        ma = np.mean(np.abs(C[np.triu_indices_from(C, k=1)]))  # ↓ better
+        return ma
+
+    def energy_penalty(self, maps_bchw):
+        # keep overall energy reasonable (avoid trivial huge responses)
+        return np.mean(np.abs(maps_bchw))  # ↓ better
 
     def convolution_modules_tensor(
             self, images, cv_factory, return_maps=True, n_jobs=None, verbose=0, prune_features=None
@@ -887,34 +938,37 @@ class ExperimentPC(Experiment):
         # ---------------------------------------------------------
         shard_idx = list(range(rank, total_images, world_size))
         local_imgs = images[shard_idx]
-
-        # ---------------------------------------------------------
-        # Get modules (make sure all ranks have the same setup)
-        # ---------------------------------------------------------
-        modules = cv_factory.ask_pop()
-        if not isinstance(modules, list):
-            modules = [modules]
-
         # ---------------------------------------------------------
         # Per-image work
         # ---------------------------------------------------------
-        def _process_image(img):
-            feats_per_module = [m.get_output(img, return_map=return_maps) for m in modules]
-            feats = np.concatenate(feats_per_module, axis=0)  # expect [C, H, W] after concat
+        # Optimize module based on highest variance (/) then structure training will understand which are the most optimal ones
+        if prune_features is None:
+            for epoch in range(10):
+                modules = cv_factory.ask_pop()
+                if not isinstance(modules, list):
+                    modules = [modules]
 
-            if prune_features is not None:
-                if feats.ndim == 3:        # [C, H, W]
-                    feats = feats[prune_features, :, :]
-                else:                       # [*, C, H, W] fallback
-                    feats = feats[:, prune_features, :, :]
-            return feats  # [C, H, W]
+                fitnesses = []
+                for m in modules:
+                    # Compute variance over all images for this module
+                    feature_list = Parallel(n_jobs=n_jobs, verbose=verbose, backend="threading")(
+                        delayed(m.get_output)(img, return_map=True) for img in local_imgs
+                    )
+                    maps = np.stack(feature_list, axis=0) if len(feature_list) > 0 else np.zeros((0, 1, 1, 1), dtype=np.float32)
+                    var, ent = self.feature_stats_unsup(maps)
+                    decor = self.decorrelation_penalty(maps)
+                    energy = self.energy_penalty(maps)
+                    fitnesses.append(1.0*var + 0.3*ent - 0.2*decor - 0.05*energy)  # combine objectives
 
-        # ---------------------------------------------------------
-        # Intra-rank parallelism (threading)
-        # ---------------------------------------------------------
+                # tell CMA-ES about fitnesses (higher = better)
+                cv_factory.tell_pop(fitnesses)
+            # Final ask
+        
+        module = cv_factory.best_module()
+        
         feature_list = Parallel(n_jobs=n_jobs, verbose=verbose, backend="threading")(
-            delayed(_process_image)(img) for img in local_imgs
-        )
+                        delayed(module.get_output)(img, return_map=True) for img in local_imgs
+                    )
 
         if len(feature_list) == 0:
             # Nothing on this rank; create a minimal tensor for gathering
@@ -973,19 +1027,23 @@ class ExperimentPC(Experiment):
         else:
             feats_np = local_feats_np  # single process
 
+        if prune_features is not None:
+            if feats_np.ndim == 4:        # [N, C, H, W]
+                feats_np = feats_np[:, prune_features, :, :]
+            else:                       # [C, H, W] fallback
+                feats_np = feats_np[prune_features, :, :]
+        print_debugging(f"Convolution module features shape: {feats_np.shape}, value range: {feats_np.min()} to {feats_np.max()}, var: {feats_np.var()}, decor: {self.decorrelation_penalty(feats_np)}, energy: {self.energy_penalty(feats_np)}")
         return feats_np
-
-
-
 
     def get_feature_tensor(self, images, prune_features=None):
         if self.feature_extractor == "handcrafted":
-            return self.get_handcrafted_features(images, n_jobs=self.n_cpus)
+            return self.get_handcrafted_features(images, n_jobs=self.n_cpus, prune_features_idx=prune_features)
         elif self.feature_extractor == "cv_modules":
-            self.cv_factory = CVModuleFactory(
-                Optimizer={"class_name": "CMAES", "kwargs": {"n_params": 128, "lambda_": self.n_cv_modules}},
-                CVModule={"class_name": "ConvolutionModule", "kwargs": {"n_filters": self.n_filters, "filter_sizes": 5, "device": self.device}}
-            )
+            if self.cv_factory is None:
+                self.cv_factory = CVModuleFactory(
+                    Optimizer={"class_name": "CMAES", "kwargs": {"n_params": 128, "lambda_": self.n_cv_modules}},
+                    CVModule={"class_name": "ConvolutionModule", "kwargs": {"n_filters": self.n_filters, "filter_sizes": 3, "device": self.device}}
+                )
             return self.convolution_modules_tensor(images, self.cv_factory, return_maps=True, n_jobs=self.n_cpus, prune_features=prune_features)
 
         else:
@@ -994,9 +1052,8 @@ class ExperimentPC(Experiment):
     def set_criterion(self, target):
         if target.dim() == 4 and target.size(1) == 1:
             target = target.squeeze(1)
-        balance = self.compute_pos_weight(target)
-        self.criterion = DiceCELoss(pos_weight=balance.detach().clone().to(self.device)).to(self.device)
-
+        pos_weight = self.compute_pos_weight(target)
+        self.criterion = DiceCELoss(pos_weight=pos_weight.to(self.device))
     # --------------------------------------------------------
     # Training & Evaluation
     # --------------------------------------------------------
@@ -1507,6 +1564,7 @@ class ExperimentPC(Experiment):
             self.train_masks = np.array([self.train_data[i][1] for i in range(len(self.train_data))])
             self.val_feature_tensor = self.get_feature_tensor(np.array([self.val_data[i][0] for i in range(len(self.val_data))]))
             self.val_masks = np.array([self.val_data[i][1] for i in range(len(self.val_data))]) if self.validation_split > 0 else None
+            self.set_criterion(torch.from_numpy(self.train_masks).float().to(self.device))
 
             self.model.init_network(self.feature_tensor, self.train_masks)
             with open(self.experiment_report, "a") as f:
@@ -1562,46 +1620,7 @@ class ExperimentGEPC(ExperimentPC):
                 n.feature_idx = new_name
                 new_name += 1
 
-        return feats
-    
-    def train_cv_modules(self, model, train_data, target, prune_features_idx):
-        if target.dim() == 4 and target.size(1) == 1:
-            target = target.squeeze(1)
-        optimizer = torch.optim.Adam(model.params, lr=1e-3, weight_decay=1e-4)
-        balance = self.compute_pos_weight(target)
-        self.criterion = DiceCELoss(pos_weight=balance.detach().clone().to(self.device)).to(self.device)
-
-        for i in range(20):
-            feature_tensor = self.get_feature_tensor(train_data, prune_features_idx)
-            data_loader = self.get_dataloaders(TensorDataset(torch.from_numpy(feature_tensor).float().to(self.device), target.to(self.device)), shuffle=False, batch_size=self.batch_size)
-            for _ in range(20):
-                for X, y in data_loader:
-                    y_pred = model.evaluate(X)
-                    loss = self.criterion(y_pred, y)
-                    optimizer.zero_grad()
-                    loss.backward()
-                    optimizer.step()
-            
-            fitness = []
-            history = []
-            for n in model.get_nodes():
-                if isinstance(n, InputNode):
-                    if n.feature_idx in prune_features_idx:
-                        fitness.append(n.gate.item())
-                    else:
-                        fitness.append(0.0)
-
-            history.append(fitness)
-            print_info("Fitness:", fitness)
-            self.cv_factory.tell_pop(fitness)
-
-        history = np.array(history)
-        plt.plot(history)
-        plt.xlabel("Generation")
-        plt.ylabel("Fitness")
-        plt.show()
-
-        
+        return feats        
         
     def run(self):
         
@@ -1622,11 +1641,6 @@ class ExperimentGEPC(ExperimentPC):
             self.model = best_pc
             prune_features_idx = self.get_prune_features_idx(self.model)
 
-            # 2nd training step, optimize the convolutional modules
-            cv_X_train = torch.from_numpy(np.array([self.train_data[i][0] for i in range(ge_train_size,2*ge_train_size)])).float().to(self.device)
-            cv_Y_train = torch.from_numpy(np.array([self.train_data[i][1] for i in range(ge_train_size,2*ge_train_size)])).long().to(self.device)
-            self.train_cv_modules(self.model, cv_X_train, cv_Y_train, prune_features_idx)
-
 
 
             with open(self.experiment_report, "a") as f:
@@ -1636,6 +1650,7 @@ class ExperimentGEPC(ExperimentPC):
             self.train_masks = np.array([self.train_data[i][1] for i in range(len(self.train_data))])
             self.val_feature_tensor = self.get_feature_tensor(np.array([self.val_data[i][0] for i in range(len(self.val_data))]), prune_features_idx)
             self.val_masks = np.array([self.val_data[i][1] for i in range(len(self.val_data))]) if self.validation_split > 0 else None
+            self.set_criterion(torch.from_numpy(self.train_masks).long().to(self.device))
             if self.device == "cuda":
                 self.model = self.train(self.model, epochs=self.epochs, lr=self.learning_rate, n_cpus=self.n_cpus)
             else:

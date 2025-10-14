@@ -49,7 +49,63 @@ class DiceCELoss(nn.Module):
         return 1 - dice.mean()
 
     def forward(self, pred, target):
-        return 0.5 * self.ce(pred, target) + 0.5 * self.dice_loss(pred, target)
+        return 0.3 * self.ce(pred, target) + 0.7 * self.dice_loss(pred, target)
+
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
+
+class LogDiceFocalLoss(nn.Module):
+    def __init__(self, alpha=0.25, gamma=2.0, smooth=1.0):
+        super().__init__()
+        self.alpha = alpha
+        self.gamma = gamma
+        self.smooth = smooth
+
+    def log_dice_loss(self, pred, target):
+        C = pred.size(1)
+        if C == 1:
+            pred_prob = torch.sigmoid(pred)
+            target = target.unsqueeze(1).float()
+        else:
+            pred_prob = torch.softmax(pred, dim=1)
+            target = F.one_hot(target, num_classes=C).permute(0, 3, 1, 2).float()
+
+        intersection = (pred_prob * target).sum(dim=(2, 3))
+        denominator = pred_prob.sum(dim=(2, 3)) + target.sum(dim=(2, 3))
+        dice = (2. * intersection + self.smooth) / (denominator + self.smooth)
+        loss = -torch.log(torch.clamp(dice, min=1e-6))
+        return loss.mean()
+
+    def focal_loss(self, pred, target):
+        C = pred.size(1)
+
+        if C == 1:
+            pred_prob = torch.sigmoid(pred)
+            target = target.unsqueeze(1).float()
+            ce_loss = F.binary_cross_entropy(pred_prob, target, reduction="none")
+            pt = torch.exp(-ce_loss)
+            focal = self.alpha * (1 - pt) ** self.gamma * ce_loss
+            return focal.mean()
+
+        # Multi-class
+        ce_loss = F.cross_entropy(pred, target, reduction="none")
+        pt = torch.exp(-ce_loss)
+
+        if isinstance(self.alpha, (float, int)):
+            alpha = torch.tensor([self.alpha] * C, device=pred.device)
+        else:
+            alpha = self.alpha.to(pred.device)
+
+        alpha_t = alpha[target]
+        focal = alpha_t * (1 - pt) ** self.gamma * ce_loss
+        return focal.mean()
+
+    def forward(self, pred, target):
+        log_dice = self.log_dice_loss(pred, target)
+        focal = self.focal_loss(pred, target)
+        return 0.5 * log_dice + 0.5 * focal
+
 
 
 # ============================================================

@@ -10,12 +10,12 @@
     "validation_split": 0.2,
     "feature_extractor": "cv_modules",
     "epochs": 20,
-    "batch_size": 16,
+    "batch_size": 32,
     "sample_size": 100,
     "test_size": 20,
     "resize_size": [
-        128,
-        128
+        256,
+        256
     ],
     "input_channels": 3,
     "n_classes": 2,
@@ -26,15 +26,16 @@
         15,
         21
     ],
-    "n_cv_modules": 16,
+    "n_cv_modules": 10,
+    "n_filters": 100,
     "ge": {
-        "generations": 5,
-        "pop_size": 4,
+        "generations": 8,
+        "pop_size": 10,
         "genome_len": 96,
         "crossover_rate": 0.9,
         "mutation_rate": 0.05,
         "elite_k": 2,
-        "train_split": 0.05
+        "train_split": 0.2
     },
     "execution_mode": "train",
     "log_dir": "logs/pcnet_ge/800"
