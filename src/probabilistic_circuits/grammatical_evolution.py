@@ -11,6 +11,11 @@ import os
 from probabilistic_circuits.probabilistic_circuits import *
 from experiment import *
 from utils import *
+from multiprocessing import Manager
+
+
+def genome_signature(genome):
+    return hash(tuple(genome))
 
 # ============================================================
 # Tree grammar specs
@@ -179,7 +184,7 @@ class PCBuilder:
         elif isinstance(t, SumSpec):
             kids = [self._build_subtree(c) for c in t.children]
             w = torch.rand(len(kids), device=self.pc.device)
-            node = SumNode(kids, weights=w / (w.sum() + 1e-8), device=self.pc.device)
+            node = SumNode(kids,device=self.pc.device)
             self.pc.add_node(node)
             [self.pc.add_edge(node, c) for c in kids]
             return node
@@ -286,8 +291,8 @@ class GEOptimizer:
     # -----------------------------
     # Fitness evaluation (loss only)
     # -----------------------------
-    def _evaluate_single(self, genome, inputs, labels, criterion, n_classes, train_steps, lr, seed_offset=0, global_index=None):
-
+    def _evaluate_single(self, genome, inputs, labels, criterion, n_classes, train_steps, lr, seed_offset=0, global_index=None, param_bank=None):
+        sig = hash(tuple(genome))
         torch.manual_seed(seed_offset)
         np.random.seed(seed_offset)
         random.seed(seed_offset)
@@ -299,14 +304,20 @@ class GEOptimizer:
         builder = PCBuilder(pc)
         builder.build_classifier(trees, inputs)
 
+        # Load existing weights if available
+        if param_bank is not None and sig in param_bank:
+            try:
+                pc.load_state_dict(param_bank[sig], strict=False)
+                print_debugging(f"Reused weights for genome {global_index}")
+            except Exception as e:
+                print_debugging(f"Weight load failed: {e}")
+
         if labels.dim() == 4 and labels.size(1) == 1:
             labels = labels.squeeze(1)
 
-        optimizer = torch.optim.Adam(pc.params, lr=lr)
+        optimizer = torch.optim.Adam(pc.params, lr=1e-3, weight_decay=1e-4)
 
         # Shuffle then split
-        perm = torch.randperm(len(inputs))
-        inputs, labels = inputs[perm], labels[perm]
         split = int(len(inputs) * 0.8)
         x_tr, y_tr = inputs[:split].to(self.device), labels[:split].to(self.device)
         x_va, y_va = inputs[split:].to(self.device), labels[split:].to(self.device)
@@ -314,7 +325,7 @@ class GEOptimizer:
         train_loader = self.get_dataloader(x_tr, y_tr, batch_size=32)
         val_loader = self.get_dataloader(x_va, y_va, batch_size=32)
 
-        for _ in range(train_steps):
+        for _ in range(60):
             for xb, yb in train_loader:
                 logits = pc.evaluate(xb)
                 loss = criterion(logits, yb)
@@ -334,6 +345,9 @@ class GEOptimizer:
             val_loss /= max(1, len(val_loader))
             cl_iou = cl_iou/len(val_loader)
 
+        if param_bank is not None:
+            param_bank[sig] = deepcopy(pc.state_dict())
+
         del pc, builder, optimizer, train_loader, val_loader, x_tr, y_tr, x_va, y_va, logits, loss
         if torch.cuda.is_available():
             torch.cuda.empty_cache()
@@ -342,7 +356,7 @@ class GEOptimizer:
         print_info(f"    - Genome {global_index} loss: {val_loss:.4f}, clIoU: {cl_iou:.4f}")
         return val_loss, global_index
 
-    def evaluate_population(self, population, inputs, labels, criterion, n_classes=2, train_steps=20, lr=1e-2):
+    def evaluate_population(self, population, inputs, labels, criterion, n_classes=2, train_steps=20, lr=1e-2, param_bank=None):
         """
         Returns: list of losses aligned with `population` order.
         No PC objects are returned.
@@ -356,12 +370,12 @@ class GEOptimizer:
             nj = self._local_n_jobs()
             if nj == 1:
                 local_results = [
-                    self._evaluate_single(genome=g, inputs=inputs, labels=labels, criterion=criterion, n_classes=n_classes, train_steps=train_steps, lr=lr, seed_offset=i, global_index=idx)
+                    self._evaluate_single(genome=g, inputs=inputs, labels=labels, criterion=criterion, n_classes=n_classes, train_steps=train_steps, lr=lr, seed_offset=i, global_index=idx, param_bank=param_bank)
                     for i, (g, idx) in enumerate(zip(local_genomes, local_indices))
                 ]
             else:
                 local_results = Parallel(n_jobs=nj, verbose=0)(
-                    delayed(self._evaluate_singles)(genome=g, inputs=inputs, labels=labels, criterion=criterion, n_classes=n_classes, train_steps=train_steps, lr=lr, seed_offset=i, global_index=idx)
+                    delayed(self._evaluate_single)(genome=g, inputs=inputs, labels=labels, criterion=criterion, n_classes=n_classes, train_steps=train_steps, lr=lr, seed_offset=i, global_index=idx, param_bank=param_bank)
                     for i, (g, idx) in enumerate(zip(local_genomes, local_indices))
                 )
 
@@ -377,7 +391,7 @@ class GEOptimizer:
         # single-process
         nj = self._local_n_jobs()
         results = Parallel(n_jobs=nj, verbose=0)(
-            delayed(self._evaluate_single)(genome=g, inputs=inputs, labels=labels, criterion=criterion, n_classes=n_classes, train_steps=train_steps, lr=lr, seed_offset=i, global_index=i)
+            delayed(self._evaluate_single)(genome=g, inputs=inputs, labels=labels, criterion=criterion, n_classes=n_classes, train_steps=train_steps, lr=lr, seed_offset=i, global_index=i, param_bank=param_bank)
             for i, g in enumerate(population)
         )
         losses = [None] * len(population)
@@ -396,12 +410,14 @@ class GEOptimizer:
           - best_genome: list[int]
           - history: list[float] of best loss per generation
         """
+        manager = Manager()
+        param_bank = manager.dict()
         population = self.init_population()
         history, best_score, best_genome = [], math.inf, None
         for gen in range(generations):
             print_info(f"🧬 Generation {gen+1}/{generations} (evaluating {len(population)} genomes in parallel)")
             losses = self.evaluate_population(population, train_inputs, train_labels, criterion,
-                                              n_classes=n_classes, train_steps=train_steps, lr=lr)
+                                              n_classes=n_classes, train_steps=train_steps, lr=lr, param_bank=param_bank)
 
             # pair (loss, genome), find best
             scored = list(zip(losses, population))
@@ -410,7 +426,7 @@ class GEOptimizer:
 
             if scored[0][0] < best_score:
                 best_score = scored[0][0]
-                best_genome = deepcopy(scored[-1][1])
+                best_genome = deepcopy(scored[-0][1])
 
             # elites
             elites = [deepcopy(s[1]) for s in scored[:min(self.elite_k, len(scored))]]

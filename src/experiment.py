@@ -1046,9 +1046,6 @@ class ExperimentPC(Experiment):
         - Results are gathered with torch.distributed all_gather on TENSORS (not objects).
         - Output shape: [N_images, C, H, W] or [N_images, H, W] depending on your modules.
         """
-        import os, numpy as np, torch
-        import torch.distributed as dist
-        from joblib import Parallel, delayed
 
         # ---------------------------------------------------------
         # DDP context
@@ -1093,6 +1090,7 @@ class ExperimentPC(Experiment):
         # Per-image work
         # ---------------------------------------------------------
         # Optimize module based on highest variance (/) then structure training will understand which are the most optimal ones
+        
         if prune_features is None:
             for epoch in range(20):
                 modules = cv_factory.ask_pop()
@@ -1202,10 +1200,7 @@ class ExperimentPC(Experiment):
     def set_criterion(self, target):
         if target.dim() == 4 and target.size(1) == 1:
             target = target.squeeze(1)
-        balance = self.compute_pos_weight(target)
-        pos_weight = np.zeros(self.n_classes)
-        for i in range(1, len(balance)):
-            pos_weight[i] = balance[i]/balance[0]
+        pos_weight = self.compute_pos_weight(target)
         self.criterion = DiceCELoss(pos_weight=torch.tensor(pos_weight).float().to(self.device))
     # --------------------------------------------------------
     # Training & Evaluation
@@ -1765,10 +1760,43 @@ class ExperimentGEPC(ExperimentPC):
         for n in model.get_nodes():
             if isinstance(n, InputNode):
                 feats.append(n.feature_idx)
+                n.feature_name = f"feat_{new_name}"
                 n.feature_idx = new_name
                 new_name += 1
 
-        return feats        
+        return feats
+    
+    def train_cv_modules(self, model, X_train, Y_train, prune_features=None, epochs=10, lr=1e-2, n_cpus=8):
+        self.cv_factory._optimizer.best = None  # reset best found solution
+        self.cv_factory._optimizer.best_fitness = -np.inf  # reset best found solution
+
+        for epoch in range(5):
+            print_info(f"CV Modules Training Epoch {epoch+1}/{epochs}")
+            modules = self.cv_factory.ask_pop()
+            fitnesses = []
+            for mod in tqdm.tqdm(modules):
+                X = []
+                for img in X_train:
+                    x = torch.from_numpy(mod.get_output(X_train, return_map=True))
+                    X.append(x)
+                X = torch.stack(X).float().to(self.device)
+                if prune_features is not None:
+                    X = X[:, prune_features, :, :]
+                data_loader = self.get_dataloaders(TensorDataset(X, Y_train), shuffle=True, batch_size=self.batch_size)
+                loss = 0
+                cliou = 0
+                for X, Y in data_loader:
+                    X, Y = X.to(self.device), Y.to(self.device)
+                    optimizer = torch.optim.Adam(model.params, lr=lr, weight_decay=1e-4)
+                    optimizer.zero_grad()
+                    logits = model.evaluate(X)
+                    loss += self.criterion(logits, Y.squeeze(1))
+                    cliou = self.cl_iou_score(torch.argmax(logits, dim=1, keepdim=True).float(), Y)
+                fitnesses.append(cliou/len(data_loader))
+            print_info(f"   CV Module Fitnesses: {fitnesses}")
+            self.cv_factory.tell_pop(fitnesses)
+
+        return self.cv_factory.best_module()
         
     def run(self):
         
@@ -1784,20 +1812,26 @@ class ExperimentGEPC(ExperimentPC):
             ge_X_train = torch.from_numpy(self.get_feature_tensor(np.array([self.train_data[i][0] for i in range(ge_train_size)]))).float().to(self.device)
             ge_Y_train = torch.from_numpy(np.array([self.train_data[i][1] for i in range(ge_train_size)])).long().to(self.device)
             self.set_criterion(ge_Y_train)
-            best_pc, best_genome, history = self.ge.evolve(ge_X_train, ge_Y_train, criterion=self.criterion, generations = self.ge_config["generations"], n_classes=self.n_classes, train_steps=20, lr=self.learning_rate)
+            best_pc, best_genome, history = self.ge.evolve(ge_X_train, ge_Y_train, criterion=self.criterion, generations = self.ge_config["generations"], n_classes=self.n_classes, train_steps=50, lr=self.learning_rate)
             print_info("Best genome:", best_genome)
             print_info("Best PC:", str(best_pc))
             self.model = best_pc
             prune_features_idx = self.get_prune_features_idx(self.model)
+
+            # 2nd training step, train the filters
+            cv_X_train = torch.from_numpy(np.array([self.train_data[i][0] for i in range(ge_train_size, 2*ge_train_size )])).float().to(self.device)
+            cv_Y_train = torch.from_numpy(np.array([self.train_data[i][1] for i in range(ge_train_size, 2*ge_train_size)])).long().to(self.device)
+
+            self.train_cv_modules(self.model, cv_X_train, cv_Y_train, prune_features=prune_features_idx, epochs=50, lr=1e-2, n_cpus=self.n_cpus)
 
 
 
             with open(self.experiment_report, "a") as f:
                 f.write(str(self.model) + "\n")
                 f.write(f"History: {history}\n")
-            self.feature_tensor = self.get_feature_tensor(np.array([self.train_data[i][0] for i in range(len(self.train_data))]), prune_features_idx)
+            self.feature_tensor = self.get_feature_tensor(np.array([self.train_data[i][0] for i in range(len(self.train_data))]), prune_features=prune_features_idx)
             self.train_masks = np.array([self.train_data[i][1] for i in range(len(self.train_data))])
-            self.val_feature_tensor = self.get_feature_tensor(np.array([self.val_data[i][0] for i in range(len(self.val_data))]), prune_features_idx)
+            self.val_feature_tensor = self.get_feature_tensor(np.array([self.val_data[i][0] for i in range(len(self.val_data))]), prune_features=prune_features_idx)
             self.val_masks = np.array([self.val_data[i][1] for i in range(len(self.val_data))]) if self.validation_split > 0 else None
             self.set_criterion(torch.from_numpy(self.train_masks).long().to(self.device))
             if self.device == "cuda":
@@ -1806,7 +1840,7 @@ class ExperimentGEPC(ExperimentPC):
                 self.model = self.train_parallel(self.model, epochs=self.epochs, lr=self.learning_rate, n_cpus=self.n_cpus)
             self.save_model("pcnet-ge")
             if self.test_path is not None:
-                self.test_inputs = torch.from_numpy(self.get_feature_tensor(np.array([self.test_data[i][0] for i in range(len(self.test_data))]))).float().to(self.device)
+                self.test_inputs = torch.from_numpy(self.get_feature_tensor(np.array([self.test_data[i][0] for i in range(len(self.test_data))]), prune_features=prune_features_idx)).float().to(self.device)
                 self.test_ground_truth = torch.from_numpy(np.array([self.test_data[i][1] for i in range(len(self.test_data))])).long().to(self.device)
                 if self.test_ground_truth.dim() == 4 and self.test_ground_truth.size(1) == 1:
                     self.test_ground_truth = self.test_ground_truth.squeeze(1)

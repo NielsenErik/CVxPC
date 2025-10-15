@@ -130,8 +130,8 @@ class InputNode(nn.Module, Node):
         if isinstance(X, np.ndarray):
             X = torch.from_numpy(X).float().to(self.device)
         vals = X[:, self.feature_idx]
-        sigma = torch.exp(self.log_sigma)
-        nu = torch.exp(self.log_nu)
+        sigma = F.softplus(self.log_sigma) + 1e-6
+        nu    = F.softplus(self.log_nu) + 1e-3      
         weights = torch.softmax(self.logits, dim=0)
 
         log_gauss = self._log_gaussian(vals, self.mu, sigma)
@@ -508,6 +508,65 @@ class PCNet(ProbabilisticCircuit):
             logits = self.evaluate(inputs)
             preds = torch.argmax(logits, dim=1, keepdim=True)
             return preds.cpu().numpy()
+        
+    def state_dict(self):
+        """
+        Return a unified state_dict collecting parameters from all node modules.
+        This mimics nn.Module.state_dict().
+        """
+        state = {}
+        for node in self.get_nodes():
+            if isinstance(node, nn.Module):
+                for name, param in node.named_parameters():
+                    key = f"{node.__class__.__name__}_{id(node)}.{name}"
+                    state[key] = param.detach().clone()
+        return state
+
+    def load_state_dict(self, state_dict, strict=False):
+        """
+        Load parameters into the PCNet nodes.
+        Works even if the structure has changed slightly (strict=False).
+        """
+        loaded, missing = 0, 0
+        for node in self.get_nodes():
+            if isinstance(node, nn.Module):
+                for name, param in node.named_parameters():
+                    key = f"{node.__class__.__name__}_{id(node)}.{name}"
+                    if key in state_dict:
+                        try:
+                            with torch.no_grad():
+                                src = state_dict[key].to(param.device)
+                                if src.shape == param.shape:
+                                    param.copy_(src)
+                                else:
+                                    # partial reuse if possible
+                                    min_len = min(param.numel(), src.numel())
+                                    param.view(-1)[:min_len].copy_(src.view(-1)[:min_len])
+                                    print_debugging(f"⚠️ Resized param {key}: old {tuple(src.shape)} → new {tuple(param.shape)}")
+                            loaded += 1
+                        except Exception:
+                            missing += 1
+                    elif not strict:
+                        # try fuzzy match by name only (ignoring id)
+                        for k, v in state_dict.items():
+                            if k.endswith(f".{name}"):
+                                with torch.no_grad():
+                                    param.copy_(v.to(param.device))
+                                loaded += 1
+                                break
+                        else:
+                            missing += 1
+        print_debugging(f"Loaded {loaded} parameters, {missing} missing.")
+        return {"loaded": loaded, "missing": missing}
+
+    def named_parameters(self):
+        """
+        Generator yielding (name, param) for all sub-node parameters.
+        """
+        for node in self.get_nodes():
+            if isinstance(node, nn.Module):
+                for name, param in node.named_parameters():
+                    yield f"{node.__class__.__name__}_{id(node)}.{name}", param
         
     def save_dict(self):
         """
