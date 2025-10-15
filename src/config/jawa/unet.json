@@ -18,7 +18,7 @@
     "learning_rate": 0.001,
     "threshold": 0.2,
     "input_channels": 3,
-    "n_classes": 1,
+    "n_classes": 2,
     "seed": 4,
 
     "execution_mode": "train"

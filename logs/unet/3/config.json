@@ -7,13 +7,12 @@
     "save_path": "models/",
     "model_name": "unet-wbce",
     "validation_split": 0.2,
-    "epochs": 60,
-    "batch_size": 32,
-    "sample_size": 5000,
-    "test_size": 2000,
+    "epochs": 10,
+    "batch_size": 16,
+    "sample_size": 5,
     "resize_size": [
-        256,
-        256
+        128,
+        128
     ],
     "learning_rate": 0.001,
     "threshold": 0.2,

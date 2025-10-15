@@ -70,6 +70,101 @@ def run_experiment(config):
     else:
         raise ValueError(f"Algorithm {config['algorithm']} not supported")
     
+# ============================================================
+# Loss Functions
+# ============================================================
+
+class DiceCELoss(nn.Module):
+    """Combination of CrossEntropy and Dice loss"""
+
+    def __init__(self, pos_weight=None):
+        super().__init__()
+        self.ce = nn.CrossEntropyLoss(weight=pos_weight)
+
+    def dice_loss(self, pred, target, smooth=1.0):
+        if pred.size(1) == 1:  # binary
+            pred_prob = torch.sigmoid(pred)
+            target = target.unsqueeze(1).float()
+        else:  # multi-class
+            pred_prob = torch.softmax(pred, dim=1)
+            target = F.one_hot(target, num_classes=pred.size(1))
+            target = target.permute(0, 3, 1, 2).float()
+
+        intersection = (pred_prob * target).sum(dim=(2, 3))
+        denominator = pred_prob.sum(dim=(2, 3)) + target.sum(dim=(2, 3))
+        dice = (2. * intersection + smooth) / (denominator + smooth)
+        return 1 - dice.mean()
+
+    def forward(self, pred, target):
+        return 0.3 * self.ce(pred, target) + 0.7 * self.dice_loss(pred, target)
+
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
+
+class LogDiceFocalLoss(nn.Module):
+    def __init__(self, alpha=0.25, gamma=2.0, smooth=1.0):
+        super().__init__()
+        self.alpha = alpha
+        self.gamma = gamma
+        self.smooth = smooth
+
+    def log_dice_loss(self, pred, target):
+        C = pred.size(1)
+        if C == 1:
+            pred_prob = torch.sigmoid(pred)
+            target = target.unsqueeze(1).float()
+        else:
+            pred_prob = torch.softmax(pred, dim=1)
+            target = F.one_hot(target, num_classes=C).permute(0, 3, 1, 2).float()
+
+        intersection = (pred_prob * target).sum(dim=(2, 3))
+        denominator = pred_prob.sum(dim=(2, 3)) + target.sum(dim=(2, 3))
+        dice = (2. * intersection + self.smooth) / (denominator + self.smooth)
+        loss = -torch.log(torch.clamp(dice, min=1e-6))
+        return loss.mean()
+
+    def focal_loss(self, pred, target):
+        """
+        Generalized Focal Loss using torch.nn.functional.cross_entropy only.
+        Works for both binary (C=1) and multi-class (C>1) segmentation.
+
+        Args:
+            pred:   [B, C, H, W] logits
+            target: [B, H, W] or [B, 1, H, W] integer class labels
+        """
+        # If target has channel dimension, squeeze it
+        if target.ndim == 4 and target.shape[1] == 1:
+            target = target.squeeze(1)
+        target = target.long()
+        # Handle binary as 2-class cross-entropy (C=1 → expand to C=2)
+        if pred.size(1) == 1:
+            # Convert single-logit binary case to two-class logits for CE
+            pred = torch.cat([pred, -pred], dim=1)
+
+        # Compute per-pixel cross entropy (no reduction)
+        ce_loss = F.cross_entropy(pred, target.long(), reduction="none")  # [B, H, W]
+
+        # Compute pt = exp(-ce_loss)
+        pt = torch.exp(-ce_loss)
+        # Alpha handling
+        if isinstance(self.alpha, (float, int)):
+            alpha_t = self.alpha
+        elif isinstance(self.alpha, torch.Tensor) and self.alpha.numel() == pred.size(1):
+            alpha_t = self.alpha[target]  # [B, H, W]
+        else:
+            raise ValueError("alpha must be scalar or a per-class tensor with length = n_classes")
+
+        # Focal loss
+        focal = alpha_t * (1 - pt) ** self.gamma * ce_loss
+        return focal.mean()
+
+
+    def forward(self, pred, target):
+        log_dice = self.log_dice_loss(pred, target)
+        focal = self.focal_loss(pred, target)
+        return 0.5 * log_dice + 0.5 * focal
+    
 class Experiment:
     def __init__(self, config):
         self.config = config
@@ -354,8 +449,8 @@ class ExperimentDL(Experiment):
                 images, masks = images.to(device), masks.to(device)
 
                 optimizer.zero_grad()
-                outputs = model(images)              # logits
-                loss = loss_function(outputs, masks) # BCE + Dice
+                outputs = model(images)  
+                loss = loss_function(outputs, masks) 
                 loss.backward()
                 optimizer.step()
 
@@ -458,11 +553,11 @@ class ExperimentDL(Experiment):
                 test_cliou += self.cl_iou_score(outputs, masks)
         print(f"Test Loss: {test_loss/len(test_loader)}")
         mlflow.log_metric("test_loss", test_loss/len(test_loader))
-        print(f"Test Loss: {test_dice/len(test_loader)}")
+        print(f"Test Dice: {test_dice/len(test_loader)}")
         mlflow.log_metric("test_dice", test_dice/len(test_loader))
-        print(f"Test Loss: {test_iou/len(test_loader)}")
+        print(f"Test IoU: {test_iou/len(test_loader)}")
         mlflow.log_metric("test_iou", test_iou/len(test_loader))
-        print(f"Test Loss: {test_cliou/len(test_loader)}")
+        print(f"Test CL IoU: {test_cliou/len(test_loader)}")
         mlflow.log_metric("test_cliou", test_cliou/len(test_loader))
         with open(self.experiment_report, "a") as f:
             f.write(f"Test Loss: {test_loss/len(test_loader)}\n")
@@ -556,7 +651,7 @@ class ExperimentDL(Experiment):
             masks = np.array([self.train_data[i][1] for i in range(len(self.train_data))])
             masks = torch.from_numpy(masks).long().to(self.device)
             pos_weight = self.compute_pos_weight(masks)
-            pos_weight = pos_weight[1]/pos_weight[0]
+            # pos_weight = pos_weight[1]/pos_weight[0]
             self.setup(pos_weight=pos_weight)
             self.model = self.train(self.model, train_data=self.train_data, val_data=self.val_data, loss_function=self.loss, optimizer=self.optimizer, device=self.device, epochs=self.epochs, batch_size=self.batch_size)
             self.save_model(self.model_name)
