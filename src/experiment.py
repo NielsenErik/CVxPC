@@ -309,7 +309,7 @@ class ExperimentDL(Experiment):
     def setup(self, pos_weight=1.0):
         self.set_optimizer(torch.optim.Adam(self.model.parameters(), lr=self.learning_rate))
         self.set_scheduler(torch.optim.lr_scheduler.StepLR(self.optimizer, step_size=10, gamma=0.1))
-        self.set_loss(BCEDiceLoss(pos_weight=pos_weight))
+        self.set_loss(FocalDiceLoss(alpha=pos_weight))
 
     def set_optimizer(self, optimizer):
         self.optimizer = optimizer
