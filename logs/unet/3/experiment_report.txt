@@ -1,10 +1,2 @@
-Experiment Configurations: {'mlflow': None, 'experiment': 'crack_segmentation', 'algorithm': 'unet', 'data_path': 'data/kaggle/crack_segmentation_dataset/train', 'test_path': 'data/kaggle/crack_segmentation_dataset/test', 'save_path': 'models/', 'model_name': 'unet-wbce', 'validation_split': 0.2, 'epochs': 60, 'batch_size': 32, 'sample_size': 5000, 'test_size': 2000, 'resize_size': [256, 256], 'learning_rate': 0.001, 'threshold': 0.2, 'input_channels': 3, 'n_classes': 2, 'seed': 3, 'execution_mode': 'train', 'log_dir': 'logs/unet/3'}
+Experiment Configurations: {'mlflow': None, 'experiment': 'crack_segmentation', 'algorithm': 'unet', 'data_path': 'data/kaggle/crack_segmentation_dataset/train', 'test_path': 'data/kaggle/crack_segmentation_dataset/test', 'save_path': 'models/', 'model_name': 'unet-wbce', 'validation_split': 0.2, 'epochs': 60, 'batch_size': 32, 'sample_size': 5000, 'test_size': 2000, 'resize_size': [256, 256], 'learning_rate': 0.001, 'threshold': 0.2, 'input_channels': 3, 'n_classes': 1, 'seed': 3, 'execution_mode': 'train', 'log_dir': 'logs/unet/3'}
 Dataset sizes: {'train': 5000, 'val': 1000, 'test': 1695}
-Final Training Loss: 1.3070762462615966, Dice: 0.394834498167038, IoU: 0.39483311343193056, CL IoU: 0.0
-Final Validation Loss: 1.3074107952415943, Dice: 0.3902042219415307, IoU: 0.3902028603479266, CL IoU: 0.0
-Test Loss: 1.2117253215807788
-Test dice: 0.43046133473234355
-Test iou: 0.4304601074952
-Test cliou: 0.0
-Model info: logs/unet/3/model_info.json
-Model size: 34500.00390625 KB
