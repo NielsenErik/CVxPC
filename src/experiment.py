@@ -96,11 +96,7 @@ class DiceCELoss(nn.Module):
         return 1 - dice.mean()
 
     def forward(self, pred, target):
-        return  self.dice_loss(pred, target)
-
-import torch
-import torch.nn as nn
-import torch.nn.functional as F
+        return  0.6* self.ce(pred, target) + 0.4*self.dice_loss(pred, target)
 
 class LogDiceFocalLoss(nn.Module):
     def __init__(self, alpha=0.25, gamma=2.0, smooth=1.0):
@@ -164,6 +160,52 @@ class LogDiceFocalLoss(nn.Module):
         log_dice = self.log_dice_loss(pred, target)
         focal = self.focal_loss(pred, target)
         return 0.5 * log_dice + 0.5 * focal
+    
+class ClIOULoss(nn.Module):
+    def __init__(self):
+        super().__init__()
+        self.smooth = 1.0
+
+    def cl_iou_score(self,pred_mask, true_mask, tau=2):
+        """
+        pred_mask, true_mask: (B,1,H,W)
+        """
+        B = pred_mask.shape[0]
+        device = pred_mask.device
+        pred_mask = (pred_mask > 0.5).float()
+        true_mask = (true_mask > 0.5).float()
+
+        # Skeletonization approximation
+        kernel_3 = torch.ones((1, 1, 3, 3), device=device)
+        eroded_true = F.max_pool2d(1 - true_mask, 3, 1, 1)
+        eroded_pred = F.max_pool2d(1 - pred_mask, 3, 1, 1)
+        skel_true = torch.relu(true_mask - (1 - eroded_true))
+        skel_pred = torch.relu(pred_mask - (1 - eroded_pred))
+
+        # --- Dilation ---
+        k_np = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (2*tau+1, 2*tau+1))
+        k = torch.tensor(k_np, dtype=torch.float32, device=device)[None, None, :, :]
+        dil_true = (F.conv2d(skel_true, k, padding=tau, groups=1) > 0).float()
+        dil_pred = (F.conv2d(skel_pred, k, padding=tau, groups=1) > 0).float()
+
+        TPcl = (skel_true * dil_pred).sum(dim=(1,2,3))
+        FPcl = (skel_pred * (1 - dil_true)).sum(dim=(1,2,3))
+        FNcl = (skel_true * (1 - dil_pred)).sum(dim=(1,2,3))
+
+        cl_iou = TPcl / (TPcl + FPcl + FNcl + 1e-8)
+        return cl_iou.mean().item()
+    
+    def forward(self, pred, target):
+        C = pred.size(1)
+        if C == 1:
+            pred_prob = torch.sigmoid(pred)
+            target = target.unsqueeze(1).float()
+        else:
+            pred_prob = torch.softmax(pred, dim=1)
+            target = F.one_hot(target, num_classes=C).permute(0, 3, 1, 2).float()
+
+        loss = 1 - self.cl_iou_score(pred_prob, target)
+        return loss.mean()
     
 class Experiment:
     def __init__(self, config):
@@ -404,7 +446,7 @@ class ExperimentDL(Experiment):
     def setup(self, pos_weight=1.0):
         self.set_optimizer(torch.optim.Adam(self.model.parameters(), lr=self.learning_rate))
         self.set_scheduler(torch.optim.lr_scheduler.StepLR(self.optimizer, step_size=10, gamma=0.1))
-        self.set_loss(DiceCELoss(pos_weight=pos_weight))
+        self.set_loss(DiceCELoss())
 
     def set_optimizer(self, optimizer):
         self.optimizer = optimizer

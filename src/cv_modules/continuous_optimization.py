@@ -153,7 +153,7 @@ class UMDAc(EDA):
 class CMAES(EDA, metaclass=ContinuousOptimizationMetaClass):
     """Wrapper for CMA-ES"""
 
-    def __init__(self, n_params, lambda_=None):
+    def __init__(self, n_params, lambda_=None, seed=4):
         """
         Initializes an instance of CMA-ES
 
@@ -161,6 +161,7 @@ class CMAES(EDA, metaclass=ContinuousOptimizationMetaClass):
         :lambda_: Population size
         """
         EDA.__init__(self, None, lambda_, n_params)
+        np.random.seed(seed)
         self._cmaes = cmaes.CMA(np.random.rand(self._n_params), 3, population_size=lambda_)
         self.best = None
         self.best_fitness = -np.inf
