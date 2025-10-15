@@ -96,7 +96,7 @@ class DiceCELoss(nn.Module):
         return 1 - dice.mean()
 
     def forward(self, pred, target):
-        return 0.5 * self.ce(pred, target) + 0.5 * self.dice_loss(pred, target)
+        return  self.dice_loss(pred, target)
 
 import torch
 import torch.nn as nn
@@ -457,12 +457,12 @@ class ExperimentDL(Experiment):
                 epoch_loss += loss.item()
                 epoch_dice += self.dice_coef(outputs, masks).item()
                 epoch_iou  += self.iou_score(outputs, masks).item()
-                epochs_cliou = self.cl_iou_score(outputs, masks)
+                epoch_cl_iou += self.cl_iou_score(outputs, masks)
 
             train_loss = epoch_loss / len(train_loader)
             train_dice = epoch_dice / len(train_loader)
             train_iou  = epoch_iou / len(train_loader)
-            train_cl_iou = epochs_cliou / len(train_loader)
+            train_cl_iou = epoch_cl_iou / len(train_loader)
             train_losses.append(train_loss)
             train_dices.append(train_dice)
             train_ious.append(train_iou)
@@ -675,7 +675,7 @@ class ExperimentDL(Experiment):
             masks = np.array([self.train_data[i][1] for i in range(len(self.train_data))])
             masks = torch.from_numpy(masks).long().to(self.device)
             pos_weight = self.compute_pos_weight(masks)
-            # pos_weight = pos_weight[1]/pos_weight[0]
+            pos_weight = pos_weight[1]/pos_weight[0]
             self.setup(pos_weight=pos_weight)
             self.model = self.train(self.model, train_data=self.train_data, val_data=self.val_data, loss_function=self.loss, optimizer=self.optimizer, device=self.device, epochs=self.epochs, batch_size=self.batch_size)
             self.save_model(self.model_name)
