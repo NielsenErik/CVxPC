@@ -37,13 +37,14 @@ class CVModuleFactory(ProcessingElementFactory, metaclass=PEFMetaClass):
 
         self._opt = kwargs["Optimizer"]
         self._cvm = kwargs["CVModule"]
+        self._seed = kwargs.get("Seed", 4)
 
         # Retrieve class
         self._optimizer = ContinuousOptimizationMetaClass.get(
             self._opt["class_name"]
         )
         # Init the optimizer
-        self._optimizer = self._optimizer(**self._opt["kwargs"])
+        self._optimizer = self._optimizer(**self._opt["kwargs"], seed=self._seed)
 
         self._module_type = CVMetaClass.get(self._cvm["class_name"])
 
