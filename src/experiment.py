@@ -96,7 +96,7 @@ class DiceCELoss(nn.Module):
         return 1 - dice.mean()
 
     def forward(self, pred, target):
-        return 0.3 * self.ce(pred, target) + 0.7 * self.dice_loss(pred, target)
+        return 0.5 * self.ce(pred, target) + 0.5 * self.dice_loss(pred, target)
 
 import torch
 import torch.nn as nn
@@ -404,7 +404,7 @@ class ExperimentDL(Experiment):
     def setup(self, pos_weight=1.0):
         self.set_optimizer(torch.optim.Adam(self.model.parameters(), lr=self.learning_rate))
         self.set_scheduler(torch.optim.lr_scheduler.StepLR(self.optimizer, step_size=10, gamma=0.1))
-        self.set_loss(LogDiceFocalLoss(alpha=pos_weight))
+        self.set_loss(DiceCELoss(pos_weight=pos_weight))
 
     def set_optimizer(self, optimizer):
         self.optimizer = optimizer
@@ -430,7 +430,7 @@ class ExperimentDL(Experiment):
 
         # Default loss: BCE + Dice
         if loss_function is None:
-            loss_function = BCEDiceLoss()
+            loss_function = DiceCELoss()
 
         if optimizer is None:
             optimizer = torch.optim.Adam(model.parameters(), lr=1e-3)
@@ -523,8 +523,32 @@ class ExperimentDL(Experiment):
         f.close()
         return model
 
-    def finetune(self):
-        pass
+    def finetune(self, model, dataloader, n_classes=2):
+        model.load_state_dict(torch.load("unet_pretrained.pth"))
+
+        # Replace the last layer for new classes
+        model.conv_last = nn.Conv2d(64, n_classes, 1)
+
+        # Option 1: freeze earlier layers (useful if the dataset is small)
+        for param in model.parameters():
+            param.requires_grad = False
+
+        # Unfreeze only the last convolution block(s)
+        for param in model.dconv_up1.parameters():
+            param.requires_grad = True
+        for param in model.conv_last.parameters():
+            param.requires_grad = True
+
+        optimizer = torch.optim.Adam(filter(lambda p: p.requires_grad, model.parameters()), lr=1e-4)
+
+        criterion = self.loss
+
+        for images, masks in dataloader:
+            preds = model(images)
+            loss = criterion(preds, masks)
+            loss.backward()
+            optimizer.step()
+            optimizer.zero_grad()
 
     def validate(self, model, val_loader, loss_function):
         model.eval()
@@ -954,44 +978,6 @@ class ExperimentPC(Experiment):
 
         return final_feats
 
-    # ============================================================
-    # Convolution Modules Tensor Extraction
-    # ============================================================
-
-
-    import numpy as np
-
-    def feature_stats_unsup(self, maps_bchw):
-        # maps_bchw: (N, K, H, W)
-        # per-channel variance & entropy (discretized)
-        N, K, H, W = maps_bchw.shape
-        X = maps_bchw.reshape(N*K, -1)
-        # normalize per-channel
-        X = (X - X.mean(axis=1, keepdims=True)) / (X.std(axis=1, keepdims=True) + 1e-8)
-        var = X.var(axis=1).mean()  # ↑ better
-        # entropy on z-scored values binned
-        bins = np.clip(((X + 3.0) / 6.0 * 32).astype(int), 0, 31)  # 32 bins within ±3σ
-        Hs = []
-        for row in bins:
-            hist = np.bincount(row, minlength=32).astype(np.float64)
-            p = hist / (hist.sum() + 1e-8)
-            Hs.append(-(p * np.log(p + 1e-12)).sum())
-        ent = np.mean(Hs)  # ↑ better
-        return var, ent
-
-    def decorrelation_penalty(self, maps_bchw):
-        # penalize redundant filters (mean absolute corr across channels)
-        N, K, H, W = maps_bchw.shape
-        X = maps_bchw.transpose(1,0,2,3).reshape(K, -1)  # (K, N*H*W)
-        X = (X - X.mean(axis=1, keepdims=True)) / (X.std(axis=1, keepdims=True) + 1e-8)
-        C = np.corrcoef(X)
-        ma = np.mean(np.abs(C[np.triu_indices_from(C, k=1)]))  # ↓ better
-        return ma
-
-    def energy_penalty(self, maps_bchw):
-        # keep overall energy reasonable (avoid trivial huge responses)
-        return np.mean(np.abs(maps_bchw))  # ↓ better
-
     def convolution_modules_tensor(
             self, images, cv_factory, return_maps=True, n_jobs=None, verbose=0, prune_features=None
         ):
@@ -1050,7 +1036,7 @@ class ExperimentPC(Experiment):
         # ---------------------------------------------------------
         # Optimize module based on highest variance (/) then structure training will understand which are the most optimal ones
         if prune_features is None:
-            for epoch in range(10):
+            for epoch in range(20):
                 modules = cv_factory.ask_pop()
                 if not isinstance(modules, list):
                     modules = [modules]
@@ -1062,10 +1048,8 @@ class ExperimentPC(Experiment):
                         delayed(m.get_output)(img, return_map=True) for img in local_imgs
                     )
                     maps = np.stack(feature_list, axis=0) if len(feature_list) > 0 else np.zeros((0, 1, 1, 1), dtype=np.float32)
-                    var, ent = self.feature_stats_unsup(maps)
-                    decor = self.decorrelation_penalty(maps)
-                    energy = self.energy_penalty(maps)
-                    fitnesses.append(1.0*var + 0.3*ent - 0.2*decor - 0.05*energy)  # combine objectives
+                    var = maps.var()  # want high variance
+                    fitnesses.append(var)  # combine objectives
 
                 # tell CMA-ES about fitnesses (higher = better)
                 cv_factory.tell_pop(fitnesses)
@@ -1139,7 +1123,8 @@ class ExperimentPC(Experiment):
                 feats_np = feats_np[:, prune_features, :, :]
             else:                       # [C, H, W] fallback
                 feats_np = feats_np[prune_features, :, :]
-        print_debugging(f"Convolution module features shape: {feats_np.shape}, value range: {feats_np.min()} to {feats_np.max()}, var: {feats_np.var()}, decor: {self.decorrelation_penalty(feats_np)}, energy: {self.energy_penalty(feats_np)}")
+        print_debugging(f"Convolution module features shape: {feats_np.shape}, value range: {feats_np.min()} to {feats_np.max()}, var: {feats_np.var()}")
+        feats_np = (feats_np - feats_np.mean()) / feats_np.std()
         return feats_np
 
     def get_feature_tensor(self, images, prune_features=None):

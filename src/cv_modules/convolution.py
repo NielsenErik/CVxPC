@@ -152,6 +152,7 @@ class ConvolutionModule(CVProcessingElement, metaclass=CVMetaClass):
 
         # Case 1: return dense feature maps
         if return_map:
+            # conv_np = (conv_np - conv_np.mean()) / (conv_np.std() + 1e-3)
             return conv_np
 
         # Case 2: return (x, y) coordinates of maxima

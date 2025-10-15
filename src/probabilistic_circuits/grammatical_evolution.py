@@ -9,6 +9,7 @@ from joblib import Parallel, delayed
 from copy import deepcopy
 import os
 from probabilistic_circuits.probabilistic_circuits import *
+from experiment import *
 from utils import *
 
 # ============================================================

@@ -161,9 +161,9 @@ class CMAES(EDA, metaclass=ContinuousOptimizationMetaClass):
         :lambda_: Population size
         """
         EDA.__init__(self, None, lambda_, n_params)
-
-        self._cmaes = cmaes.CMA([0] * n_params, 1, population_size=lambda_)
+        self._cmaes = cmaes.CMA(np.random.rand(self._n_params), 3, population_size=lambda_)
         self.best = None
+        self.best_fitness = -np.inf
 
 
     def _generate(self):
@@ -172,5 +172,9 @@ class CMAES(EDA, metaclass=ContinuousOptimizationMetaClass):
 
     def tell(self, fitnesses):
         pop = [(a, f) for a, f in zip(self._individuals, fitnesses)]
-        self.best = sorted(pop, key=lambda x: x[1], reverse=True)[0]
+        best = sorted(pop, key=lambda x: x[1], reverse=True)
+        if best[0][1] > self.best_fitness:
+            self.best_fitness = best[0][1]
+            print("New best fitness: ", self.best_fitness)
+            self.best = best[0]
         self._cmaes.tell([(a, f) for a, f in zip(self._individuals, fitnesses)])
