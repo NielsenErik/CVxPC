@@ -1,10 +1,10 @@
 Experiment Configurations: {'mlflow': None, 'experiment': 'crack_segmentation', 'algorithm': 'unet', 'data_path': 'data/kaggle/crack_segmentation_dataset/train', 'test_path': 'data/kaggle/crack_segmentation_dataset/test', 'save_path': 'models/', 'model_name': 'unet-wbce', 'validation_split': 0.2, 'epochs': 10, 'batch_size': 16, 'sample_size': 5, 'resize_size': [128, 128], 'learning_rate': 0.001, 'threshold': 0.2, 'input_channels': 3, 'n_classes': 1, 'seed': 90, 'execution_mode': 'train', 'log_dir': 'logs/unet/90'}
 Dataset sizes: {'train': 5, 'val': 1, 'test': 10}
-Final Training Loss: 0.22836212813854218, Dice: 0.42909467220306396, IoU: 0.42909467220306396, CL IoU: 0.0
-Final Validation Loss: 0.23131482303142548, Dice: 0.4217129349708557, IoU: 0.4217129349708557, CL IoU: 0.0
-Test Loss: 0.2216329425573349
-Test dice: 0.44591766595840454
-Test iou: 0.44591766595840454
+Final Training Loss: 0.808223307132721, Dice: 0.02241683006286621, IoU: 0.022378090769052505, CL IoU: 0.0
+Final Validation Loss: 0.7475621104240417, Dice: 0.007612497080117464, IoU: 0.0075735533609986305, CL IoU: 0.0
+Test Loss: 0.7585516571998596
+Test dice: 0.007678182329982519
+Test iou: 0.007603887468576431
 Test cliou: 0.0
 Model info: logs/unet/90/model_info.json
 Model size: 34500.00390625 KB

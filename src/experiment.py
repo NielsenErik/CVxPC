@@ -74,7 +74,7 @@ def run_experiment(config):
 # Loss Functions
 # ============================================================
 
-class DiceCELoss(nn.Module):
+class DiceLoss(nn.Module):
     """Combination of CrossEntropy and Dice loss"""
 
     def __init__(self, pos_weight=None):
@@ -161,51 +161,66 @@ class LogDiceFocalLoss(nn.Module):
         focal = self.focal_loss(pred, target)
         return 0.5 * log_dice + 0.5 * focal
     
-class ClIOULoss(nn.Module):
-    def __init__(self):
+import torch
+import torch.nn.functional as F
+
+def soft_erode(x):
+    # 3x3 min-pool approximation via -maxpool(-x)
+    return -F.max_pool2d(-x, kernel_size=3, stride=1, padding=1)
+
+def soft_skeletonize(p, iters=3):
+    # p in [0,1]; iterative soft skeletonization
+    skel = torch.zeros_like(p)
+    img = p
+    for _ in range(iters):
+        er = soft_erode(img)
+        op = F.relu(img - er)
+        skel = torch.maximum(skel, op)
+        img = er
+    return skel
+
+def soft_clDice(pred_prob, target, iters=3, eps=1e-6):
+    # pred_prob, target: (B,1,H,W) in [0,1]
+    S_p = soft_skeletonize(pred_prob, iters)
+    S_t = soft_skeletonize(target, iters)
+    tprec = (S_p * target).sum(dim=(1,2,3)) / (S_p.sum(dim=(1,2,3)) + eps)
+    tsens = (S_t * pred_prob).sum(dim=(1,2,3)) / (S_t.sum(dim=(1,2,3)) + eps)
+    cldice = (2 * tprec * tsens) / (tprec + tsens + eps)
+    return cldice.mean()
+
+class DiceCELoss(nn.Module):
+    def __init__(self, pos_weight=None, gamma=0.3):
         super().__init__()
-        self.smooth = 1.0
+        self.ce = nn.CrossEntropyLoss(weight=pos_weight)  # or BCEWithLogitsLoss for binary
+        self.gamma = gamma
 
-    def cl_iou_score(self,pred_mask, true_mask, tau=2):
-        """
-        pred_mask, true_mask: (B,1,H,W)
-        """
-        B = pred_mask.shape[0]
-        device = pred_mask.device
-        pred_mask = (pred_mask > 0.5).float()
-        true_mask = (true_mask > 0.5).float()
-
-        # Skeletonization approximation
-        kernel_3 = torch.ones((1, 1, 3, 3), device=device)
-        eroded_true = F.max_pool2d(1 - true_mask, 3, 1, 1)
-        eroded_pred = F.max_pool2d(1 - pred_mask, 3, 1, 1)
-        skel_true = torch.relu(true_mask - (1 - eroded_true))
-        skel_pred = torch.relu(pred_mask - (1 - eroded_pred))
-
-        # --- Dilation ---
-        k_np = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (2*tau+1, 2*tau+1))
-        k = torch.tensor(k_np, dtype=torch.float32, device=device)[None, None, :, :]
-        dil_true = (F.conv2d(skel_true, k, padding=tau, groups=1) > 0).float()
-        dil_pred = (F.conv2d(skel_pred, k, padding=tau, groups=1) > 0).float()
-
-        TPcl = (skel_true * dil_pred).sum(dim=(1,2,3))
-        FPcl = (skel_pred * (1 - dil_true)).sum(dim=(1,2,3))
-        FNcl = (skel_true * (1 - dil_pred)).sum(dim=(1,2,3))
-
-        cl_iou = TPcl / (TPcl + FPcl + FNcl + 1e-8)
-        return cl_iou.mean().item()
-    
-    def forward(self, pred, target):
-        C = pred.size(1)
-        if C == 1:
+    def dice_loss(self, pred, target, smooth=1.0):
+        if pred.size(1) == 1:
             pred_prob = torch.sigmoid(pred)
             target = target.unsqueeze(1).float()
         else:
             pred_prob = torch.softmax(pred, dim=1)
-            target = F.one_hot(target, num_classes=C).permute(0, 3, 1, 2).float()
+            target = F.one_hot(target, num_classes=pred.size(1)).permute(0,3,1,2).float()
+        inter = (pred_prob * target).sum(dim=(2,3))
+        denom = pred_prob.sum(dim=(2,3)) + target.sum(dim=(2,3))
+        dice = (2. * inter + smooth) / (denom + smooth)
+        return 1 - dice.mean()
 
-        loss = 1 - self.cl_iou_score(pred_prob, target)
-        return loss.mean()
+    def forward(self, pred, target):
+        if pred.size(1) == 1:
+            ce = F.binary_cross_entropy_with_logits(pred, target.float())
+            pred_prob = torch.sigmoid(pred)
+            tgt_prob = target.float()
+            cl = soft_clDice(pred_prob, tgt_prob)
+        else:
+            ce = self.ce(pred, target)
+            # treat class 1 as foreground for clDice; adapt if needed
+            pred_prob = torch.softmax(pred, dim=1)[:,1:2]
+            tgt_prob = (target==1).unsqueeze(1).float()
+            cl = soft_clDice(pred_prob, tgt_prob)
+        dl = self.dice_loss(pred, target)
+        return 0.6*ce + 0.4*dl + self.gamma*(1 - cl)
+
     
 class Experiment:
     def __init__(self, config):
@@ -248,6 +263,7 @@ class Experiment:
             self.images_path = train_path + "/images/"
             self.ground_truth_path = train_path + "/masks/"        
             self.data = CrackDataset(self.images_path, self.ground_truth_path,sample_size=self.sample_size, resize_size=(self.resize_size[0], self.resize_size[1]))
+            torch.manual_seed(self.config.get("seed", 42))
             indices = torch.randperm(len(self.data))
             self.data = torch.utils.data.Subset(self.data, indices)
             if self.execution_mode == "train":
@@ -489,7 +505,7 @@ class ExperimentDL(Experiment):
 
             for images, masks in train_loader:
                 images, masks = images.to(device), masks.to(device)
-
+                masks = masks
                 optimizer.zero_grad()
                 outputs = model(images)  
                 loss = loss_function(outputs, masks) 
@@ -1175,7 +1191,7 @@ class ExperimentPC(Experiment):
         elif self.feature_extractor == "cv_modules":
             if self.cv_factory is None:
                 self.cv_factory = CVModuleFactory(
-                    Optimizer={"class_name": "CMAES", "kwargs": {"n_params": 128, "lambda_": self.n_cv_modules}},
+                    Optimizer={"class_name": "CMAES", "kwargs": {"n_params": 128, "lambda_": self.n_cv_modules, "seed": self.seed}},
                     CVModule={"class_name": "ConvolutionModule", "kwargs": {"n_filters": self.n_filters, "filter_sizes": 3, "device": self.device}}
                 )
             return self.convolution_modules_tensor(images, self.cv_factory, return_maps=True, n_jobs=self.n_cpus, prune_features=prune_features)
@@ -1186,8 +1202,11 @@ class ExperimentPC(Experiment):
     def set_criterion(self, target):
         if target.dim() == 4 and target.size(1) == 1:
             target = target.squeeze(1)
-        pos_weight = self.compute_pos_weight(target)
-        self.criterion = DiceCELoss(pos_weight=pos_weight.to(self.device))
+        balance = self.compute_pos_weight(target)
+        pos_weight = np.zeros(self.n_classes)
+        for i in range(1, len(balance)):
+            pos_weight[i] = balance[i]/balance[0]
+        self.criterion = DiceCELoss(pos_weight=torch.tensor(pos_weight).float().to(self.device))
     # --------------------------------------------------------
     # Training & Evaluation
     # --------------------------------------------------------
@@ -1214,11 +1233,6 @@ class ExperimentPC(Experiment):
             target = target.squeeze(1)
         if val_target is not None and val_target.dim() == 4 and val_target.size(1) == 1:
             val_target = val_target.squeeze(1)
-
-        balance = self.compute_pos_weight(target)
-
-        # Loss
-        self.criterion = DiceCELoss(pos_weight=balance.detach().clone().to(self.device)).to(self.device)
 
         # DataLoaders
         train_loader = self.get_dataloaders(TensorDataset(feature_tensor, target), shuffle=True, batch_size=self.batch_size)
@@ -1769,7 +1783,8 @@ class ExperimentGEPC(ExperimentPC):
             
             ge_X_train = torch.from_numpy(self.get_feature_tensor(np.array([self.train_data[i][0] for i in range(ge_train_size)]))).float().to(self.device)
             ge_Y_train = torch.from_numpy(np.array([self.train_data[i][1] for i in range(ge_train_size)])).long().to(self.device)
-            best_pc, best_genome, history = self.ge.evolve(ge_X_train, ge_Y_train, self.ge_config["generations"])
+            self.set_criterion(ge_Y_train)
+            best_pc, best_genome, history = self.ge.evolve(ge_X_train, ge_Y_train, criterion=self.criterion, generations = self.ge_config["generations"], n_classes=self.n_classes, train_steps=20, lr=self.learning_rate)
             print_info("Best genome:", best_genome)
             print_info("Best PC:", str(best_pc))
             self.model = best_pc

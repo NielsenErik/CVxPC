@@ -44,7 +44,7 @@ class CVModuleFactory(ProcessingElementFactory, metaclass=PEFMetaClass):
             self._opt["class_name"]
         )
         # Init the optimizer
-        self._optimizer = self._optimizer(**self._opt["kwargs"], seed=self._seed)
+        self._optimizer = self._optimizer(**self._opt["kwargs"])
 
         self._module_type = CVMetaClass.get(self._cvm["class_name"])
 

@@ -21,7 +21,7 @@
         256
     ],
     "input_channels": 3,
-    "n_classes": 2,
+    "n_classes": 1,
     "max_depth": 7,
     "max_branching": 5,
     "seed": 90,

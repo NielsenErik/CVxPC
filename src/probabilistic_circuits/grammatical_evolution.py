@@ -286,7 +286,7 @@ class GEOptimizer:
     # -----------------------------
     # Fitness evaluation (loss only)
     # -----------------------------
-    def _evaluate_single(self, genome, inputs, labels, n_classes, train_steps, lr, seed_offset=0, global_index=None):
+    def _evaluate_single(self, genome, inputs, labels, criterion, n_classes, train_steps, lr, seed_offset=0, global_index=None):
 
         torch.manual_seed(seed_offset)
         np.random.seed(seed_offset)
@@ -304,13 +304,6 @@ class GEOptimizer:
 
         optimizer = torch.optim.Adam(pc.params, lr=lr)
 
-        flat = labels.view(-1)
-        counts = torch.bincount(flat, minlength=n_classes).float()
-        counts[counts == 0] = 1.0
-        balance = (1.0 / counts)
-        balance = balance / balance.sum()
-        criterion = DiceCELoss(pos_weight=balance.to(self.device))
-
         # Shuffle then split
         perm = torch.randperm(len(inputs))
         inputs, labels = inputs[perm], labels[perm]
@@ -320,7 +313,6 @@ class GEOptimizer:
 
         train_loader = self.get_dataloader(x_tr, y_tr, batch_size=32)
         val_loader = self.get_dataloader(x_va, y_va, batch_size=32)
-
 
         for _ in range(train_steps):
             for xb, yb in train_loader:
@@ -350,7 +342,7 @@ class GEOptimizer:
         print_info(f"    - Genome {global_index} loss: {val_loss:.4f}, clIoU: {cl_iou:.4f}")
         return val_loss, global_index
 
-    def evaluate_population(self, population, inputs, labels, n_classes=2, train_steps=20, lr=1e-2):
+    def evaluate_population(self, population, inputs, labels, criterion, n_classes=2, train_steps=20, lr=1e-2):
         """
         Returns: list of losses aligned with `population` order.
         No PC objects are returned.
@@ -364,12 +356,12 @@ class GEOptimizer:
             nj = self._local_n_jobs()
             if nj == 1:
                 local_results = [
-                    self._evaluate_single(g, inputs, labels, n_classes, train_steps, lr, i, idx)
+                    self._evaluate_single(genome=g, inputs=inputs, labels=labels, criterion=criterion, n_classes=n_classes, train_steps=train_steps, lr=lr, seed_offset=i, global_index=idx)
                     for i, (g, idx) in enumerate(zip(local_genomes, local_indices))
                 ]
             else:
                 local_results = Parallel(n_jobs=nj, verbose=0)(
-                    delayed(self._evaluate_singles)(g, inputs, labels, n_classes, train_steps, lr, i, idx)
+                    delayed(self._evaluate_singles)(genome=g, inputs=inputs, labels=labels, criterion=criterion, n_classes=n_classes, train_steps=train_steps, lr=lr, seed_offset=i, global_index=idx)
                     for i, (g, idx) in enumerate(zip(local_genomes, local_indices))
                 )
 
@@ -385,7 +377,7 @@ class GEOptimizer:
         # single-process
         nj = self._local_n_jobs()
         results = Parallel(n_jobs=nj, verbose=0)(
-            delayed(self._evaluate_single)(g, inputs, labels, n_classes, train_steps, lr, i, i)
+            delayed(self._evaluate_single)(genome=g, inputs=inputs, labels=labels, criterion=criterion, n_classes=n_classes, train_steps=train_steps, lr=lr, seed_offset=i, global_index=i)
             for i, g in enumerate(population)
         )
         losses = [None] * len(population)
@@ -397,7 +389,7 @@ class GEOptimizer:
     # -----------------------------
     # Evolutionary loop
     # -----------------------------
-    def evolve(self, train_inputs, train_labels, generations=10, n_classes=2, train_steps=20, lr=1e-2):
+    def evolve(self, train_inputs, train_labels, criterion, generations=10, n_classes=2, train_steps=20, lr=1e-2):
         """
         Runs evolution returning:
           - best_pc: the final rebuilt-and-trained PC (once, at the end)
@@ -406,10 +398,9 @@ class GEOptimizer:
         """
         population = self.init_population()
         history, best_score, best_genome = [], math.inf, None
-
         for gen in range(generations):
             print_info(f"🧬 Generation {gen+1}/{generations} (evaluating {len(population)} genomes in parallel)")
-            losses = self.evaluate_population(population, train_inputs, train_labels,
+            losses = self.evaluate_population(population, train_inputs, train_labels, criterion,
                                               n_classes=n_classes, train_steps=train_steps, lr=lr)
 
             # pair (loss, genome), find best
