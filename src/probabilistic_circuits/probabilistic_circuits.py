@@ -24,35 +24,6 @@ from utils import print_configs, print_debugging, print_info
 
 
 # ============================================================
-# Loss Functions
-# ============================================================
-
-class DiceCELoss(nn.Module):
-    """Combination of CrossEntropy and Dice loss"""
-
-    def __init__(self, pos_weight=None):
-        super().__init__()
-        self.ce = nn.CrossEntropyLoss(weight=pos_weight)
-
-    def dice_loss(self, pred, target, smooth=1.0):
-        if pred.size(1) == 1:  # binary
-            pred_prob = torch.sigmoid(pred)
-            target = target.unsqueeze(1).float()
-        else:  # multi-class
-            pred_prob = torch.softmax(pred, dim=1)
-            target = F.one_hot(target, num_classes=pred.size(1))
-            target = target.permute(0, 3, 1, 2).float()
-
-        intersection = (pred_prob * target).sum(dim=(2, 3))
-        denominator = pred_prob.sum(dim=(2, 3)) + target.sum(dim=(2, 3))
-        dice = (2. * intersection + smooth) / (denominator + smooth)
-        return 1 - dice.mean()
-
-    def forward(self, pred, target):
-        return 0.5 * self.ce(pred, target) + 0.5 * self.dice_loss(pred, target)
-
-
-# ============================================================
 # Node Classes
 # ============================================================
 class Node(ABC):
@@ -159,8 +130,8 @@ class InputNode(nn.Module, Node):
         if isinstance(X, np.ndarray):
             X = torch.from_numpy(X).float().to(self.device)
         vals = X[:, self.feature_idx]
-        sigma = torch.exp(self.log_sigma)
-        nu = torch.exp(self.log_nu)
+        sigma = F.softplus(self.log_sigma) + 1e-6
+        nu    = F.softplus(self.log_nu) + 1e-3      
         weights = torch.softmax(self.logits, dim=0)
 
         log_gauss = self._log_gaussian(vals, self.mu, sigma)
@@ -537,6 +508,65 @@ class PCNet(ProbabilisticCircuit):
             logits = self.evaluate(inputs)
             preds = torch.argmax(logits, dim=1, keepdim=True)
             return preds.cpu().numpy()
+        
+    def state_dict(self):
+        """
+        Return a unified state_dict collecting parameters from all node modules.
+        This mimics nn.Module.state_dict().
+        """
+        state = {}
+        for node in self.get_nodes():
+            if isinstance(node, nn.Module):
+                for name, param in node.named_parameters():
+                    key = f"{node.__class__.__name__}_{id(node)}.{name}"
+                    state[key] = param.detach().clone()
+        return state
+
+    def load_state_dict(self, state_dict, strict=False):
+        """
+        Load parameters into the PCNet nodes.
+        Works even if the structure has changed slightly (strict=False).
+        """
+        loaded, missing = 0, 0
+        for node in self.get_nodes():
+            if isinstance(node, nn.Module):
+                for name, param in node.named_parameters():
+                    key = f"{node.__class__.__name__}_{id(node)}.{name}"
+                    if key in state_dict:
+                        try:
+                            with torch.no_grad():
+                                src = state_dict[key].to(param.device)
+                                if src.shape == param.shape:
+                                    param.copy_(src)
+                                else:
+                                    # partial reuse if possible
+                                    min_len = min(param.numel(), src.numel())
+                                    param.view(-1)[:min_len].copy_(src.view(-1)[:min_len])
+                                    print_debugging(f"⚠️ Resized param {key}: old {tuple(src.shape)} → new {tuple(param.shape)}")
+                            loaded += 1
+                        except Exception:
+                            missing += 1
+                    elif not strict:
+                        # try fuzzy match by name only (ignoring id)
+                        for k, v in state_dict.items():
+                            if k.endswith(f".{name}"):
+                                with torch.no_grad():
+                                    param.copy_(v.to(param.device))
+                                loaded += 1
+                                break
+                        else:
+                            missing += 1
+        print_debugging(f"Loaded {loaded} parameters, {missing} missing.")
+        return {"loaded": loaded, "missing": missing}
+
+    def named_parameters(self):
+        """
+        Generator yielding (name, param) for all sub-node parameters.
+        """
+        for node in self.get_nodes():
+            if isinstance(node, nn.Module):
+                for name, param in node.named_parameters():
+                    yield f"{node.__class__.__name__}_{id(node)}.{name}", param
         
     def save_dict(self):
         """

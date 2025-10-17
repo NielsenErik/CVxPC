@@ -143,7 +143,10 @@ class ConvolutionModule(CVProcessingElement, metaclass=CVMetaClass):
         Returns:
             np.ndarray: Either (2*K,) coordinate vector or (K, H, W) map tensor
         """
-        X = torch.tensor(input_, dtype=torch.float32, device=self._device)
+        if type(input_) is torch.Tensor:
+            X = input_.detach().clone().requires_grad_(True).to(self._device)
+        else:
+            X = torch.tensor(input_, dtype=torch.float32, device=self._device)
         if X.ndim == 3:
             X = X.unsqueeze(0)  # add batch dim
 
@@ -152,6 +155,7 @@ class ConvolutionModule(CVProcessingElement, metaclass=CVMetaClass):
 
         # Case 1: return dense feature maps
         if return_map:
+            # conv_np = (conv_np - conv_np.mean()) / (conv_np.std() + 1e-3)
             return conv_np
 
         # Case 2: return (x, y) coordinates of maxima

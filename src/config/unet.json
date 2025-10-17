@@ -1,5 +1,5 @@
 {
-    "mlflow": null,
+    "mlflow": "aida",
     "experiment": "crack_segmentation",
     "algorithm": "unet",
     
@@ -10,7 +10,7 @@
     "model_name": "unet-wbce",
     "validation_split": 0.2,
 
-    "epochs": 10,
+    "epochs": 2,
     "batch_size": 16,
     "sample_size": 5,
     "resize_size": [128, 128],

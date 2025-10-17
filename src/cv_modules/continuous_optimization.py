@@ -153,7 +153,7 @@ class UMDAc(EDA):
 class CMAES(EDA, metaclass=ContinuousOptimizationMetaClass):
     """Wrapper for CMA-ES"""
 
-    def __init__(self, n_params, lambda_=None):
+    def __init__(self, n_params, lambda_=None, seed=4):
         """
         Initializes an instance of CMA-ES
 
@@ -161,12 +161,21 @@ class CMAES(EDA, metaclass=ContinuousOptimizationMetaClass):
         :lambda_: Population size
         """
         EDA.__init__(self, None, lambda_, n_params)
+        np.random.seed(seed)
+        self._cmaes = cmaes.CMA(np.random.rand(self._n_params), 3, population_size=lambda_)
+        self.best = None
+        self.best_fitness = -np.inf
 
-        self._cmaes = cmaes.CMA([0] * n_params, 1, population_size=lambda_)
 
     def _generate(self):
         self._individuals = [self._cmaes.ask() for _ in range(self._cmaes.population_size)]
         return self._individuals
 
     def tell(self, fitnesses):
-        self._cmaes.tell([(a, -f) for a, f in zip(self._individuals, fitnesses)])
+        pop = [(a, f) for a, f in zip(self._individuals, fitnesses)]
+        best = sorted(pop, key=lambda x: x[1], reverse=True)
+        if best[0][1] > self.best_fitness:
+            self.best_fitness = best[0][1]
+            print("New best fitness: ", self.best_fitness)
+            self.best = best[0]
+        self._cmaes.tell([(a, f) for a, f in zip(self._individuals, fitnesses)])

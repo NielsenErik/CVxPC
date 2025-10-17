@@ -1,3 +1,4 @@
+import mlflow.pytorch
 import numpy as np
 import cv2
 import os
@@ -29,7 +30,9 @@ import torch
 import torch.distributed as dist
 from torch.nn.parallel import DistributedDataParallel as DDP
 from torch.utils.data import DataLoader, DistributedSampler, TensorDataset
-
+from torch.utils.data.distributed import DistributedSampler
+from torch import multiprocessing as mp
+import multiprocessing
 def average_gradients_across_workers(params):
     """All-reduce gradients in-place and divide by world_size."""
     if not (dist.is_available() and dist.is_initialized()):
@@ -48,6 +51,10 @@ def run_experiment(config):
     if config["algorithm"] == "unet":
         experiment = UNetExperiment(config)
         experiment.run()
+    
+    elif config["algorithm"] == "unetplus":
+        experiment = ExperimentUnetPlus(config)
+        experiment.run()
 
     elif config["algorithm"] == "convae":
         experiment = ConvAEExperiment(config)
@@ -63,6 +70,158 @@ def run_experiment(config):
 
     else:
         raise ValueError(f"Algorithm {config['algorithm']} not supported")
+    
+# ============================================================
+# Loss Functions
+# ============================================================
+
+class DiceLoss(nn.Module):
+    """Combination of CrossEntropy and Dice loss"""
+
+    def __init__(self, pos_weight=None):
+        super().__init__()
+        self.ce = nn.CrossEntropyLoss(weight=pos_weight)
+
+    def dice_loss(self, pred, target, smooth=1.0):
+        if pred.size(1) == 1:  # binary
+            pred_prob = torch.sigmoid(pred)
+            target = target.unsqueeze(1).float()
+        else:  # multi-class
+            pred_prob = torch.softmax(pred, dim=1)
+            target = F.one_hot(target, num_classes=pred.size(1))
+            target = target.permute(0, 3, 1, 2).float()
+
+        intersection = (pred_prob * target).sum(dim=(2, 3))
+        denominator = pred_prob.sum(dim=(2, 3)) + target.sum(dim=(2, 3))
+        dice = (2. * intersection + smooth) / (denominator + smooth)
+        return 1 - dice.mean()
+
+    def forward(self, pred, target):
+        return  0.6* self.ce(pred, target) + 0.4*self.dice_loss(pred, target)
+
+class LogDiceFocalLoss(nn.Module):
+    def __init__(self, alpha=0.25, gamma=2.0, smooth=1.0):
+        super().__init__()
+        self.alpha = alpha
+        self.gamma = gamma
+        self.smooth = smooth
+
+    def log_dice_loss(self, pred, target):
+        C = pred.size(1)
+        if C == 1:
+            pred_prob = torch.sigmoid(pred)
+            target = target.unsqueeze(1).float()
+        else:
+            pred_prob = torch.softmax(pred, dim=1)
+            target = F.one_hot(target, num_classes=C).permute(0, 3, 1, 2).float()
+
+        intersection = (pred_prob * target).sum(dim=(2, 3))
+        denominator = pred_prob.sum(dim=(2, 3)) + target.sum(dim=(2, 3))
+        dice = (2. * intersection + self.smooth) / (denominator + self.smooth)
+        loss = -torch.log(torch.clamp(dice, min=1e-6))
+        return loss.mean()
+
+    def focal_loss(self, pred, target):
+        """
+        Generalized Focal Loss using torch.nn.functional.cross_entropy only.
+        Works for both binary (C=1) and multi-class (C>1) segmentation.
+
+        Args:
+            pred:   [B, C, H, W] logits
+            target: [B, H, W] or [B, 1, H, W] integer class labels
+        """
+        # If target has channel dimension, squeeze it
+        if target.ndim == 4 and target.shape[1] == 1:
+            target = target.squeeze(1)
+        target = target.long()
+        # Handle binary as 2-class cross-entropy (C=1 → expand to C=2)
+        if pred.size(1) == 1:
+            # Convert single-logit binary case to two-class logits for CE
+            pred = torch.cat([pred, -pred], dim=1)
+
+        # Compute per-pixel cross entropy (no reduction)
+        ce_loss = F.cross_entropy(pred, target.long(), reduction="none")  # [B, H, W]
+
+        # Compute pt = exp(-ce_loss)
+        pt = torch.exp(-ce_loss)
+        # Alpha handling
+        if isinstance(self.alpha, (float, int)):
+            alpha_t = self.alpha
+        elif isinstance(self.alpha, torch.Tensor) and self.alpha.numel() == pred.size(1):
+            alpha_t = self.alpha[target]  # [B, H, W]
+        else:
+            raise ValueError("alpha must be scalar or a per-class tensor with length = n_classes")
+
+        # Focal loss
+        focal = alpha_t * (1 - pt) ** self.gamma * ce_loss
+        return focal.mean()
+
+
+    def forward(self, pred, target):
+        log_dice = self.log_dice_loss(pred, target)
+        focal = self.focal_loss(pred, target)
+        return 0.5 * log_dice + 0.5 * focal
+    
+import torch
+import torch.nn.functional as F
+
+def soft_erode(x):
+    # 3x3 min-pool approximation via -maxpool(-x)
+    return -F.max_pool2d(-x, kernel_size=3, stride=1, padding=1)
+
+def soft_skeletonize(p, iters=3):
+    # p in [0,1]; iterative soft skeletonization
+    skel = torch.zeros_like(p)
+    img = p
+    for _ in range(iters):
+        er = soft_erode(img)
+        op = F.relu(img - er)
+        skel = torch.maximum(skel, op)
+        img = er
+    return skel
+
+def soft_clDice(pred_prob, target, iters=3, eps=1e-6):
+    # pred_prob, target: (B,1,H,W) in [0,1]
+    S_p = soft_skeletonize(pred_prob, iters)
+    S_t = soft_skeletonize(target, iters)
+    tprec = (S_p * target).sum(dim=(1,2,3)) / (S_p.sum(dim=(1,2,3)) + eps)
+    tsens = (S_t * pred_prob).sum(dim=(1,2,3)) / (S_t.sum(dim=(1,2,3)) + eps)
+    cldice = (2 * tprec * tsens) / (tprec + tsens + eps)
+    return cldice.mean()
+
+class DiceCELoss(nn.Module):
+    def __init__(self, pos_weight=None, gamma=0.3):
+        super().__init__()
+        self.ce = nn.CrossEntropyLoss(weight=pos_weight)  # or BCEWithLogitsLoss for binary
+        self.gamma = gamma
+
+    def dice_loss(self, pred, target, smooth=1.0):
+        if pred.size(1) == 1:
+            pred_prob = torch.sigmoid(pred)
+            target = target.unsqueeze(1).float()
+        else:
+            pred_prob = torch.softmax(pred, dim=1)
+            target = F.one_hot(target, num_classes=pred.size(1)).permute(0,3,1,2).float()
+        inter = (pred_prob * target).sum(dim=(2,3))
+        denom = pred_prob.sum(dim=(2,3)) + target.sum(dim=(2,3))
+        dice = (2. * inter + smooth) / (denom + smooth)
+        return 1 - dice.mean()
+
+    def forward(self, pred, target):
+        if pred.size(1) == 1:
+            ce = F.binary_cross_entropy_with_logits(pred, target.float())
+            pred_prob = torch.sigmoid(pred)
+            tgt_prob = target.float()
+            cl = soft_clDice(pred_prob, tgt_prob)
+        else:
+            ce = self.ce(pred, target)
+            # treat class 1 as foreground for clDice; adapt if needed
+            pred_prob = torch.softmax(pred, dim=1)[:,1:2]
+            tgt_prob = (target==1).unsqueeze(1).float()
+            cl = soft_clDice(pred_prob, tgt_prob)
+        dl = self.dice_loss(pred, target)
+        return 0.6*ce + 0.4*dl + self.gamma*(1 - cl)
+
     
 class Experiment:
     def __init__(self, config):
@@ -85,6 +244,7 @@ class Experiment:
         
         self.epochs = self.config.get("epochs", 10)
         self.model = None
+        self.lr = self.config.get("learning_rate", 0.001)
 
         self.log_path = self.config.get("log_dir", "logs/")
         print_configs("Experiment Configurations:", self.config)
@@ -104,7 +264,10 @@ class Experiment:
         if self.execution_mode == "train":
             self.images_path = train_path + "/images/"
             self.ground_truth_path = train_path + "/masks/"        
-            self.data = CrackDataset(self.images_path, self.ground_truth_path, augmentation_percentage=0.1,sample_size=self.sample_size, resize_size=(self.resize_size[0], self.resize_size[1]))     
+            self.data = CrackDataset(self.images_path, self.ground_truth_path,sample_size=self.sample_size, resize_size=(self.resize_size[0], self.resize_size[1]))
+            torch.manual_seed(self.config.get("seed", 42))
+            indices = torch.randperm(len(self.data))
+            self.data = torch.utils.data.Subset(self.data, indices)
             if self.execution_mode == "train":
                 if self.validation_split > 0:
                     split_idx = int((1 - self.validation_split) * len(self.data))
@@ -119,7 +282,7 @@ class Experiment:
             if test_path is not None:
                 self.test_images_path = test_path + "/images/"
                 self.test_ground_truth_path = test_path + "/masks/"
-                self.test_data = CrackDataset(self.test_images_path, self.test_ground_truth_path, augmentation_percentage=0.0,sample_size=self.test_size, resize_size=(self.resize_size[0], self.resize_size[1]))
+                self.test_data = CrackDataset(self.test_images_path, self.test_ground_truth_path,sample_size=self.test_size, resize_size=(self.resize_size[0], self.resize_size[1]))
                 print_info(f"Test samples: {len(self.test_data)}")
             self.experiment_dict["dataset_size"] = {
                 "train": len(self.data),
@@ -296,15 +459,15 @@ class Experiment:
 class ExperimentDL(Experiment):
     def __init__(self, config):
         super().__init__(config)
+        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
     def setup(self, pos_weight=1.0):
         self.set_optimizer(torch.optim.Adam(self.model.parameters(), lr=self.learning_rate))
         self.set_scheduler(torch.optim.lr_scheduler.StepLR(self.optimizer, step_size=10, gamma=0.1))
-        self.set_loss(BCEDiceLoss(pos_weight=pos_weight))
+        self.set_loss(DiceCELoss())
 
     def set_optimizer(self, optimizer):
         self.optimizer = optimizer
-
     def set_scheduler(self, scheduler):
         self.scheduler = scheduler
 
@@ -327,7 +490,7 @@ class ExperimentDL(Experiment):
 
         # Default loss: BCE + Dice
         if loss_function is None:
-            loss_function = BCEDiceLoss()
+            loss_function = DiceCELoss()
 
         if optimizer is None:
             optimizer = torch.optim.Adam(model.parameters(), lr=1e-3)
@@ -344,22 +507,22 @@ class ExperimentDL(Experiment):
 
             for images, masks in train_loader:
                 images, masks = images.to(device), masks.to(device)
-
+                masks = masks
                 optimizer.zero_grad()
-                outputs = model(images)              # logits
-                loss = loss_function(outputs, masks) # BCE + Dice
+                outputs = model(images)  
+                loss = loss_function(outputs, masks) 
                 loss.backward()
                 optimizer.step()
 
                 epoch_loss += loss.item()
                 epoch_dice += self.dice_coef(outputs, masks).item()
                 epoch_iou  += self.iou_score(outputs, masks).item()
-                epochs_cliou = self.cl_iou_score(outputs, masks)
+                epoch_cl_iou += self.cl_iou_score(outputs, masks)
 
             train_loss = epoch_loss / len(train_loader)
             train_dice = epoch_dice / len(train_loader)
             train_iou  = epoch_iou / len(train_loader)
-            train_cl_iou = epochs_cliou / len(train_loader)
+            train_cl_iou = epoch_cl_iou / len(train_loader)
             train_losses.append(train_loss)
             train_dices.append(train_dice)
             train_ious.append(train_iou)
@@ -420,8 +583,32 @@ class ExperimentDL(Experiment):
         f.close()
         return model
 
-    def finetune(self):
-        pass
+    def finetune(self, model, dataloader, n_classes=2):
+        model.load_state_dict(torch.load("unet_pretrained.pth"))
+
+        # Replace the last layer for new classes
+        model.conv_last = nn.Conv2d(64, n_classes, 1)
+
+        # Option 1: freeze earlier layers (useful if the dataset is small)
+        for param in model.parameters():
+            param.requires_grad = False
+
+        # Unfreeze only the last convolution block(s)
+        for param in model.dconv_up1.parameters():
+            param.requires_grad = True
+        for param in model.conv_last.parameters():
+            param.requires_grad = True
+
+        optimizer = torch.optim.Adam(filter(lambda p: p.requires_grad, model.parameters()), lr=1e-4)
+
+        criterion = self.loss
+
+        for images, masks in dataloader:
+            preds = model(images)
+            loss = criterion(preds, masks)
+            loss.backward()
+            optimizer.step()
+            optimizer.zero_grad()
 
     def validate(self, model, val_loader, loss_function):
         model.eval()
@@ -438,17 +625,29 @@ class ExperimentDL(Experiment):
     def evaluate(self, model, test_data, loss_function=torch.nn.BCEWithLogitsLoss()):
         test_loader = DataLoader(test_data, batch_size=self.batch_size, shuffle=False)
         model.eval()
-        test_loss = 0
+        test_loss, test_dice, test_iou, test_cliou = 0,0,0,0
         with torch.no_grad():
             for images, masks in test_loader:
                 images, masks = images.to(self.device), masks.to(self.device)
                 outputs = model(images)
                 loss = loss_function(outputs, masks)
                 test_loss += loss.item()
+                test_dice += self.dice_coef(outputs, masks).item()
+                test_iou  += self.iou_score(outputs, masks).item()
+                test_cliou += self.cl_iou_score(outputs, masks)
         print(f"Test Loss: {test_loss/len(test_loader)}")
         mlflow.log_metric("test_loss", test_loss/len(test_loader))
+        print(f"Test Dice: {test_dice/len(test_loader)}")
+        mlflow.log_metric("test_dice", test_dice/len(test_loader))
+        print(f"Test IoU: {test_iou/len(test_loader)}")
+        mlflow.log_metric("test_iou", test_iou/len(test_loader))
+        print(f"Test CL IoU: {test_cliou/len(test_loader)}")
+        mlflow.log_metric("test_cliou", test_cliou/len(test_loader))
         with open(self.experiment_report, "a") as f:
             f.write(f"Test Loss: {test_loss/len(test_loader)}\n")
+            f.write(f"Test dice: {test_dice/len(test_loader)}\n")
+            f.write(f"Test iou: {test_iou/len(test_loader)}\n")
+            f.write(f"Test cliou: {test_cliou/len(test_loader)}\n")
         f.close()
         return test_loss/len(test_loader)        
 
@@ -564,6 +763,7 @@ class ExperimentDL(Experiment):
             self.show_predictions(self.model, self.test_data, self.device, num_samples=2, threshold=self.threshold)
 
 class UNetExperiment(ExperimentDL):
+
     def __init__(self, config):
         super().__init__(config)
         self.model_name = self.config.get("model_name", "unet")
@@ -573,6 +773,7 @@ class UNetExperiment(ExperimentDL):
     
     def save_model(self, model_name="unet"):
         torch.save(self.model.state_dict(), os.path.join(self.save_path, f"{model_name}.pth"))
+        mlflow.pytorch.log_model(self.model, artifact_path=model_name)
 
     def load_model(self, model_name="unet"):
         self.model.load_state_dict(torch.load(os.path.join(self.save_path, f"{model_name}.pth")))
@@ -596,38 +797,26 @@ class ConvAEExperiment(ExperimentDL):
 
     def save_model(self, model_name="convae"):
         torch.save(self.model.state_dict(), os.path.join(self.save_path, f"{model_name}.pth"))
+        mlflow.pytorch.log_model(self.model, artifact_path=model_name)
 
     def load_model(self, model_name="convae"):
         self.model.load_state_dict(torch.load(os.path.join(self.save_path, f"{model_name}.pth")))
 
-# ============================================================
-# HPC-optimized ExperimentPC
-# ============================================================
-import os
-import cv2
-import mlflow
-import tqdm
-import torch
-import pickle
-import random
-import numpy as np
-import pandas as pd
-import multiprocessing
+class ExperimentUnetPlus(ExperimentDL):
+    def __init__(self, config):
+        super().__init__(config)
+        self.model_name = self.config.get("model_name", "unetplus")
+        
 
-from joblib import Parallel, delayed
-from torch.utils.data import DataLoader, TensorDataset
-import torch.nn.functional as F
+    def set_algorithm(self):
+        self.model = UNetPlusPlus(n_classes=1)
 
-from skimage.color import rgb2hsv, rgb2lab
-from skimage.filters import gabor, laplace, sobel
+    def save_model(self, model_name="unetplus"):
+        torch.save(self.model.state_dict(), os.path.join(self.save_path, f"{model_name}.pth"))
+        mlflow.pytorch.log_model(self.model, artifact_path=model_name)
 
-# Assumes you already have:
-# - Experiment base class
-# - PCNet
-# - DiceCELoss, BCEDiceLoss
-# - self.dice_coef, self.iou_score, self.cl_iou_score
-# - utils.print_* functions
-
+    def load_model(self, model_name="unetplus"):
+        self.model.load_state_dict(torch.load(os.path.join(self.save_path, f"{model_name}.pth")))
 
 class ExperimentPC(Experiment):
     def __init__(self, config):
@@ -638,7 +827,10 @@ class ExperimentPC(Experiment):
         self.max_branching = self.config.get("max_branching", 2)
         self.n_classes = self.config.get("n_classes", 2)
         self.input_nodes = []
+
         self.epochs = self.config.get("epochs", 10)
+        self.cv_epochs = self.config.get("cv_epochs", 5)
+
         self.seed = self.config.get("seed", 42)
         self.feature_extractor = self.config.get("feature_extractor", "handcrafted")
         self.filter_sizes = self.config.get("filter_sizes", (3, 7, 15))
@@ -649,6 +841,8 @@ class ExperimentPC(Experiment):
         self.n_filters = self.config.get("n_filters", 4)
         self.set_algorithm()
         self._setup_cpu_env()
+        self.cv_factory = None
+
 
         # cache for conv filter bank tensor
         self.cached_filter_tensor = None
@@ -780,7 +974,7 @@ class ExperimentPC(Experiment):
     # --------------------------------------------------------
     # Handcrafted features
     # --------------------------------------------------------
-    def get_handcrafted_features(self, images, n_jobs=8):
+    def get_handcrafted_features(self, images, n_jobs=8, prune_features_idx=None):
         """Compute handcrafted features for images in parallel."""
         def process_one(img):
             if isinstance(img, torch.Tensor):
@@ -852,131 +1046,413 @@ class ExperimentPC(Experiment):
                                                 pool_sizes=self.filter_sizes,
                                                 modes=("avg", "max"))
         pooled_feats = pooled_feats.cpu().numpy()
+        final_feats = np.concatenate([base_feats, pooled_feats], axis=1)
+        if prune_features_idx is not None:
+            final_feats = final_feats[:, prune_features_idx, :, :]
 
-        return np.concatenate([base_feats, pooled_feats], axis=1)
+        return final_feats
 
-    # ============================================================
-    # Convolution Modules Tensor Extraction
-    # ============================================================
+    def _worker_process(self, module_list, imgs, q):
+        import numpy as np
+        results = []
+        for m in module_list:
+            try:
+                feats = [m.get_output(img, return_map=True) for img in imgs]
+                feats = np.stack(feats, axis=0)
+                var = feats.var()
+                results.append(var)
+            except Exception as e:
+                print(f"[Worker error on module] {e}")
+                results.append(0.0)
+        q.put(results)
 
-    def convolution_modules_tensor(self, images, cv_factory, return_maps=True, n_jobs=None, verbose=0, prune_features=None):
+    def _worker_process_chunk(self,img_chunk, module, queue):
+        feats = [module.get_output(img, return_map=True) for img in img_chunk]
+        queue.put(np.stack(feats, axis=0))
+
+    def convolution_modules_tensor(
+        self, images, cv_factory, return_maps=True, n_jobs=None, verbose=0, prune_features=None
+    ):
         """
-        Generate a feature tensor using evolutionarily optimized convolution modules,
-        with parallelized per-image evaluation.
-
-        Args:
-            images (np.ndarray or torch.Tensor):
-                Input images, shape (B, C, H, W) or (B, H, W, C)
-            cv_factory (CVModuleFactory or FixedCVModuleFactory):
-                Factory that provides evolved (or fixed) convolution modules.
-            return_maps (bool):
-                If True, use full convolution maps (dense tensor);
-                if False, use compact (x, y) coordinate features.
-            n_jobs (int or None):
-                Number of parallel workers (defaults to CPU count).
-            verbose (int):
-                Joblib verbosity level.
-
-        Returns:
-            torch.Tensor:
-                Feature tensor of shape:
-                    - (B, N_filters, H, W) if return_maps=True
-                    - (B, 2 * N_filters) if return_maps=False
+        Torchrun-friendly version with multiprocessing image parallelism.
+        - Each rank processes a disjoint shard of images.
+        - Each shard is processed in parallel using multiprocessing (per-image chunks).
+        - Results are gathered with torch.distributed all_gather on tensors.
+        - Output shape: [N_images, C, H, W] or [N_images, H, W] depending on your modules.
         """
+        import multiprocessing as mp
+        from joblib import Parallel, delayed
+        import torch.distributed as dist
+        import numpy as np
+        import os
 
-        # --- Normalize image array
+        # ---------------------------------------------------------
+        # DDP context
+        # ---------------------------------------------------------
+        is_ddp = dist.is_available() and dist.is_initialized()
+        rank = dist.get_rank() if is_ddp else 0
+        world_size = dist.get_world_size() if is_ddp else 1
+
+        # ---------------------------------------------------------
+        # Normalize input to numpy
+        # ---------------------------------------------------------
         if isinstance(images, torch.Tensor):
             images = images.detach().cpu().numpy()
         if images.ndim == 3:
-            images = np.expand_dims(images, 0)
+            images = np.expand_dims(images, 0)  # [1, H, W]
+        total_images = len(images)
 
-        n_jobs = n_jobs or min(16, multiprocessing.cpu_count())
-        print(f"⚙️ convolution_modules_tensor(): using {n_jobs} parallel workers")
+        # ---------------------------------------------------------
+        # Shard images among ranks (round-robin for balance)
+        # ---------------------------------------------------------
+        shard_idx = list(range(rank, total_images, world_size))
+        local_imgs = images[shard_idx]
 
-        # --- Retrieve convolution modules (usually 1 for FixedCVModuleFactory)
-        modules = cv_factory.ask_pop()
-        if not isinstance(modules, list):
-            modules = [modules]
+        # ---------------------------------------------------------
+        # Optimize module via variance (if no pruning provided)
+        # ---------------------------------------------------------
+        if prune_features is None:
+            # ---------------------------------------------------------
+            # CMA-ES optimization loop
+            # ---------------------------------------------------------
+            # Multiprocessing parallelization over MODULES
+            modules = cv_factory.ask_pop()
+            n_procs = min(n_jobs, len(modules))
+            print_info(f"⚙️ Using {n_procs} processes for convolution module evaluation...")
+            for epoch in trange(self.cv_epochs, desc="CV Module Optimization", disable=verbose == 0):
+                modules = cv_factory.ask_pop()
+                if not isinstance(modules, list):
+                    modules = [modules]               
 
-        # --- Define per-module computation
-        def _process_image(img):
-            feats_per_module = [m.get_output(img, return_map=return_maps) for m in modules]
-            feats = np.concatenate(feats_per_module, axis=0)
+                # Split modules into n_procs chunks (to balance large populations)
+                module_chunks = np.array_split(modules, n_procs)
+                queues = [mp.Queue() for _ in range(len(module_chunks))]
+                # --- Launch processes ---
+                processes = []
+                for enum, chunk in enumerate(module_chunks):
+                    p = mp.Process(target=self._worker_process, args=(chunk, local_imgs, queues[enum]))
+                    p.start()
+                    processes.append(p)
 
-            if prune_features is not None:
-                if feats.ndim == 3:
-                    feats = feats[prune_features,:,:]
+                # --- Collect results ---
+                fitnesses = []
+                for enum, chunk in enumerate(module_chunks):
+                    fitnesses.extend(queues[enum].get())
+
+                for p in processes:
+                    p.join()
+
+                # CMA-ES update
+                cv_factory.tell_pop(fitnesses)
+
+        # ---------------------------------------------------------
+        # Best module and final extraction
+        # ---------------------------------------------------------
+        module = cv_factory.best_module()
+
+        num_imgs = len(local_imgs)
+        n_procs = min(n_jobs, num_imgs)
+        chunks = np.array_split(local_imgs, n_procs)
+        queues = [mp.Queue() for _ in range(n_procs)]
+        processes = [mp.Process(target=self._worker_process_chunk, args=(chunks[i], module, queues[i])) for i in range(n_procs)]
+
+        for p in processes:
+            p.start()
+        results = [q.get() for q in queues]
+        for p in processes:
+            p.join()
+
+        for r in results:
+            if isinstance(r, Exception):
+                raise r
+
+        local_feats_np = np.concatenate(results, axis=0) if len(results) > 0 else np.zeros((0, 1, 1, 1), dtype=np.float32)
+        local_feats_np = np.ascontiguousarray(local_feats_np, dtype=np.float32)
+
+        # ---------------------------------------------------------
+        # Gather across ranks
+        # ---------------------------------------------------------
+        if is_ddp:
+            with torch.no_grad():
+                device = torch.device("cpu")
+                local_t = torch.from_numpy(local_feats_np).to(device)
+                n_local = torch.tensor([local_t.shape[0]], dtype=torch.int32, device=device)
+
+                sizes = [torch.empty_like(n_local) for _ in range(world_size)]
+                dist.all_gather(sizes, n_local)
+                sizes = [int(s.item()) for s in sizes]
+                max_local = max(sizes)
+
+                if max_local == 0:
+                    gathered = []
                 else:
-                    feats = feats[:,prune_features,:,:]
-            
-            return feats
+                    if local_t.shape[0] < max_local:
+                        pad_shape = (max_local - local_t.shape[0],) + tuple(local_t.shape[1:])
+                        pad = torch.zeros(pad_shape, dtype=local_t.dtype, device=device)
+                        local_t = torch.cat([local_t, pad], dim=0)
 
-        feature_list = Parallel(n_jobs=n_jobs, verbose=verbose)(
-            delayed(_process_image)(img) for img in images
+                    gathered = [torch.empty_like(local_t) for _ in range(world_size)]
+                    dist.all_gather(gathered, local_t)
+
+                per_rank_arrays = []
+                for r, gt in enumerate(gathered):
+                    if sizes[r] == 0:
+                        continue
+                    per_rank_arrays.append((r, gt[:sizes[r]].cpu().numpy()))
+
+                recon = [None] * total_images
+                for r, arr in per_rank_arrays:
+                    for i, f in zip(range(r, total_images, world_size), arr):
+                        recon[i] = f
+
+                feats_np = np.stack(recon, axis=0) if total_images > 0 else np.zeros((0, 1, 1, 1), dtype=np.float32)
+        else:
+            feats_np = local_feats_np
+
+        # ---------------------------------------------------------
+        # Feature pruning and normalization
+        # ---------------------------------------------------------
+        if prune_features is not None:
+            if feats_np.ndim == 4:  # [N, C, H, W]
+                feats_np = feats_np[:, prune_features, :, :]
+            else:
+                feats_np = feats_np[prune_features, :, :]
+
+        print_debugging(
+            f"Convolution module features shape: {feats_np.shape}, "
+            f"value range: {feats_np.min()} to {feats_np.max()}, var: {feats_np.var()}"
         )
-
-        # feature_list = []
-        # for img in images:
-        #     feats = _process_image(img)
-        #     feature_list.append(feats)
-
-        feats = np.stack(feature_list, axis=0)
-        # assert feats.shape[:2] == (len(images), _lambda), f"Unexpected shape: {feats.shape}"
-
-        print(f"✅ convolution_modules_tensor(): generated {feats.shape}")
-        return feats
+        feats_np = (feats_np - feats_np.mean()) / (feats_np.std() + 1e-8)
+        return feats_np
 
 
 
     def get_feature_tensor(self, images, prune_features=None):
         if self.feature_extractor == "handcrafted":
-            return self.get_handcrafted_features(images, n_jobs=self.n_cpus)
+            return self.get_handcrafted_features(images, n_jobs=self.n_cpus, prune_features_idx=prune_features)
         elif self.feature_extractor == "cv_modules":
-            cv_factory = CVModuleFactory(
-                Optimizer={"class_name": "CMAES", "kwargs": {"n_params": 128, "lambda_": self.n_cv_modules}},
-                CVModule={"class_name": "ConvolutionModule", "kwargs": {"n_filters": self.n_filters, "filter_sizes": 5, "device": self.device}}
-            )
-            return self.convolution_modules_tensor(images, cv_factory, return_maps=True, n_jobs=self.n_cpus, prune_features=prune_features)
+            if self.cv_factory is None:
+                self.cv_factory = CVModuleFactory(
+                    Optimizer={"class_name": "CMAES", "kwargs": {"n_params": 128, "lambda_": self.n_cv_modules, "seed": self.seed}},
+                    CVModule={"class_name": "ConvolutionModule", "kwargs": {"n_filters": self.n_filters, "filter_sizes": 3, "device": self.device}}
+                )
+            return self.convolution_modules_tensor(images, self.cv_factory, return_maps=True, n_jobs=self.n_cpus, prune_features=prune_features)
 
         else:
             raise ValueError(f"Unknown feature extractor {self.feature_extractor}")
-
+        
+    def set_criterion(self, target):
+        if target.dim() == 4 and target.size(1) == 1:
+            target = target.squeeze(1)
+        pos_weight = self.compute_pos_weight(target)
+        self.criterion = DiceCELoss(pos_weight=pos_weight.float().to(self.device))
     # --------------------------------------------------------
     # Training & Evaluation
     # --------------------------------------------------------
-    def train(self, model, epochs=10, lr=1e-3):
+    def train(self, model, epochs=10, lr=1e-3, n_cpus=None):
         # Unify threading
         self._setup_cpu_env()
 
         optimizer = torch.optim.Adam(model.params, lr=lr, weight_decay=1e-4)
-        print(f"Number of trainable parameters: {sum(p.numel() for p in model.params)}")
+        print_info(f"Number of trainable parameters: {sum(p.numel() for p in model.params)}")
 
-        # Prepare tensors
-        feature_tensor = torch.from_numpy(self.feature_tensor).float().to(self.device)
-        target = torch.from_numpy(self.train_masks).long().to(self.device)
-        val_feature_tensor = (
-            torch.from_numpy(self.val_feature_tensor).float().to(self.device)
-            if getattr(self, "val_feature_tensor", None) is not None else None
-        )
-        val_target = (
-            torch.from_numpy(self.val_masks).long().to(self.device)
-            if getattr(self, "val_masks", None) is not None else None
-        )
-
+        feature_tensor = torch.from_numpy(self.feature_tensor).float()
+        target = torch.from_numpy(self.train_masks).long()
         if target.dim() == 4 and target.size(1) == 1:
             target = target.squeeze(1)
-        if val_target is not None and val_target.dim() == 4 and val_target.size(1) == 1:
-            val_target = val_target.squeeze(1)
-
-        balance = self.compute_pos_weight(target)
-
-        # Loss
-        self.criterion = DiceCELoss(pos_weight=balance.detach().clone().to(self.device)).to(self.device)
 
         # DataLoaders
         train_loader = self.get_dataloaders(TensorDataset(feature_tensor, target), shuffle=True, batch_size=self.batch_size)
         val_loader = None
-        if val_feature_tensor is not None and val_target is not None:
+
+        if self.val_feature_tensor is not None and self.val_masks is not None:
+            val_feature_tensor = torch.from_numpy(self.val_feature_tensor).float()
+            val_target = torch.from_numpy(self.val_masks).long()
+            if val_target.dim() == 4 and val_target.size(1) == 1:
+                val_target = val_target.squeeze(1)
+            val_loader = self.get_dataloaders(
+                TensorDataset(val_feature_tensor, val_target),
+                shuffle=False,
+                batch_size=self.batch_size
+            )
+
+        # Logs
+        train_losses, val_losses = [], []
+        train_dices, val_dices = [], []
+        train_ious, val_ious = [], []
+        train_clious, val_clious = [], []
+        gates_over_epochs = []
+
+        pbar = tqdm.tqdm(range(epochs), desc="Training PCNet")
+        for epoch in pbar:
+            batch_losses, batch_dices, batch_ious, batch_clious = [], [], [], []
+
+            for ft_batch, t_batch in train_loader:
+                optimizer.zero_grad()
+                logits = model.evaluate(ft_batch)                     # (B, C, H, W) log-probs
+                loss = self.criterion(logits, t_batch)
+                loss.backward()
+                optimizer.step()
+
+                # Metrics (vectorized)
+                pred_mask = torch.argmax(logits, dim=1, keepdim=True).float()   # (B,1,H,W)
+                true_mask = t_batch.unsqueeze(1).float()                        # (B,1,H,W)
+
+                dice_score = self.dice_coef(logits, t_batch)      # tensor
+                iou_score = self.iou_score(logits, t_batch)       # tensor
+                cl_iou_score = self.cl_iou_score(pred_mask, true_mask)  # float or tensor
+
+                batch_losses.append(loss.item())
+                batch_dices.append(float(torch.as_tensor(dice_score).detach().mean()))
+                batch_ious.append(float(torch.as_tensor(iou_score).detach().mean()))
+                batch_clious.append(float(torch.as_tensor(cl_iou_score).detach()))
+
+
+            # Collect gate values (if present) in parallel
+            gates_values = []
+            for n in model.get_nodes():
+                if hasattr(n, "gate"):
+                    with torch.no_grad():
+                        gates_values.append(float(n.gate.item()))
+            if gates_values:
+                gates_over_epochs.append(gates_values)
+
+            # Epoch metrics
+            epoch_loss = float(np.mean(batch_losses)) if batch_losses else 0.0
+            epoch_dice = float(np.mean(batch_dices)) if batch_dices else 0.0
+            epoch_iou = float(np.mean(batch_ious)) if batch_ious else 0.0
+            epoch_cl_iou = float(np.mean(batch_clious)) if batch_clious else 0.0
+
+            train_losses.append(epoch_loss)
+            train_dices.append(epoch_dice)
+            train_ious.append(epoch_iou)
+            train_clious.append(epoch_cl_iou)
+
+            if epochs % 5 == 0:
+                with open(self.experiment_report, "a") as f:
+                    f.write(f"{epoch}\t{epoch_loss}\t{epoch_dice}\t{epoch_iou}\t{epoch_cl_iou}\n")
+
+            mlflow.log_metrics({
+                "train_loss": epoch_loss,
+                "train_dice": epoch_dice,
+                "train_iou": epoch_iou,
+                "train_cl_iou": epoch_cl_iou
+            }, step=epoch)
+
+            # Validation
+            if val_loader is not None:
+                val_loss, val_dice, val_iou, val_cl_iou = self.evaluate(model, val_loader)
+                val_losses.append(val_loss)
+                val_dices.append(val_dice)
+                val_ious.append(val_iou)
+                val_clious.append(val_cl_iou)
+                mlflow.log_metrics({
+                    "val_loss": val_loss,
+                    "val_dice": val_dice,
+                    "val_iou": val_iou,
+                    "val_cl_iou": val_cl_iou
+                }, step=epoch)
+
+            pbar.set_postfix({
+                "train_loss": f"{epoch_loss:.4f}",
+                "val_loss": f"{val_losses[-1]:.4f}" if val_loader and val_losses else None
+            })
+
+        # Save logs
+        df_train = pd.DataFrame({
+            "train_loss": train_losses,
+            "train_dice": train_dices,
+            "train_iou": train_ious,
+            "train_cl_iou": train_clious
+        })
+        df_train.to_csv(os.path.join(self.log_path, "training.csv"), index=False)
+
+        if val_loader is not None:
+            df_val = pd.DataFrame({
+                "val_loss": val_losses,
+                "val_dice": val_dices,
+                "val_iou": val_ious,
+                "val_cl_iou": val_clious
+            })
+            df_val.to_csv(os.path.join(self.log_path, "validation.csv"), index=False)
+
+        # Save gates (if any)
+        if gates_over_epochs:
+            gates = np.array([np.pad(g, (0, max(map(len, gates_over_epochs)) - len(g)), constant_values=np.nan)
+                              for g in gates_over_epochs], dtype=np.float32)
+            df_importance = pd.DataFrame(gates, columns=[f"gate_{i}" for i in range(gates.shape[1])])
+            df_importance.to_csv(os.path.join(self.log_path, "gates.csv"), index=False)
+
+        # Plots
+        import matplotlib.pyplot as plt
+        # Loss
+        plt.figure(figsize=(8, 5))
+        plt.plot(train_losses, label="Train Loss")
+        if val_loader:
+            plt.plot(val_losses, label="Val Loss")
+        plt.legend(); plt.title("Training Loss over Epochs")
+        plt.savefig(os.path.join(self.log_path, "training_plot.png")); plt.close()
+
+        # Dice
+        plt.figure(figsize=(8, 5))
+        plt.plot(train_dices, label="Train Dice")
+        if val_loader:
+            plt.plot(val_dices, label="Val Dice")
+        plt.legend(); plt.title("Training Dice over Epochs")
+        plt.savefig(os.path.join(self.log_path, "dice_plot.png")); plt.close()
+
+        # IoU
+        plt.figure(figsize=(8, 5))
+        plt.plot(train_ious, label="Train IoU")
+        if val_loader:
+            plt.plot(val_ious, label="Val IoU")
+        plt.legend(); plt.title("Training IoU over Epochs")
+        plt.savefig(os.path.join(self.log_path, "iou_plot.png")); plt.close()
+
+        # clIoU
+        plt.figure(figsize=(8, 5))
+        plt.plot(train_clious, label="Train CL IoU")
+        if val_loader:
+            plt.plot(val_clious, label="Val CL IoU")
+        plt.legend(); plt.title("Training CL IoU over Epochs")
+        plt.savefig(os.path.join(self.log_path, "cliou_plot.png")); plt.close()
+
+        print_info("✅ Training complete.")
+        with open(self.experiment_report, "a") as f:
+            f.write(f"Final Training Loss: {train_losses[-1]}, Dice: {train_dices[-1]}, IoU: {train_ious[-1]}, CL IoU: {train_clious[-1]}\n")
+            if val_loader:
+                f.write(f"Final Validation Loss: {val_losses[-1]}, Dice: {val_dices[-1]}, IoU: {val_ious[-1]}, CL IoU: {val_clious[-1]}\n")
+
+        return model
+    
+    
+    
+    def train_parallel(self, model, epochs=10, lr=1e-3, n_cpus=8):
+        """
+        Parallel PCNet training using multiprocessing.
+        - Spawns `n_cpus` independent processes, each training on a dataset shard.
+        - Each process keeps its own model copy and optimizer.
+        - Metrics are collected asynchronously through queues and averaged on the main process.
+        """
+        # Unify threading
+        self._setup_cpu_env()
+
+        optimizer = torch.optim.Adam(model.params, lr=lr, weight_decay=1e-4)
+        print_info(f"Number of trainable parameters: {sum(p.numel() for p in model.params)}")
+
+        feature_tensor = torch.from_numpy(self.feature_tensor).float()
+        target = torch.from_numpy(self.train_masks).long()
+        if target.dim() == 4 and target.size(1) == 1:
+            target = target.squeeze(1)
+
+        # DataLoaders
+        train_loader = self.get_dataloaders(TensorDataset(feature_tensor, target), shuffle=True, batch_size=self.batch_size)
+
+        if self.val_feature_tensor is not None and self.val_masks is not None:
+            val_feature_tensor = torch.from_numpy(self.val_feature_tensor).float()
+            val_target = torch.from_numpy(self.val_masks).long()
+            if val_target.dim() == 4 and val_target.size(1) == 1:
+                val_target = val_target.squeeze(1)
             val_loader = self.get_dataloaders(
                 TensorDataset(val_feature_tensor, val_target),
                 shuffle=False,
@@ -1120,236 +1596,14 @@ class ExperimentPC(Experiment):
         plt.legend(); plt.title("Training CL IoU over Epochs")
         plt.savefig(os.path.join(self.log_path, "cliou_plot.png")); plt.close()
 
-        print("✅ Training complete.")
+        print_info("✅ Training complete.")
         with open(self.experiment_report, "a") as f:
             f.write(f"Final Training Loss: {train_losses[-1]}, Dice: {train_dices[-1]}, IoU: {train_ious[-1]}, CL IoU: {train_clious[-1]}\n")
             if val_loader:
                 f.write(f"Final Validation Loss: {val_losses[-1]}, Dice: {val_dices[-1]}, IoU: {val_ious[-1]}, CL IoU: {val_clious[-1]}\n")
 
         return model
-    
-    def train_parallel(self, model, epochs=10, lr=1e-3, n_cpus=8):
-        # Initialize distributed (if torchrun used)
-        rank, world_size = ddp_init_if_needed(backend="gloo")
 
-        # Avoid oversubscription: let PyTorch use 1 thread per process
-        torch.set_num_threads(1)
-        os.environ["OMP_NUM_THREADS"] = "1"
-        os.environ["MKL_NUM_THREADS"] = "1"
-
-        optimizer = torch.optim.Adam(model.params, lr=lr, weight_decay=1e-4)
-        if is_main_process():
-            print(f"Number of trainable parameters: {sum(p.numel() for p in model.params)}")
-            print(f"[dist] world_size={world_size} rank={rank}")
-
-        # Prepare tensors
-        feature_tensor = torch.from_numpy(self.feature_tensor).float().to(self.device)
-        target = torch.from_numpy(self.train_masks).long().to(self.device)
-
-        val_feature_tensor = (
-            torch.from_numpy(self.val_feature_tensor).float().to(self.device)
-            if getattr(self, "val_feature_tensor", None) is not None else None
-        )
-        val_target = (
-            torch.from_numpy(self.val_masks).long().to(self.device)
-            if getattr(self, "val_masks", None) is not None else None
-        )
-
-        if target.dim() == 4 and target.size(1) == 1:
-            target = target.squeeze(1)
-        if val_target is not None and val_target.dim() == 4 and val_target.size(1) == 1:
-            val_target = val_target.squeeze(1)
-
-        balance = self.compute_pos_weight(target)
-        self.criterion = DiceCELoss(pos_weight=balance.detach().clone().to(self.device)).to(self.device)
-
-        # Dataset & (distributed) sampler
-        dataset = TensorDataset(feature_tensor, target)
-        train_sampler = DistributedSampler(dataset, num_replicas=world_size, rank=rank, shuffle=True) if world_size > 1 else None
-        train_loader = self.get_dataloaders(dataset, batch_size=self.batch_size, train_sampler=train_sampler, shuffle=(train_sampler is None), num_workers=0)
-
-        val_loader = None
-        if val_feature_tensor is not None and val_target is not None:
-            val_dataset = TensorDataset(val_feature_tensor, val_target)
-            # For validation, deterministic order ⇒ no shuffle; also you *can* shard, but simplest is to let each rank eval its shard and average metrics at the end
-            val_sampler = DistributedSampler(val_dataset, num_replicas=world_size, rank=rank, shuffle=False) if world_size > 1 else None
-            val_loader = self.get_dataloaders(val_dataset, batch_size=self.batch_size * 2, train_sampler=val_sampler, shuffle=False, num_workers=0)
-
-        # Logs (only collect on rank 0)
-        train_losses, val_losses = [], []
-        train_dices, val_dices = [], []
-        train_ious, val_ious = [], []
-        train_clious, val_clious = [], []
-        gates_over_epochs = []
-
-        epoch_iter = range(epochs)
-        if is_main_process():
-            import tqdm as _tqdm
-            epoch_iter = _tqdm.tqdm(epoch_iter, desc="Training PCNet")
-
-        for epoch in epoch_iter:
-            if train_sampler is not None:
-                train_sampler.set_epoch(epoch)
-
-            # Per-epoch accumulators (local to rank)
-            batch_losses, batch_dices, batch_ious, batch_clious = [], [], [], []
-
-            for ft_batch, t_batch in train_loader:
-                optimizer.zero_grad()
-                logits = model.evaluate(ft_batch)                     # (B, C, H, W) log-probs
-                loss = self.criterion(logits, t_batch)
-                loss.backward()
-
-                # ⬇️ Synchronize gradients across ranks
-                average_gradients_across_workers(model.params)
-
-                optimizer.step()
-
-                # Local metrics
-                with torch.no_grad():
-                    pred_mask = torch.argmax(logits, dim=1, keepdim=True).float()   # (B,1,H,W)
-                    true_mask = t_batch.unsqueeze(1).float()
-                    dice_score = self.dice_coef(logits, t_batch)
-                    iou_score = self.iou_score(logits, t_batch)
-                    cl_iou_score = self.cl_iou_score(pred_mask, true_mask)
-
-                batch_losses.append(loss.item())
-                batch_dices.append(float(torch.as_tensor(dice_score).detach().mean()))
-                batch_ious.append(float(torch.as_tensor(iou_score).detach().mean()))
-                batch_clious.append(float(torch.as_tensor(cl_iou_score).detach()))
-
-            # Reduce epoch stats: average across workers
-            def _reduce_mean(v: float) -> float:
-                t = torch.tensor([v], dtype=torch.float32)
-                if dist.is_available() and dist.is_initialized():
-                    dist.all_reduce(t, op=dist.ReduceOp.SUM)
-                    t /= dist.get_world_size()
-                return float(t.item())
-
-            epoch_loss = _reduce_mean(np.mean(batch_losses) if batch_losses else 0.0)
-            epoch_dice = _reduce_mean(np.mean(batch_dices) if batch_dices else 0.0)
-            epoch_iou  = _reduce_mean(np.mean(batch_ious)  if batch_ious  else 0.0)
-            epoch_cliou= _reduce_mean(np.mean(batch_clious)if batch_clious else 0.0)
-
-            if is_main_process():
-                train_losses.append(epoch_loss)
-                train_dices.append(epoch_dice)
-                train_ious.append(epoch_iou)
-                train_clious.append(epoch_cliou)
-                mlflow.log_metrics({
-                    "train_loss": epoch_loss,
-                    "train_dice": epoch_dice,
-                    "train_iou": epoch_iou,
-                    "train_cl_iou": epoch_cliou
-                }, step=epoch)
-
-            # (Optional) collect gate values on each rank 0 only
-            if is_main_process():
-                gates_values = []
-                for n in model.get_nodes():
-                    if hasattr(n, "gate"):
-                        with torch.no_grad():
-                            gates_values.append(float(n.gate.item()))
-                if gates_values:
-                    gates_over_epochs.append(gates_values)
-
-            # Validation (each rank on its shard → average)
-            if val_loader is not None:
-                val_loss, val_dice, val_iou, val_cl_iou = self.evaluate(model, val_loader)
-                # reduce across ranks
-                val_loss   = _reduce_mean(val_loss)
-                val_dice   = _reduce_mean(val_dice)
-                val_iou    = _reduce_mean(val_iou)
-                val_cl_iou = _reduce_mean(val_cl_iou)
-
-                if is_main_process():
-                    val_losses.append(val_loss)
-                    val_dices.append(val_dice)
-                    val_ious.append(val_iou)
-                    val_clious.append(val_cl_iou)
-                    mlflow.log_metrics({
-                        "val_loss": val_loss,
-                        "val_dice": val_dice,
-                        "val_iou": val_iou,
-                        "val_cl_iou": val_cl_iou
-                    }, step=epoch)
-
-                if is_main_process():
-                    # tqdm postfix on main only
-                    epoch_iter.set_postfix({
-                        "train_loss": f"{epoch_loss:.4f}",
-                        "val_loss": f"{val_losses[-1]:.4f}" if val_losses else None
-                    })
-
-        # End of training
-        ddp_cleanup_if_needed()
-
-        # ---- Save & plots only by rank 0 ----
-        if is_main_process():
-            df_train = pd.DataFrame({
-                "train_loss": train_losses,
-                "train_dice": train_dices,
-                "train_iou":  train_ious,
-                "train_cl_iou": train_clious
-            })
-            df_train.to_csv(os.path.join(self.log_path, "training.csv"), index=False)
-
-            if val_loader is not None:
-                df_val = pd.DataFrame({
-                    "val_loss": val_losses,
-                    "val_dice": val_dices,
-                    "val_iou":  val_ious,
-                    "val_cl_iou": val_clious
-                })
-                df_val.to_csv(os.path.join(self.log_path, "validation.csv"), index=False)
-
-            # Save gates (if any)
-            if gates_over_epochs:
-                gates = np.array([np.pad(g, (0, max(map(len, gates_over_epochs)) - len(g)), constant_values=np.nan)
-                                for g in gates_over_epochs], dtype=np.float32)
-                df_importance = pd.DataFrame(gates, columns=[f"gate_{i}" for i in range(gates.shape[1])])
-                df_importance.to_csv(os.path.join(self.log_path, "gates.csv"), index=False)
-
-            # Plots
-            import matplotlib.pyplot as plt
-            plt.figure(figsize=(8, 5))
-            plt.plot(train_losses, label="Train Loss")
-            if len(val_losses):
-                plt.plot(val_losses, label="Val Loss")
-            plt.legend(); plt.title("Training Loss over Epochs")
-            plt.savefig(os.path.join(self.log_path, "training_plot.png")); plt.close()
-
-            plt.figure(figsize=(8, 5))
-            plt.plot(train_dices, label="Train Dice")
-            if len(val_dices):
-                plt.plot(val_dices, label="Val Dice")
-            plt.legend(); plt.title("Training Dice over Epochs")
-            plt.savefig(os.path.join(self.log_path, "dice_plot.png")); plt.close()
-
-            plt.figure(figsize=(8, 5))
-            plt.plot(train_ious, label="Train IoU")
-            if len(val_ious):
-                plt.plot(val_ious, label="Val IoU")
-            plt.legend(); plt.title("Training IoU over Epochs")
-            plt.savefig(os.path.join(self.log_path, "iou_plot.png")); plt.close()
-
-            plt.figure(figsize=(8, 5))
-            plt.plot(train_clious, label="Train CL IoU")
-            if len(val_clious):
-                plt.plot(val_clious, label="Val CL IoU")
-            plt.legend(); plt.title("Training CL IoU over Epochs")
-            plt.savefig(os.path.join(self.log_path, "cliou_plot.png")); plt.close()
-            print("✅ Training complete.")
-            with open(self.experiment_report, "a") as f:
-                f.write(f"Final Training Loss: {train_losses[-1] if train_losses else float('nan')}, "
-                        f"Dice: {train_dices[-1] if train_dices else float('nan')}, "
-                        f"IoU: {train_ious[-1] if train_ious else float('nan')}, "
-                        f"CL IoU: {train_clious[-1] if train_clious else float('nan')}\n")
-                if len(val_losses):
-                    f.write(f"Final Validation Loss: {val_losses[-1]}, Dice: {val_dices[-1]}, "
-                            f"IoU: {val_ious[-1]}, CL IoU: {val_clious[-1]}\n")
-
-        return model
 
 
     @torch.no_grad()
@@ -1454,6 +1708,7 @@ class ExperimentPC(Experiment):
             self.train_masks = np.array([self.train_data[i][1] for i in range(len(self.train_data))])
             self.val_feature_tensor = self.get_feature_tensor(np.array([self.val_data[i][0] for i in range(len(self.val_data))]))
             self.val_masks = np.array([self.val_data[i][1] for i in range(len(self.val_data))]) if self.validation_split > 0 else None
+            self.set_criterion(torch.from_numpy(self.train_masks).float().to(self.device))
 
             self.model.init_network(self.feature_tensor, self.train_masks)
             with open(self.experiment_report, "a") as f:
@@ -1498,6 +1753,8 @@ class ExperimentGEPC(ExperimentPC):
                     mutation_rate=self.ge_config["mutation_rate"],
                     elite_k=self.ge_config["elite_k"],
                     device=self.device,
+                    n_jobs=self.n_cpus,
+                    report=self.experiment_report
                 )
         
     def get_prune_features_idx(self, model):
@@ -1506,44 +1763,143 @@ class ExperimentGEPC(ExperimentPC):
         for n in model.get_nodes():
             if isinstance(n, InputNode):
                 feats.append(n.feature_idx)
+                n.feature_name = f"feat_{new_name}"
                 n.feature_idx = new_name
                 new_name += 1
 
         return feats
+    
+    def worker_cv_module_process(self, model, mod_chunk, X_np, Y_t, device, prune_idx, queue):
+        """
+        Worker that evaluates one or more modules on all training images.
+        Returns list of fitness values (one per module).
+        """
+        import torch, numpy as np
+        from torch.utils.data import TensorDataset, DataLoader
+        try:
+            
+
+            fitness_list = []
+            for mod in mod_chunk:
+                # Extract features for this module
+                feats = []
+                for img in X_np:
+                    out = mod.get_output(img, return_map=True)
+                    feats.append(torch.from_numpy(out))
+                X_tensor = torch.stack(feats).float().to(device)
+
+                if prune_idx is not None:
+                    X_tensor = X_tensor[:, prune_idx, :, :]
+
+                dataset = TensorDataset(X_tensor, Y_t)
+                loader = DataLoader(dataset, batch_size=16, shuffle=True, num_workers=0)
+
+                loss_total, cliou_total = 0.0, 0.0
+                with torch.no_grad():
+                    for Xb, Yb in loader:
+                        Xb, Yb = Xb.to(device), Yb.to(device)
+                        logits = model.evaluate(Xb)
+                        loss_total += float(self.criterion(logits, Yb.squeeze(1)).item())
+                        cliou_total += float(
+                            self.cl_iou_score(
+                                torch.argmax(logits, dim=1, keepdim=True).float(), Yb
+                            )
+                        )
+                avg_loss = loss_total / max(1, len(loader))
+                fitness_list.append(-avg_loss)  # higher = better
+            queue.put(fitness_list)
+        except Exception as e:
+            print(f"[Worker error] {e}")
+            queue.put([0.0] * len(mod_chunk))
+    
+    def train_cv_modules(self, model, X_train, Y_train, prune_features=None, epochs=10, lr=1e-2, n_cpus=8):
+        self.cv_factory._optimizer.best = None  # reset best found solution
+        self.cv_factory._optimizer.best_fitness = -np.inf  # reset best found solution
+
+        for epoch in trange(epochs, desc="Training CV Modules"):
+            print_info(f"CV Modules Training Epoch {epoch + 1}/{epochs}")
+            modules = self.cv_factory.ask_pop()
+            if not isinstance(modules, list):
+                modules = [modules]
+
+            # Split modules into chunks for each worker
+            n_procs = min(n_cpus, len(modules))
+            module_chunks = np.array_split(modules, n_procs)
+            queue = mp.Queue()
+
+            # Prepare shared inputs
+            X_np = np.array(X_train)
+            # Launch processes
+            processes = []
+            ctx = mp.get_context("spawn")  # safe for macOS and Linux
+            for chunk in module_chunks:
+                p = ctx.Process(
+                    target=self.worker_cv_module_process,
+                    args=(model, chunk, X_train, Y_train, self.device, prune_features, queue),
+                )
+                p.start()
+                processes.append(p)
+
+            # Gather fitnesses
+            fitnesses = []
+            for _ in range(n_procs):
+                res = queue.get()
+                fitnesses.extend(res)
+
+            for p in processes:
+                p.join()
+
+            print_info(f"   CV Module Fitnesses: {fitnesses}")
+            self.cv_factory.tell_pop(fitnesses)
+
+        return self.cv_factory.best_module()
         
     def run(self):
+        
         self.set_dataset(self.data_path, self.test_path)
         print_info("Dataset size:", len(self.data))
         if self.execution_mode == "train":
             self.set_algorithm()
 
-            # self.feature_tensor = self.get_feature_tensor(np.array([self.train_data[i][0] for i in range(len(self.train_data))]))
-            # self.train_masks = np.array([self.train_data[i][1] for i in range(len(self.train_data))])
-            # self.val_feature_tensor = self.get_feature_tensor(np.array([self.val_data[i][0] for i in range(len(self.val_data))]))
-            # self.val_masks = np.array([self.val_data[i][1] for i in range(len(self.val_data))]) if self.validation_split > 0 else None
+            # 1st training step, find optimal structure
 
             ge_train_size = int(self.ge_config["train_split"] * len(self.train_data))
             
             ge_X_train = torch.from_numpy(self.get_feature_tensor(np.array([self.train_data[i][0] for i in range(ge_train_size)]))).float().to(self.device)
             ge_Y_train = torch.from_numpy(np.array([self.train_data[i][1] for i in range(ge_train_size)])).long().to(self.device)
-            best_pc, best_genome, history = self.ge.evolve(ge_X_train, ge_Y_train, self.ge_config["generations"])
+            self.set_criterion(ge_Y_train)
+            best_pc, best_genome, history = self.ge.evolve(ge_X_train, ge_Y_train, criterion=self.criterion, generations = self.ge_config["generations"], n_classes=self.n_classes, train_steps=50, lr=self.learning_rate)
             print_info("Best genome:", best_genome)
             print_info("Best PC:", str(best_pc))
+            with open(self.experiment_report, "a") as f:
+                f.write(str(best_pc) + "\n")
+                f.write(f"History: {history}\n")
+                f.write(f"Best genome: {best_genome}\n")
+
             self.model = best_pc
             prune_features_idx = self.get_prune_features_idx(self.model)
+            # 2nd training step, train the filters
+            cv_X_train = torch.from_numpy(np.array([self.train_data[i][0] for i in range(ge_train_size, 2*ge_train_size )])).float().to(self.device)
+            cv_Y_train = torch.from_numpy(np.array([self.train_data[i][1] for i in range(ge_train_size, 2*ge_train_size)])).long().to(self.device)
+
+            self.train_cv_modules(self.model, cv_X_train, cv_Y_train, prune_features=prune_features_idx, epochs=self.cv_epochs, lr=self.lr, n_cpus=self.n_cpus)
+
             with open(self.experiment_report, "a") as f:
-                f.write(str(self.model) + "\n")
-            self.feature_tensor = self.get_feature_tensor(np.array([self.train_data[i][0] for i in range(len(self.train_data))]), prune_features_idx)
+                f.write(f"CV Best Module: {self.cv_factory.best_module()}\n")
+            f.close()
+
+            self.feature_tensor = self.get_feature_tensor(np.array([self.train_data[i][0] for i in range(len(self.train_data))]), prune_features=prune_features_idx)
             self.train_masks = np.array([self.train_data[i][1] for i in range(len(self.train_data))])
-            self.val_feature_tensor = self.get_feature_tensor(np.array([self.val_data[i][0] for i in range(len(self.val_data))]), prune_features_idx)
+            self.val_feature_tensor = self.get_feature_tensor(np.array([self.val_data[i][0] for i in range(len(self.val_data))]), prune_features=prune_features_idx)
             self.val_masks = np.array([self.val_data[i][1] for i in range(len(self.val_data))]) if self.validation_split > 0 else None
+            self.set_criterion(torch.from_numpy(self.train_masks).long().to(self.device))
             if self.device == "cuda":
                 self.model = self.train(self.model, epochs=self.epochs, lr=self.learning_rate, n_cpus=self.n_cpus)
             else:
-                self.model = self.train_parallel(self.model, epochs=self.epochs, lr=self.learning_rate, n_cpus=self.n_cpus)
+                self.model = self.train(self.model, epochs=self.epochs, lr=self.learning_rate, n_cpus=self.n_cpus)
             self.save_model("pcnet-ge")
             if self.test_path is not None:
-                self.test_inputs = torch.from_numpy(self.get_feature_tensor(np.array([self.test_data[i][0] for i in range(len(self.test_data))]))).float().to(self.device)
+                self.test_inputs = torch.from_numpy(self.get_feature_tensor(np.array([self.test_data[i][0] for i in range(len(self.test_data))]), prune_features=prune_features_idx)).float().to(self.device)
                 self.test_ground_truth = torch.from_numpy(np.array([self.test_data[i][1] for i in range(len(self.test_data))])).long().to(self.device)
                 if self.test_ground_truth.dim() == 4 and self.test_ground_truth.size(1) == 1:
                     self.test_ground_truth = self.test_ground_truth.squeeze(1)

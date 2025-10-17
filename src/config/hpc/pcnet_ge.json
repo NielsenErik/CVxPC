@@ -13,30 +13,30 @@
     "feature_extractor": "cv_modules",
 
     "epochs": 20,
-    "batch_size": 16,
-    "sample_size": 5000,
+    "batch_size": 64,
+    "sample_size": 2000,
     "test_size": 500,
     "resize_size": [
-        128,
-        128
+        256,
+        256
     ],
     "input_channels": 3,
-    "n_classes": 2,
-    "max_depth": 10,
+    "n_classes": 1,
+    "max_depth": 7,
     "max_branching": 5,
     "seed": 90,
     "filter_sizes": [15, 21],
-    "n_cv_modules": 32,
-    "n_filters": 4,
+    "n_cv_modules": 20,
+    "n_filters": 100,
 
     "ge":{
         "generations": 10,
-        "pop_size": 60,
+        "pop_size": 20,
         "genome_len": 96,
         "crossover_rate": 0.9,
         "mutation_rate": 0.05,
         "elite_k": 2,
-        "train_split": 0.05
+        "train_split": 0.1
     },
 
     "execution_mode": "train"

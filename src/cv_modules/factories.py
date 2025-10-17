@@ -37,6 +37,7 @@ class CVModuleFactory(ProcessingElementFactory, metaclass=PEFMetaClass):
 
         self._opt = kwargs["Optimizer"]
         self._cvm = kwargs["CVModule"]
+        self._seed = kwargs.get("Seed", 4)
 
         # Retrieve class
         self._optimizer = ContinuousOptimizationMetaClass.get(
@@ -51,6 +52,9 @@ class CVModuleFactory(ProcessingElementFactory, metaclass=PEFMetaClass):
         module = self._module_type.from_params(params, self._cvm["kwargs"])
         return module
 
+    def best_module(self):
+        return self._make_module(self._optimizer.best[0])
+    
     def ask_pop(self):
         """
         This method returns a whole population of solutions for the factory.
