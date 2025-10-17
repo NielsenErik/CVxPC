@@ -14,8 +14,8 @@
 
     "epochs": 20,
     "batch_size": 64,
-    "sample_size": 2000,
-    "test_size": 500,
+    "sample_size": 5000,
+    "test_size": 1500,
     "resize_size": [
         256,
         256
@@ -36,7 +36,7 @@
         "crossover_rate": 0.9,
         "mutation_rate": 0.05,
         "elite_k": 2,
-        "train_split": 0.1
+        "train_split": 0.05
     },
 
     "execution_mode": "train"
