@@ -11,7 +11,9 @@ import os
 from probabilistic_circuits.probabilistic_circuits import *
 from experiment import *
 from utils import *
+import torch.multiprocessing as mp
 from multiprocessing import Manager
+import time
 
 
 def genome_signature(genome):
@@ -214,7 +216,8 @@ class GEOptimizer:
         elite_k=2,
         device="cpu",
         seed=42,
-        n_jobs=None
+        n_jobs=None,
+        report=None
     ):
         self.pop_size = pop_size
         self.genome_len = genome_len
@@ -227,6 +230,7 @@ class GEOptimizer:
         self.mapper = GEMapper(max_wraps=2)
         self.rng = np.random.default_rng(seed)
         self.n_jobs = n_jobs or os.cpu_count()
+        self.report = report
 
     def _local_n_jobs(self):
         """Limit joblib workers per-rank to avoid oversubscription when using torchrun."""
@@ -353,52 +357,91 @@ class GEOptimizer:
             torch.cuda.empty_cache()
         import gc; gc.collect()
         
-        print_info(f"    - Genome {global_index} loss: {val_loss:.4f}, clIoU: {cl_iou:.4f}")
+        print_info(f"    - Genome {global_index} loss: {val_loss:.4f}, clIoU: {cl_iou:.4f}, ")
         return val_loss, global_index
-
-    def evaluate_population(self, population, inputs, labels, criterion, n_classes=2, train_steps=20, lr=1e-2, param_bank=None):
-        """
-        Returns: list of losses aligned with `population` order.
-        No PC objects are returned.
-        """
-        rank, world_size = ddp_init_if_needed(backend="gloo")
-
-        if world_size > 1:
-            local_indices = list(range(rank, len(population), world_size))
-            local_genomes = [population[i] for i in local_indices]
-
-            nj = self._local_n_jobs()
-            if nj == 1:
-                local_results = [
-                    self._evaluate_single(genome=g, inputs=inputs, labels=labels, criterion=criterion, n_classes=n_classes, train_steps=train_steps, lr=lr, seed_offset=i, global_index=idx, param_bank=param_bank)
-                    for i, (g, idx) in enumerate(zip(local_genomes, local_indices))
-                ]
-            else:
-                local_results = Parallel(n_jobs=nj, verbose=0)(
-                    delayed(self._evaluate_single)(genome=g, inputs=inputs, labels=labels, criterion=criterion, n_classes=n_classes, train_steps=train_steps, lr=lr, seed_offset=i, global_index=idx, param_bank=param_bank)
-                    for i, (g, idx) in enumerate(zip(local_genomes, local_indices))
+    
+    def _worker_eval(self, idx, genome, input_data, label_data, queue, criterion, n_classes, train_steps, lr, param_bank):
+            """Evaluate a single genome and push (loss, index) to queue."""
+            try:
+                loss, global_idx = self._evaluate_single(
+                    genome=genome,
+                    inputs=input_data,
+                    labels=label_data,
+                    criterion=criterion,
+                    n_classes=n_classes,
+                    train_steps=train_steps,
+                    lr=lr,
+                    seed_offset=idx,
+                    global_index=idx,
+                    param_bank=param_bank,
                 )
+                queue.put((loss, global_idx))
+            except Exception as e:
+                queue.put((float("inf"), idx))  # fail-safe: assign high loss
+                print(f"[Worker {idx}] Error: {e}")
 
-            gathered = [None for _ in range(world_size)]
-            dist.all_gather_object(gathered, local_results)
+    def evaluate_population(
+        self,
+        population,
+        inputs,
+        labels,
+        criterion,
+        n_classes=2,
+        train_steps=20,
+        lr=1e-2,
+        param_bank=None,
+    ):
+        """
+        Multiprocessing-based population evaluation.
+        Each genome is evaluated in an independent process.
+        Returns a list of losses aligned with `population` order.
+        """
 
-            all_results = [item for sub in gathered for item in sub]  # (loss, global_idx)
-            losses = [None] * len(population)
-            for loss, gidx in all_results:
-                losses[gidx] = loss
-            return losses
 
-        # single-process
-        nj = self._local_n_jobs()
-        results = Parallel(n_jobs=nj, verbose=0)(
-            delayed(self._evaluate_single)(genome=g, inputs=inputs, labels=labels, criterion=criterion, n_classes=n_classes, train_steps=train_steps, lr=lr, seed_offset=i, global_index=i, param_bank=param_bank)
-            for i, g in enumerate(population)
-        )
+        # ----------------------------------------------------------------------
+        # Setup multiprocessing
+        # ----------------------------------------------------------------------
+        n_cpus = self.n_jobs
+        n_cpus = min(n_cpus, len(population))
+        queues = [mp.Queue() for _ in range(len(population))]
+        print_info(f"🧬 Evaluating population of size {len(population)} using {n_cpus} parallel processes.")
+        # ----------------------------------------------------------------------
+        # Spawn processes
+        # ----------------------------------------------------------------------
+        processes = []
+        for i, genome in enumerate(population):
+            p = mp.Process(target=self._worker_eval, args=(i, genome, inputs, labels, queues[i], criterion, n_classes, train_steps, lr, param_bank))
+            p.start()
+            processes.append(p)
+
+            # Optional: throttle number of concurrent processes
+            if len(processes) >= n_cpus:
+                for p in processes:
+                    p.join()
+                   
+                processes.clear()
+
+        # Wait for any remaining
+        for p in processes:
+            p.join()
+        # ----------------------------------------------------------------------
+        # Collect results
+        # ----------------------------------------------------------------------
+        results = []
+        for q in queues:
+            try:
+                results.append(q.get(timeout=60))
+            except Exception:
+                results.append((float("inf"), len(results)))  # fallback if missing
+
+        # Rebuild aligned losses list
         losses = [None] * len(population)
         for loss, idx in results:
             losses[idx] = loss
-        print_info(f"🧬{losses}")
+
+        print_info(f"🧬 Population evaluation complete — losses: {losses}")
         return losses
+
 
     # -----------------------------
     # Evolutionary loop
@@ -448,6 +491,8 @@ class GEOptimizer:
 
             population = new_pop
             print_info(f"✅ Gen {gen+1}: best loss so far = {best_score:.4f}")
+            with open(self.report, "a") as f:
+                f.write(f"Gen {gen+1}: best loss so far = {best_score:.4f}\n")
 
         # After evolution, rebuild + train best genome once and return that PC
         trees = self.mapper.map_model(best_genome, train_inputs.shape[1], self.max_depth, self.max_branching)
