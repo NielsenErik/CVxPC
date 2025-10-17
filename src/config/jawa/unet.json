@@ -1,5 +1,5 @@
 {
-    "mlflow": null,
+    "mlflow": "aida",
     "experiment": "crack_segmentation",
     "algorithm": "unet",
     
@@ -12,8 +12,8 @@
 
     "epochs": 60,
     "batch_size": 32,
-    "sample_size": 5000,
-    "test_size": 2000,
+    "sample_size": 50,
+    "test_size": 20,
     "resize_size": [256, 256],
     "learning_rate": 0.001,
     "threshold": 0.2,

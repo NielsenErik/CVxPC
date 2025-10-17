@@ -1,3 +1,4 @@
+import mlflow.pytorch
 import numpy as np
 import cv2
 import os
@@ -771,6 +772,7 @@ class UNetExperiment(ExperimentDL):
     
     def save_model(self, model_name="unet"):
         torch.save(self.model.state_dict(), os.path.join(self.save_path, f"{model_name}.pth"))
+        mlflow.pytorch.log_model(self.model, artifact_path=model_name)
 
     def load_model(self, model_name="unet"):
         self.model.load_state_dict(torch.load(os.path.join(self.save_path, f"{model_name}.pth")))
@@ -794,6 +796,7 @@ class ConvAEExperiment(ExperimentDL):
 
     def save_model(self, model_name="convae"):
         torch.save(self.model.state_dict(), os.path.join(self.save_path, f"{model_name}.pth"))
+        mlflow.pytorch.log_model(self.model, artifact_path=model_name)
 
     def load_model(self, model_name="convae"):
         self.model.load_state_dict(torch.load(os.path.join(self.save_path, f"{model_name}.pth")))
@@ -802,9 +805,17 @@ class ExperimentUnetPlus(ExperimentDL):
     def __init__(self, config):
         super().__init__(config)
         self.model_name = self.config.get("model_name", "unetplus")
+        
 
     def set_algorithm(self):
         self.model = UNetPlusPlus(n_classes=1)
+
+    def save_model(self, model_name="unetplus"):
+        torch.save(self.model.state_dict(), os.path.join(self.save_path, f"{model_name}.pth"))
+        mlflow.pytorch.log_model(self.model, artifact_path=model_name)
+
+    def load_model(self, model_name="unetplus"):
+        self.model.load_state_dict(torch.load(os.path.join(self.save_path, f"{model_name}.pth")))
 
 class ExperimentPC(Experiment):
     def __init__(self, config):
@@ -1090,6 +1101,17 @@ class ExperimentPC(Experiment):
         # Per-image work
         # ---------------------------------------------------------
         # Optimize module based on highest variance (/) then structure training will understand which are the most optimal ones
+
+        def canny_teacher(img_chw, sigma=1.0):
+            # img_chw: (C,H,W), use grayscale for edge teacher
+            C,H,W = img_chw.shape
+            g = img_chw.mean(0).astype(np.float32)
+            g8 = cv2.normalize(g, None, 0, 255, cv2.NORM_MINMAX).astype(np.uint8)
+            # automatic thresholds via median heuristic
+            med = np.median(g8)
+            lo = int(max(0, 0.66*med)); hi = int(min(255, 1.33*med))
+            e = cv2.Canny(g8, lo, hi)
+            return (e > 0).astype(np.float32)
         
         if prune_features is None:
             for epoch in range(20):
@@ -1787,12 +1809,10 @@ class ExperimentGEPC(ExperimentPC):
                 cliou = 0
                 for X, Y in data_loader:
                     X, Y = X.to(self.device), Y.to(self.device)
-                    optimizer = torch.optim.Adam(model.params, lr=lr, weight_decay=1e-4)
-                    optimizer.zero_grad()
                     logits = model.evaluate(X)
                     loss += self.criterion(logits, Y.squeeze(1))
-                    cliou = self.cl_iou_score(torch.argmax(logits, dim=1, keepdim=True).float(), Y)
-                fitnesses.append(cliou/len(data_loader))
+                    cliou += self.cl_iou_score(torch.argmax(logits, dim=1, keepdim=True).float(), Y)
+                fitnesses.append(-loss/len(data_loader))
             print_info(f"   CV Module Fitnesses: {fitnesses}")
             self.cv_factory.tell_pop(fitnesses)
 
