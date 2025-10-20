@@ -1,5 +1,5 @@
 {
-    "mlflow": null,
+    "mlflow": "aida",
     "experiment": "crack_segmentation",
     "algorithm": "unetplus",
     "data_path": "data/kaggle/crack_segmentation_dataset/train",
@@ -9,7 +9,7 @@
     "validation_split": 0.2,
     "epochs": 50,
     "batch_size": 16,
-    "sample_size": 8000,
+    "sample_size": 7000,
     "test_size": 2000,
     "resize_size": [
         256,
