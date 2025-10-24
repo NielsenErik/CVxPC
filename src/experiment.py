@@ -1053,7 +1053,8 @@ class ExperimentPC(Experiment):
         return final_feats
 
     def _worker_process(self, module_list, imgs, q):
-        import numpy as np
+        torch.set_num_threads(1)
+        torch.set_num_interop_threads(1)
         results = []
         for m in module_list:
             try:
@@ -1067,6 +1068,8 @@ class ExperimentPC(Experiment):
         q.put(results)
 
     def _worker_process_chunk(self,img_chunk, module, queue):
+        torch.set_num_threads(1)
+        torch.set_num_interop_threads(1)
         feats = [module.get_output(img, return_map=True) for img in img_chunk]
         queue.put(np.stack(feats, axis=0))
 

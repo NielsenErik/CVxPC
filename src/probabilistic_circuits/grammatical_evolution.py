@@ -296,11 +296,15 @@ class GEOptimizer:
     # Fitness evaluation (loss only)
     # -----------------------------
     def _evaluate_single(self, genome, inputs, labels, criterion, n_classes, train_steps, lr, seed_offset=0, global_index=None, param_bank=None):
+        torch.set_num_threads(1)
+        torch.set_num_interop_threads(1)
         sig = hash(tuple(genome))
         torch.manual_seed(seed_offset)
         np.random.seed(seed_offset)
         random.seed(seed_offset)
-
+        print_debugging(f"Genome {global_index} (pid {os.getpid()}) evaluation started.")
+        with open(self.report, "a") as f:
+            f.write(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] Genome {global_index} pid {os.getpid()} evaluation started.\n")
         trees = self.mapper.map_model(genome, inputs.shape[1], self.max_depth, self.max_branching)
 
         pc = PCNet(input_size=inputs.shape[1:], n_classes=n_classes, device=self.device,
@@ -329,7 +333,7 @@ class GEOptimizer:
         train_loader = self.get_dataloader(x_tr, y_tr, batch_size=32)
         val_loader = self.get_dataloader(x_va, y_va, batch_size=32)
 
-        for _ in range(60):
+        for _ in range(train_steps):
             for xb, yb in train_loader:
                 logits = pc.evaluate(xb)
                 loss = criterion(logits, yb)
@@ -387,7 +391,7 @@ class GEOptimizer:
         labels,
         criterion,
         n_classes=2,
-        train_steps=20,
+        train_steps=30,
         lr=1e-2,
         param_bank=None,
     ):
@@ -492,7 +496,7 @@ class GEOptimizer:
             population = new_pop
             print_info(f"✅ Gen {gen+1}: best loss so far = {best_score:.4f}")
             with open(self.report, "a") as f:
-                f.write(f"Gen {gen+1}: best loss so far = {best_score:.4f}\n")
+                f.write(f"{time.strftime('%Y-%m-%d %H:%M:%S')} Gen {gen+1}: best loss so far = {best_score:.4f}\n")
 
         # After evolution, rebuild + train best genome once and return that PC
         trees = self.mapper.map_model(best_genome, train_inputs.shape[1], self.max_depth, self.max_branching)
