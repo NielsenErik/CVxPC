@@ -1,7 +1,7 @@
 #!/bin/bash
-#PBS -l select=8:ncpus=10:mem=20gb
-#PBS -l walltime=6:00:00
-#PBS -q short_cpuQ
+#PBS -l select=4:ncpus=10:mem=30gb
+#PBS -l walltime=24:00:00
+#PBS -q common_cpuQ
 #PBS -N crack
 #PBS -M erik.nielsen@unitn.it
 #PBS -m abe
