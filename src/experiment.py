@@ -33,6 +33,8 @@ from torch.utils.data import DataLoader, DistributedSampler, TensorDataset
 from torch.utils.data.distributed import DistributedSampler
 from torch import multiprocessing as mp
 import multiprocessing
+import time
+
 def average_gradients_across_workers(params):
     """All-reduce gradients in-place and divide by world_size."""
     if not (dist.is_available() and dist.is_initialized()):
@@ -394,9 +396,9 @@ class Experiment:
             dataset = data
 
         if train_sampler is not None:
-            return DataLoader(dataset, batch_size=batch_size, sampler=train_sampler, shuffle=False, num_workers=num_workers)
+            return DataLoader(dataset, batch_size=batch_size, sampler=train_sampler, shuffle=False, num_workers=0)
         else:
-            return DataLoader(dataset, batch_size=batch_size, shuffle=shuffle, num_workers=num_workers)
+            return DataLoader(dataset, batch_size=batch_size, shuffle=shuffle, num_workers=0)
 
     
     def compute_pos_weight(self, masks):
@@ -1052,26 +1054,26 @@ class ExperimentPC(Experiment):
 
         return final_feats
 
-    def _worker_process(self, module_list, imgs, q):
-        torch.set_num_threads(1)
-        torch.set_num_interop_threads(1)
-        results = []
-        for m in module_list:
-            try:
-                feats = [m.get_output(img, return_map=True) for img in imgs]
-                feats = np.stack(feats, axis=0)
-                var = feats.var()
-                results.append(var)
-            except Exception as e:
-                print(f"[Worker error on module] {e}")
-                results.append(0.0)
-        q.put(results)
+    # TODO one process per module
+    def eval_cv_pop(self, modules, images):
+        with multiprocessing.Pool(processes=self.n_cpus) as pool:
+            results = pool.starmap(
+                self._worker_process_wrapper,
+                [(idx, module, images) for idx, module in enumerate(modules)]
+            )
 
-    def _worker_process_chunk(self,img_chunk, module, queue):
-        torch.set_num_threads(1)
-        torch.set_num_interop_threads(1)
-        feats = [module.get_output(img, return_map=True) for img in img_chunk]
-        queue.put(np.stack(feats, axis=0))
+        return [fit for fit, _ in results]
+
+    def _worker_process_wrapper(self, idx, module, imgs):
+        
+        print_debugging(f"[{time.strftime('%H:%M:%S')}] Worker {idx} starting...")
+        try:
+            feats = [module.get_output(img, return_map=True) for img in imgs]
+            var = np.stack(feats).var()
+            return (float(var), idx)
+        except Exception as e:
+            print(f"[Worker {idx}] error: {e}")
+            return (float("-inf"), idx)
 
     def convolution_modules_tensor(
         self, images, cv_factory, return_maps=True, n_jobs=None, verbose=0, prune_features=None
@@ -1090,13 +1092,6 @@ class ExperimentPC(Experiment):
         import os
 
         # ---------------------------------------------------------
-        # DDP context
-        # ---------------------------------------------------------
-        is_ddp = dist.is_available() and dist.is_initialized()
-        rank = dist.get_rank() if is_ddp else 0
-        world_size = dist.get_world_size() if is_ddp else 1
-
-        # ---------------------------------------------------------
         # Normalize input to numpy
         # ---------------------------------------------------------
         if isinstance(images, torch.Tensor):
@@ -1104,12 +1099,7 @@ class ExperimentPC(Experiment):
         if images.ndim == 3:
             images = np.expand_dims(images, 0)  # [1, H, W]
         total_images = len(images)
-
-        # ---------------------------------------------------------
-        # Shard images among ranks (round-robin for balance)
-        # ---------------------------------------------------------
-        shard_idx = list(range(rank, total_images, world_size))
-        local_imgs = images[shard_idx]
+        
 
         # ---------------------------------------------------------
         # Optimize module via variance (if no pruning provided)
@@ -1123,94 +1113,24 @@ class ExperimentPC(Experiment):
             n_procs = min(n_jobs, len(modules))
             print_info(f"⚙️ Using {n_procs} processes for convolution module evaluation...")
             for epoch in trange(self.cv_epochs, desc="CV Module Optimization", disable=verbose == 0):
+                print_debugging(f"Epoch {epoch}")
                 modules = cv_factory.ask_pop()
                 if not isinstance(modules, list):
                     modules = [modules]               
 
-                # Split modules into n_procs chunks (to balance large populations)
-                module_chunks = np.array_split(modules, n_procs)
-                queues = [mp.Queue() for _ in range(len(module_chunks))]
-                # --- Launch processes ---
-                processes = []
-                for enum, chunk in enumerate(module_chunks):
-                    p = mp.Process(target=self._worker_process, args=(chunk, local_imgs, queues[enum]))
-                    p.start()
-                    processes.append(p)
+                fitness = self.eval_cv_pop(modules, images)
 
-                # --- Collect results ---
-                fitnesses = []
-                for enum, chunk in enumerate(module_chunks):
-                    fitnesses.extend(queues[enum].get())
-
-                for p in processes:
-                    p.join()
-
+                print_debugging(f"Module fitness values: {fitness}")
                 # CMA-ES update
-                cv_factory.tell_pop(fitnesses)
+                cv_factory.tell_pop(fitness)
 
         # ---------------------------------------------------------
         # Best module and final extraction
         # ---------------------------------------------------------
         module = cv_factory.best_module()
 
-        num_imgs = len(local_imgs)
-        n_procs = min(n_jobs, num_imgs)
-        chunks = np.array_split(local_imgs, n_procs)
-        queues = [mp.Queue() for _ in range(n_procs)]
-        processes = [mp.Process(target=self._worker_process_chunk, args=(chunks[i], module, queues[i])) for i in range(n_procs)]
-
-        for p in processes:
-            p.start()
-        results = [q.get() for q in queues]
-        for p in processes:
-            p.join()
-
-        for r in results:
-            if isinstance(r, Exception):
-                raise r
-
-        local_feats_np = np.concatenate(results, axis=0) if len(results) > 0 else np.zeros((0, 1, 1, 1), dtype=np.float32)
-        local_feats_np = np.ascontiguousarray(local_feats_np, dtype=np.float32)
-
-        # ---------------------------------------------------------
-        # Gather across ranks
-        # ---------------------------------------------------------
-        if is_ddp:
-            with torch.no_grad():
-                device = torch.device("cpu")
-                local_t = torch.from_numpy(local_feats_np).to(device)
-                n_local = torch.tensor([local_t.shape[0]], dtype=torch.int32, device=device)
-
-                sizes = [torch.empty_like(n_local) for _ in range(world_size)]
-                dist.all_gather(sizes, n_local)
-                sizes = [int(s.item()) for s in sizes]
-                max_local = max(sizes)
-
-                if max_local == 0:
-                    gathered = []
-                else:
-                    if local_t.shape[0] < max_local:
-                        pad_shape = (max_local - local_t.shape[0],) + tuple(local_t.shape[1:])
-                        pad = torch.zeros(pad_shape, dtype=local_t.dtype, device=device)
-                        local_t = torch.cat([local_t, pad], dim=0)
-
-                    gathered = [torch.empty_like(local_t) for _ in range(world_size)]
-                    dist.all_gather(gathered, local_t)
-
-                per_rank_arrays = []
-                for r, gt in enumerate(gathered):
-                    if sizes[r] == 0:
-                        continue
-                    per_rank_arrays.append((r, gt[:sizes[r]].cpu().numpy()))
-
-                recon = [None] * total_images
-                for r, arr in per_rank_arrays:
-                    for i, f in zip(range(r, total_images, world_size), arr):
-                        recon[i] = f
-
-                feats_np = np.stack(recon, axis=0) if total_images > 0 else np.zeros((0, 1, 1, 1), dtype=np.float32)
-        else:
-            feats_np = local_feats_np
+        feats_np = [module.get_output(img, return_map=return_maps) for img in images]
+        feats_np = np.stack(feats_np, axis=0)  # [N, C, H, W] or [N, H, W]
 
         # ---------------------------------------------------------
         # Feature pruning and normalization
@@ -1331,9 +1251,7 @@ class ExperimentPC(Experiment):
             train_ious.append(epoch_iou)
             train_clious.append(epoch_cl_iou)
 
-            if epochs % 5 == 0:
-                with open(self.experiment_report, "a") as f:
-                    f.write(f"{epoch}\t{epoch_loss}\t{epoch_dice}\t{epoch_iou}\t{epoch_cl_iou}\n")
+            
 
             mlflow.log_metrics({
                 "train_loss": epoch_loss,
@@ -1355,6 +1273,11 @@ class ExperimentPC(Experiment):
                     "val_iou": val_iou,
                     "val_cl_iou": val_cl_iou
                 }, step=epoch)
+
+            if epochs % 5 == 0:
+                with open(self.experiment_report, "a") as f:
+                    f.write(f"{epoch}\ttrain\t{epoch_loss}\t{epoch_cl_iou}\n")
+                    f.write(f" \tval\t{val_loss}\t{val_cl_iou}\n")
 
             pbar.set_postfix({
                 "train_loss": f"{epoch_loss:.4f}",
