@@ -1,0 +1,4 @@
+=>> PBS: job killed: walltime 86408 exceeded limit 86400
+-bash: line 1: 97721 Terminated              /var/spool/pbs/mom_priv/jobs/4500094\[27\].hpc-head-n1.unitn.it.SC
+/apps/Python-3.10.14/lib/python3.10/multiprocessing/resource_tracker.py:224: UserWarning: resource_tracker: There appear to be 61 leaked semaphore objects to clean up at shutdown
+  warnings.warn('resource_tracker: There appear to be %d '

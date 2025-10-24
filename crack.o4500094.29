@@ -1,0 +1,94 @@
+11:44:32 [[1m[94mCONFIGS[0m] Experiment Configurations: {'mlflow': None, 'experiment': 'crack_segmentation', 'algorithm': 'pcnet_ge', 'device': 'cpu', 'n_cpus': 40, 'data_path': 'data/CrackSeg9k/train', 'test_path': 'data/CrackSeg9k/test', 'save_path': 'models/', 'validation_split': 0.2, 'feature_extractor': 'cv_modules', 'epochs': 40, 'batch_size': 96, 'sample_size': 8000, 'test_size': 1500, 'resize_size': [256, 256], 'input_channels': 3, 'n_classes': 1, 'max_depth': 5, 'max_branching': 3, 'seed': 29, 'filter_sizes': [15, 21], 'n_cv_modules': 20, 'n_filters': 100, 'ge': {'generations': 10, 'pop_size': 20, 'genome_len': 96, 'crossover_rate': 0.9, 'mutation_rate': 0.05, 'elite_k': 2, 'train_split': 0.01}, 'execution_mode': 'train', 'log_dir': 'logs/pcnet_ge/29'}
+
+⚙️ Using 40 CPU cores (torch threads)
+11:44:40 [[1m[92mINFO[0m] Training samples: 5865, Validation samples: 1467
+
+11:44:41 [[1m[92mINFO[0m] Test samples: 1500
+
+11:44:41 [[1m[92mINFO[0m] Dataset size: 7332
+
+11:44:46 [[1m[92mINFO[0m] ⚙️ Using 20 processes for convolution module evaluation...
+
+New best fitness:  29.263817
+12:23:05 [[1m[93mDEBUG[0m] Convolution module features shape: (58, 100, 256, 256), value range: 0.3505144417285919 to 44.763519287109375, var: 29.263816833496094
+
+12:23:28 [[1m[92mINFO[0m] 🧬 Generation 1/10 (evaluating 20 genomes in parallel)
+
+12:23:28 [[1m[92mINFO[0m] 🧬 Evaluating population of size 20 using 20 parallel processes.
+
+14:17:12 [[1m[92mINFO[0m]     - Genome 16 loss: 0.9436, clIoU: 0.0076, 
+
+14:17:41 [[1m[92mINFO[0m]     - Genome 7 loss: 0.9430, clIoU: 0.0076, 
+
+14:17:45 [[1m[92mINFO[0m]     - Genome 6 loss: 0.9450, clIoU: 0.0074, 
+
+14:42:35 [[1m[92mINFO[0m]     - Genome 8 loss: 1.0976, clIoU: 0.0000, 
+
+15:10:30 [[1m[92mINFO[0m]     - Genome 10 loss: 1.0910, clIoU: 0.0000, 
+
+17:14:08 [[1m[92mINFO[0m]     - Genome 17 loss: 1.5528, clIoU: 0.0000, 
+
+19:21:26 [[1m[92mINFO[0m]     - Genome 2 loss: 1.8556, clIoU: 0.0000, 
+
+19:41:56 [[1m[92mINFO[0m]     - Genome 1 loss: 0.9513, clIoU: 0.0073, 
+
+20:39:23 [[1m[92mINFO[0m]     - Genome 13 loss: 1.2839, clIoU: 0.0000, 
+
+21:17:18 [[1m[92mINFO[0m]     - Genome 3 loss: 1.9922, clIoU: 0.0000, 
+
+21:48:25 [[1m[92mINFO[0m]     - Genome 19 loss: 4.0350, clIoU: 0.0000, 
+
+22:20:07 [[1m[92mINFO[0m]     - Genome 12 loss: 1.5246, clIoU: 0.0000, 
+
+22:31:07 [[1m[92mINFO[0m]     - Genome 9 loss: 1.1477, clIoU: 0.0000, 
+
+23:15:09 [[1m[92mINFO[0m]     - Genome 18 loss: 0.9441, clIoU: 0.0098, 
+
+23:53:26 [[1m[92mINFO[0m]     - Genome 0 loss: 1.2782, clIoU: 0.0000, 
+
+00:31:31 [[1m[92mINFO[0m]     - Genome 11 loss: 0.8976, clIoU: 0.0114, 
+
+00:45:40 [[1m[92mINFO[0m]     - Genome 14 loss: 3.8897, clIoU: 0.0000, 
+
+01:15:24 [[1m[92mINFO[0m]     - Genome 15 loss: 3.3652, clIoU: 0.0000, 
+
+01:24:43 [[1m[92mINFO[0m]     - Genome 5 loss: 4.7447, clIoU: 0.0000, 
+
+01:25:15 [[1m[92mINFO[0m]     - Genome 4 loss: 0.9196, clIoU: 0.0107, 
+
+01:25:20 [[1m[92mINFO[0m] 🧬 Population evaluation complete — losses: [1.2781505584716797, 0.9512777328491211, 1.8556451797485352, 1.992181658744812, 0.9195941090583801, 4.744684219360352, 0.9450061917304993, 0.9429547786712646, 1.0975642204284668, 1.1476728916168213, 1.0909956693649292, 0.8975915908813477, 1.5246036052703857, 1.2838530540466309, 3.889695882797241, 3.3652007579803467, 0.943556547164917, 1.55281662940979, 0.9440803527832031, 4.035022735595703]
+
+01:25:20 [[1m[92mINFO[0m] ✅ Gen 1: best loss so far = 0.8976
+
+01:25:20 [[1m[92mINFO[0m] 🧬 Generation 2/10 (evaluating 20 genomes in parallel)
+
+01:25:20 [[1m[92mINFO[0m] 🧬 Evaluating population of size 20 using 20 parallel processes.
+
+03:16:33 [[1m[92mINFO[0m]     - Genome 2 loss: 0.9424, clIoU: 0.0077, 
+
+03:17:41 [[1m[92mINFO[0m]     - Genome 11 loss: 0.9492, clIoU: 0.0070, 
+
+03:17:55 [[1m[92mINFO[0m]     - Genome 15 loss: 0.9504, clIoU: 0.0070, 
+
+03:18:13 [[1m[92mINFO[0m]     - Genome 19 loss: 0.9493, clIoU: 0.0071, 
+
+04:04:43 [[1m[92mINFO[0m]     - Genome 12 loss: 1.0933, clIoU: 0.0000, 
+
+04:04:47 [[1m[92mINFO[0m]     - Genome 10 loss: 1.0910, clIoU: 0.0000, 
+
+08:50:03 [[1m[92mINFO[0m]     - Genome 16 loss: 1.2561, clIoU: 0.0000, 
+
+08:56:52 [[1m[92mINFO[0m]     - Genome 17 loss: 1.2864, clIoU: 0.0000, 
+
+09:37:44 [[1m[92mINFO[0m]     - Genome 8 loss: 1.9461, clIoU: 0.0000, 
+
+09:45:51 [[1m[92mINFO[0m]     - Genome 6 loss: 1.1297, clIoU: 0.0000, 
+
+10:35:30 [[1m[92mINFO[0m]     - Genome 4 loss: 1.0527, clIoU: 0.0000, 
+
+11:02:08 [[1m[92mINFO[0m]     - Genome 14 loss: 1.1479, clIoU: 0.0000, 
+
+11:25:37 [[1m[92mINFO[0m]     - Genome 3 loss: 0.9235, clIoU: 0.0213, 
+
+11:29:08 [[1m[92mINFO[0m]     - Genome 13 loss: 0.9439, clIoU: 0.0093, 
+

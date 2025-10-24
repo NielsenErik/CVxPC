@@ -1,7 +1,7 @@
 #!/bin/bash
-#PBS -l select=8:ncpus=10:mem=20gb
-#PBS -l walltime=6:00:00
-#PBS -q short_cpuQ
+#PBS -l select=4:ncpus=10:mem=30gb
+#PBS -l walltime=24:00:00
+#PBS -q common_cpuQ
 #PBS -N crack
 #PBS -M erik.nielsen@unitn.it
 #PBS -m abe
@@ -14,17 +14,5 @@ module load python-3.10.14
 module load cuda-11.3   
 source $PWD/.venv/bin/activate
 
-# Extract cluster info
-MASTER_ADDR=$(head -n 1 $PBS_NODEFILE)          # first node = master
-MASTER_PORT=29500                               # any free port is fine
-NNODES=$(cat $PBS_NODEFILE | sort | uniq | wc -l)
-NPROC_PER_NODE=10                               # match ncpus per node
-NODE_RANK=$(grep -n $(hostname) $PBS_NODEFILE | head -n 1 | cut -d: -f1)
-NODE_RANK=$((NODE_RANK - 1))
-
 # Launch distributed training
-torchrun \
-    --nnodes=$NNODES \
-    --nproc_per_node=$NPROC_PER_NODE \
-    --node_rank=$NODE_RANK \
-    $PWD/src/main.py $PWD/src/config/hpc/pcnet_ge.json $PBS_ARRAY_INDEX
+python3  $PWD/src/main.py $PWD/src/config/hpc/pcnet_ge.json $PBS_ARRAY_INDEX
