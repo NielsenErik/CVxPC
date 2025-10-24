@@ -9,14 +9,14 @@
     "save_path": "models/",
     "validation_split": 0.2,
     "feature_extractor": "cv_modules",
-    "cv_epochs": 2,
-    "epochs": 20,
+    "cv_epochs": 10,
+    "epochs": 50,
     "batch_size": 16,
-    "sample_size": 100,
-    "test_size": 20,
+    "sample_size": 1000,
+    "test_size": 100,
     "resize_size": [
-        128,
-        128
+        256,
+        256
     ],
     "input_channels": 3,
     "n_classes": 1,
@@ -28,15 +28,15 @@
         21
     ],
     "n_cv_modules": 10,
-    "n_filters": 200,
+    "n_filters": 100,
     "ge": {
-        "generations": 1,
-        "pop_size": 2,
+        "generations": 5,
+        "pop_size": 8,
         "genome_len": 96,
         "crossover_rate": 0.9,
         "mutation_rate": 0.05,
         "elite_k": 2,
-        "train_split": 0.2
+        "train_split": 0.1
     },
     "execution_mode": "train",
     "log_dir": "logs/pcnet_ge/901"

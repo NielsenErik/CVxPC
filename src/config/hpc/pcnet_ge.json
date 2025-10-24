@@ -12,6 +12,8 @@
 
     "feature_extractor": "cv_modules",
 
+    
+    "cv_epochs": 10,
     "epochs": 20,
     "batch_size": 64,
     "sample_size": 2000,
