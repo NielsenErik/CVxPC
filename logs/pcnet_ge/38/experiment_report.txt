@@ -1,0 +1,488 @@
+Experiment Configurations: {'mlflow': None, 'experiment': 'crack_segmentation', 'algorithm': 'pcnet_ge', 'device': 'cpu', 'n_cpus': 30, 'data_path': 'data/CrackSeg9k/train', 'test_path': 'data/CrackSeg9k/test', 'save_path': 'models/', 'validation_split': 0.2, 'feature_extractor': 'cv_modules', 'epochs': 40, 'batch_size': 96, 'sample_size': 11000, 'test_size': 3500, 'resize_size': [256, 256], 'input_channels': 3, 'n_classes': 1, 'max_depth': 5, 'max_branching': 3, 'seed': 38, 'filter_sizes': [15, 21], 'n_cv_modules': 20, 'n_filters': 100, 'ge': {'generations': 10, 'pop_size': 20, 'genome_len': 96, 'crossover_rate': 0.9, 'mutation_rate': 0.05, 'elite_k': 2, 'train_split': 0.01}, 'execution_mode': 'train', 'log_dir': 'logs/pcnet_ge/38'}
+Dataset sizes: {'train': 7332, 'val': 1467, 'test': 1827}
+[2025-10-25 16:35:01] Genome 14 pid 25110 evaluation started.
+[2025-10-25 16:35:01] Genome 3 pid 25099 evaluation started.
+[2025-10-25 16:35:02] Genome 6 pid 25102 evaluation started.
+[2025-10-25 16:35:02] Genome 16 pid 25112 evaluation started.
+[2025-10-25 16:35:02] Genome 1 pid 25097 evaluation started.
+[2025-10-25 16:35:02] Genome 0 pid 25096 evaluation started.
+[2025-10-25 16:35:02] Genome 5 pid 25101 evaluation started.
+[2025-10-25 16:35:02] Genome 19 pid 25115 evaluation started.
+[2025-10-25 16:35:02] Genome 15 pid 25111 evaluation started.
+[2025-10-25 16:35:02] Genome 17 pid 25113 evaluation started.
+[2025-10-25 16:35:02] Genome 18 pid 25114 evaluation started.
+[2025-10-25 16:35:02] Genome 12 pid 25108 evaluation started.
+[2025-10-25 16:35:02] Genome 8 pid 25104 evaluation started.
+[2025-10-25 16:35:02] Genome 10 pid 25106 evaluation started.
+[2025-10-25 16:35:02] Genome 4 pid 25100 evaluation started.
+[2025-10-25 16:35:02] Genome 13 pid 25109 evaluation started.
+[2025-10-25 16:35:02] Genome 9 pid 25105 evaluation started.
+[2025-10-25 16:35:02] Genome 2 pid 25098 evaluation started.
+[2025-10-25 16:35:02] Genome 7 pid 25103 evaluation started.
+[2025-10-25 16:35:02] Genome 11 pid 25107 evaluation started.
+2025-10-25 16:54:52 Gen 1: best loss so far = 0.8661
+[2025-10-25 16:55:31] Genome 13 pid 53990 evaluation started.
+[2025-10-25 16:55:31] Genome 16 pid 53993 evaluation started.
+[2025-10-25 16:55:31] Genome 2 pid 53979 evaluation started.
+[2025-10-25 16:55:31] Genome 11 pid 53988 evaluation started.
+[2025-10-25 16:55:31] Genome 0 pid 53977 evaluation started.
+[2025-10-25 16:55:31] Genome 4 pid 53981 evaluation started.
+[2025-10-25 16:55:31] Genome 15 pid 53992 evaluation started.
+[2025-10-25 16:55:32] Genome 18 pid 53995 evaluation started.
+[2025-10-25 16:55:32] Genome 6 pid 53983 evaluation started.
+[2025-10-25 16:55:32] Genome 8 pid 53985 evaluation started.
+[2025-10-25 16:55:32] Genome 1 pid 53978 evaluation started.
+[2025-10-25 16:55:32] Genome 3 pid 53980 evaluation started.
+[2025-10-25 16:55:32] Genome 12 pid 53989 evaluation started.
+[2025-10-25 16:55:32] Genome 14 pid 53991 evaluation started.
+[2025-10-25 16:55:32] Genome 5 pid 53982 evaluation started.
+[2025-10-25 16:55:32] Genome 7 pid 53984 evaluation started.
+[2025-10-25 16:55:32] Genome 10 pid 53987 evaluation started.
+[2025-10-25 16:55:32] Genome 17 pid 53994 evaluation started.
+[2025-10-25 16:55:32] Genome 9 pid 53986 evaluation started.
+[2025-10-25 16:55:32] Genome 19 pid 53996 evaluation started.
+2025-10-25 17:14:52 Gen 2: best loss so far = 0.8174
+[2025-10-25 17:15:41] Genome 8 pid 81620 evaluation started.
+[2025-10-25 17:15:41] Genome 6 pid 81618 evaluation started.
+[2025-10-25 17:15:41] Genome 11 pid 81623 evaluation started.
+[2025-10-25 17:15:41] Genome 16 pid 81628 evaluation started.
+[2025-10-25 17:15:41] Genome 2 pid 81614 evaluation started.
+[2025-10-25 17:15:41] Genome 1 pid 81613 evaluation started.
+[2025-10-25 17:15:41] Genome 12 pid 81624 evaluation started.
+[2025-10-25 17:15:41] Genome 5 pid 81617 evaluation started.
+[2025-10-25 17:15:41] Genome 3 pid 81615 evaluation started.
+[2025-10-25 17:15:41] Genome 4 pid 81616 evaluation started.
+[2025-10-25 17:15:41] Genome 9 pid 81621 evaluation started.
+[2025-10-25 17:15:41] Genome 19 pid 81631 evaluation started.
+[2025-10-25 17:15:41] Genome 18 pid 81630 evaluation started.
+[2025-10-25 17:15:41] Genome 13 pid 81625 evaluation started.
+[2025-10-25 17:15:41] Genome 0 pid 81612 evaluation started.
+[2025-10-25 17:15:41] Genome 7 pid 81619 evaluation started.
+[2025-10-25 17:15:41] Genome 14 pid 81626 evaluation started.
+[2025-10-25 17:15:41] Genome 15 pid 81627 evaluation started.
+[2025-10-25 17:15:41] Genome 10 pid 81622 evaluation started.
+[2025-10-25 17:15:41] Genome 17 pid 81629 evaluation started.
+2025-10-25 17:33:42 Gen 3: best loss so far = 0.8163
+[2025-10-25 17:34:16] Genome 8 pid 108938 evaluation started.
+[2025-10-25 17:34:16] Genome 3 pid 108933 evaluation started.
+[2025-10-25 17:34:16] Genome 14 pid 108944 evaluation started.
+[2025-10-25 17:34:16] Genome 4 pid 108934 evaluation started.
+[2025-10-25 17:34:16] Genome 9 pid 108939 evaluation started.
+[2025-10-25 17:34:16] Genome 13 pid 108943 evaluation started.
+[2025-10-25 17:34:16] Genome 11 pid 108941 evaluation started.
+[2025-10-25 17:34:16] Genome 18 pid 108949 evaluation started.
+[2025-10-25 17:34:16] Genome 16 pid 108946 evaluation started.
+[2025-10-25 17:34:16] Genome 7 pid 108937 evaluation started.
+[2025-10-25 17:34:16] Genome 5 pid 108935 evaluation started.
+[2025-10-25 17:34:16] Genome 1 pid 108931 evaluation started.
+[2025-10-25 17:34:16] Genome 0 pid 108930 evaluation started.
+[2025-10-25 17:34:16] Genome 15 pid 108945 evaluation started.
+[2025-10-25 17:34:16] Genome 2 pid 108932 evaluation started.
+[2025-10-25 17:34:16] Genome 10 pid 108940 evaluation started.
+[2025-10-25 17:34:16] Genome 6 pid 108936 evaluation started.
+[2025-10-25 17:34:16] Genome 19 pid 108950 evaluation started.
+[2025-10-25 17:34:16] Genome 17 pid 108947 evaluation started.
+[2025-10-25 17:34:16] Genome 12 pid 108942 evaluation started.
+2025-10-25 17:49:47 Gen 4: best loss so far = 0.8036
+[2025-10-25 17:50:32] Genome 0 pid 131404 evaluation started.
+[2025-10-25 17:50:32] Genome 18 pid 131422 evaluation started.
+[2025-10-25 17:50:32] Genome 2 pid 131406 evaluation started.
+[2025-10-25 17:50:32] Genome 6 pid 131410 evaluation started.
+[2025-10-25 17:50:32] Genome 9 pid 131413 evaluation started.
+[2025-10-25 17:50:32] Genome 14 pid 131418 evaluation started.
+[2025-10-25 17:50:32] Genome 3 pid 131407 evaluation started.
+[2025-10-25 17:50:32] Genome 12 pid 131416 evaluation started.
+[2025-10-25 17:50:32] Genome 16 pid 131420 evaluation started.
+[2025-10-25 17:50:32] Genome 15 pid 131419 evaluation started.
+[2025-10-25 17:50:32] Genome 19 pid 131423 evaluation started.
+[2025-10-25 17:50:32] Genome 8 pid 131412 evaluation started.
+[2025-10-25 17:50:32] Genome 7 pid 131411 evaluation started.
+[2025-10-25 17:50:32] Genome 1 pid 131405 evaluation started.
+[2025-10-25 17:50:32] Genome 13 pid 131417 evaluation started.
+[2025-10-25 17:50:32] Genome 11 pid 131415 evaluation started.
+[2025-10-25 17:50:32] Genome 17 pid 131421 evaluation started.
+[2025-10-25 17:50:32] Genome 4 pid 131408 evaluation started.
+[2025-10-25 17:50:32] Genome 10 pid 131414 evaluation started.
+[2025-10-25 17:50:32] Genome 5 pid 131409 evaluation started.
+2025-10-25 18:13:10 Gen 5: best loss so far = 0.8036
+[2025-10-25 18:13:58] Genome 17 pid 165475 evaluation started.
+[2025-10-25 18:13:58] Genome 7 pid 165462 evaluation started.
+[2025-10-25 18:13:58] Genome 3 pid 165458 evaluation started.
+[2025-10-25 18:13:58] Genome 12 pid 165469 evaluation started.
+[2025-10-25 18:13:58] Genome 18 pid 165476 evaluation started.
+[2025-10-25 18:13:58] Genome 2 pid 165457 evaluation started.
+[2025-10-25 18:13:58] Genome 19 pid 165477 evaluation started.
+[2025-10-25 18:13:58] Genome 5 pid 165460 evaluation started.
+[2025-10-25 18:13:58] Genome 0 pid 165455 evaluation started.
+[2025-10-25 18:13:58] Genome 6 pid 165461 evaluation started.
+[2025-10-25 18:13:58] Genome 15 pid 165473 evaluation started.
+[2025-10-25 18:13:58] Genome 11 pid 165467 evaluation started.
+[2025-10-25 18:13:58] Genome 4 pid 165459 evaluation started.
+[2025-10-25 18:13:58] Genome 10 pid 165466 evaluation started.
+[2025-10-25 18:13:58] Genome 9 pid 165465 evaluation started.
+[2025-10-25 18:13:58] Genome 13 pid 165470 evaluation started.
+[2025-10-25 18:13:58] Genome 14 pid 165471 evaluation started.
+[2025-10-25 18:13:58] Genome 8 pid 165463 evaluation started.
+[2025-10-25 18:13:58] Genome 16 pid 165474 evaluation started.
+[2025-10-25 18:13:58] Genome 1 pid 165456 evaluation started.
+2025-10-25 18:29:46 Gen 6: best loss so far = 0.8036
+[2025-10-25 18:30:27] Genome 1 pid 188462 evaluation started.
+[2025-10-25 18:30:27] Genome 17 pid 188478 evaluation started.
+[2025-10-25 18:30:27] Genome 9 pid 188470 evaluation started.
+[2025-10-25 18:30:27] Genome 19 pid 188480 evaluation started.
+[2025-10-25 18:30:27] Genome 15 pid 188476 evaluation started.
+[2025-10-25 18:30:27] Genome 11 pid 188472 evaluation started.
+[2025-10-25 18:30:27] Genome 16 pid 188477 evaluation started.
+[2025-10-25 18:30:27] Genome 13 pid 188474 evaluation started.
+[2025-10-25 18:30:27] Genome 2 pid 188463 evaluation started.
+[2025-10-25 18:30:27] Genome 12 pid 188473 evaluation started.
+[2025-10-25 18:30:27] Genome 8 pid 188469 evaluation started.
+[2025-10-25 18:30:27] Genome 4 pid 188465 evaluation started.
+[2025-10-25 18:30:27] Genome 10 pid 188471 evaluation started.
+[2025-10-25 18:30:27] Genome 0 pid 188461 evaluation started.
+[2025-10-25 18:30:27] Genome 5 pid 188466 evaluation started.
+[2025-10-25 18:30:27] Genome 6 pid 188467 evaluation started.
+[2025-10-25 18:30:27] Genome 14 pid 188475 evaluation started.
+[2025-10-25 18:30:27] Genome 18 pid 188479 evaluation started.
+[2025-10-25 18:30:27] Genome 7 pid 188468 evaluation started.
+[2025-10-25 18:30:27] Genome 3 pid 188464 evaluation started.
+2025-10-25 18:43:24 Gen 7: best loss so far = 0.8036
+[2025-10-25 18:44:04] Genome 0 pid 208495 evaluation started.
+[2025-10-25 18:44:04] Genome 10 pid 208505 evaluation started.
+[2025-10-25 18:44:04] Genome 14 pid 208509 evaluation started.
+[2025-10-25 18:44:04] Genome 19 pid 208514 evaluation started.
+[2025-10-25 18:44:04] Genome 13 pid 208508 evaluation started.
+[2025-10-25 18:44:04] Genome 4 pid 208499 evaluation started.
+[2025-10-25 18:44:04] Genome 8 pid 208503 evaluation started.
+[2025-10-25 18:44:04] Genome 5 pid 208500 evaluation started.
+[2025-10-25 18:44:04] Genome 2 pid 208497 evaluation started.
+[2025-10-25 18:44:04] Genome 18 pid 208513 evaluation started.
+[2025-10-25 18:44:04] Genome 11 pid 208506 evaluation started.
+[2025-10-25 18:44:04] Genome 15 pid 208510 evaluation started.
+[2025-10-25 18:44:04] Genome 1 pid 208496 evaluation started.
+[2025-10-25 18:44:04] Genome 9 pid 208504 evaluation started.
+[2025-10-25 18:44:04] Genome 7 pid 208502 evaluation started.
+[2025-10-25 18:44:04] Genome 17 pid 208512 evaluation started.
+[2025-10-25 18:44:04] Genome 16 pid 208511 evaluation started.
+[2025-10-25 18:44:04] Genome 12 pid 208507 evaluation started.
+[2025-10-25 18:44:05] Genome 6 pid 208501 evaluation started.
+[2025-10-25 18:44:05] Genome 3 pid 208498 evaluation started.
+2025-10-25 19:03:40 Gen 8: best loss so far = 0.7927
+[2025-10-25 19:04:24] Genome 11 pid 240606 evaluation started.
+[2025-10-25 19:04:24] Genome 14 pid 240609 evaluation started.
+[2025-10-25 19:04:24] Genome 3 pid 240598 evaluation started.
+[2025-10-25 19:04:24] Genome 8 pid 240603 evaluation started.
+[2025-10-25 19:04:24] Genome 9 pid 240604 evaluation started.
+[2025-10-25 19:04:24] Genome 19 pid 240614 evaluation started.
+[2025-10-25 19:04:24] Genome 7 pid 240602 evaluation started.
+[2025-10-25 19:04:24] Genome 15 pid 240610 evaluation started.
+[2025-10-25 19:04:24] Genome 13 pid 240608 evaluation started.
+[2025-10-25 19:04:24] Genome 0 pid 240595 evaluation started.
+[2025-10-25 19:04:24] Genome 6 pid 240601 evaluation started.
+[2025-10-25 19:04:24] Genome 12 pid 240607 evaluation started.
+[2025-10-25 19:04:24] Genome 1 pid 240596 evaluation started.
+[2025-10-25 19:04:24] Genome 18 pid 240613 evaluation started.
+[2025-10-25 19:04:24] Genome 16 pid 240611 evaluation started.
+[2025-10-25 19:04:24] Genome 17 pid 240612 evaluation started.
+[2025-10-25 19:04:24] Genome 2 pid 240597 evaluation started.
+[2025-10-25 19:04:24] Genome 10 pid 240605 evaluation started.
+[2025-10-25 19:04:24] Genome 4 pid 240599 evaluation started.
+[2025-10-25 19:04:24] Genome 5 pid 240600 evaluation started.
+2025-10-25 19:16:20 Gen 9: best loss so far = 0.7927
+[2025-10-25 19:17:05] Genome 2 pid 258288 evaluation started.
+[2025-10-25 19:17:05] Genome 11 pid 258297 evaluation started.
+[2025-10-25 19:17:05] Genome 10 pid 258296 evaluation started.
+[2025-10-25 19:17:05] Genome 3 pid 258289 evaluation started.
+[2025-10-25 19:17:05] Genome 5 pid 258291 evaluation started.
+[2025-10-25 19:17:05] Genome 8 pid 258294 evaluation started.
+[2025-10-25 19:17:05] Genome 4 pid 258290 evaluation started.
+[2025-10-25 19:17:05] Genome 6 pid 258292 evaluation started.
+[2025-10-25 19:17:05] Genome 17 pid 258303 evaluation started.
+[2025-10-25 19:17:05] Genome 15 pid 258301 evaluation started.
+[2025-10-25 19:17:05] Genome 19 pid 258305 evaluation started.
+[2025-10-25 19:17:05] Genome 0 pid 258286 evaluation started.
+[2025-10-25 19:17:05] Genome 14 pid 258300 evaluation started.
+[2025-10-25 19:17:05] Genome 13 pid 258299 evaluation started.
+[2025-10-25 19:17:05] Genome 1 pid 258287 evaluation started.
+[2025-10-25 19:17:05] Genome 12 pid 258298 evaluation started.
+[2025-10-25 19:17:05] Genome 18 pid 258304 evaluation started.
+[2025-10-25 19:17:05] Genome 16 pid 258302 evaluation started.
+[2025-10-25 19:17:05] Genome 9 pid 258295 evaluation started.
+[2025-10-25 19:17:05] Genome 7 pid 258293 evaluation started.
+2025-10-25 19:30:04 Gen 10: best loss so far = 0.7927
+─────────────────────────────────────────────
+🧠  Probabilistic Circuit Network Summary
+─────────────────────────────────────────────
+📦 Classes: 1
+📏 Input size: torch.Size([100, 256, 256])
+⚙️  Depth: 5, Branching: 3
+💻 Device: cpu
+─────────────────────────────────────────────
+📊 Node counts:
+  • InputNode      : 15
+  • SumNode        : 6
+  • ProductNode    : 8
+  • ClassifierNode : 1
+─────────────────────────────────────────────
+🧩 Trainable parameters: 166
+  • SumNode        : 16
+  • InputNode      : 105
+─────────────────────────────────────────────
+📚 Structure:Memory usage: 0.47 KB
+
+└─ ClassifierNode(classes=2)
+   ├─ ProductNode(children=2)
+   │  ├─ InputNode(feat_36)
+   │  └─ InputNode(feat_1)
+   └─ ProductNode(children=2)
+      ├─ InputNode(feat_43)
+      └─ SumNode(children=2, weights=2)
+         ├─ SumNode(children=3, weights=3)
+         │  ├─ ProductNode(children=2)
+         │  │  ├─ InputNode(feat_31)
+         │  │  └─ ProductNode(children=2)
+         │  │     ├─ InputNode(feat_23)
+         │  │     └─ InputNode(feat_47)
+         │  ├─ ProductNode(children=2)
+         │  │  ├─ SumNode(children=3, weights=3)
+         │  │  │  ├─ InputNode(feat_3)
+         │  │  │  ├─ InputNode(feat_24)
+         │  │  │  └─ InputNode(feat_16)
+         │  │  └─ SumNode(children=3, weights=3)
+         │  │     ├─ InputNode(feat_10)
+         │  │     ├─ InputNode(feat_75)
+         │  │     └─ InputNode(feat_47)
+         │  └─ InputNode(feat_80)
+         └─ ProductNode(children=2)
+            ├─ InputNode(feat_43)
+            └─ SumNode(children=3, weights=3)
+               ├─ ProductNode(children=2)
+               │  ├─ InputNode(feat_0)
+               │  └─ InputNode(feat_51)
+               ├─ ProductNode(children=2)
+               │  ├─ InputNode(feat_0)
+               │  └─ InputNode(feat_55)
+               └─ SumNode(children=2, weights=2)
+                  ├─ InputNode(feat_75)
+                  └─ InputNode(feat_51)
+─────────────────────────────────────────────
+History: [0.8660920262336731, 0.8173913359642029, 0.8163366317749023, 0.8036257028579712, 0.8185968995094299, 0.811506986618042, 0.8039864301681519, 0.7927230596542358, 0.7943204641342163, 0.7958208322525024]
+Best genome: [137, 96, 36, 252, 1, 101, 216, 243, 10, 30, 226, 217, 224, 0, 31, 227, 123, 247, 221, 175, 139, 3, 24, 116, 184, 211, 110, 75, 247, 117, 80, 113, 3, 43, 88, 235, 188, 200, 251, 191, 100, 255, 25, 168, 175, 251, 205, 158, 225, 122, 252, 64, 166, 231, 131, 84, 49, 74, 49, 125, 254, 150, 185, 126, 3, 21, 68, 62, 215, 215, 218, 163, 85, 5, 27, 23, 121, 221, 178, 118, 183, 41, 230, 128, 240, 38, 127, 118, 126, 114, 42, 97, 61, 241, 85, 129]
+CV Best Module: tensor([[[[-2.1286,  4.1980,  3.0721],
+          [ 3.2088, -2.9642, -0.4720],
+          [ 7.1533, -7.0010,  0.0638]],
+
+         [[ 0.9540, -1.9908, -6.1978],
+          [-2.7408,  1.7874,  4.2381],
+          [-1.4889,  0.0583,  0.3094]],
+
+         [[ 3.0052, -3.8823,  5.2081],
+          [-1.1396, -1.1254, -1.8828],
+          [-8.7451,  5.6340,  1.0574]]],
+
+
+        [[[-2.1286,  4.1980,  3.0721],
+          [ 3.2088, -2.9642, -0.4720],
+          [ 7.1533, -7.0010,  0.0638]],
+
+         [[ 0.9540, -1.9908, -6.1978],
+          [-2.7408,  1.7874,  4.2381],
+          [-1.4889,  0.0583,  0.3094]],
+
+         [[ 3.0052, -3.8823,  5.2081],
+          [-1.1396, -1.1254, -1.8828],
+          [-8.7451,  5.6340,  1.0574]]],
+
+
+        [[[-2.1286,  4.1980,  3.0721],
+          [ 3.2088, -2.9642, -0.4720],
+          [ 7.1533, -7.0010,  0.0638]],
+
+         [[ 0.9540, -1.9908, -6.1978],
+          [-2.7408,  1.7874,  4.2381],
+          [-1.4889,  0.0583,  0.3094]],
+
+         [[ 3.0052, -3.8823,  5.2081],
+          [-1.1396, -1.1254, -1.8828],
+          [-8.7451,  5.6340,  1.0574]]],
+
+
+        ...,
+
+
+        [[[-2.1286,  4.1980,  3.0721],
+          [ 3.2088, -2.9642, -0.4720],
+          [ 7.1533, -7.0010,  0.0638]],
+
+         [[ 0.9540, -1.9908, -6.1978],
+          [-2.7408,  1.7874,  4.2381],
+          [-1.4889,  0.0583,  0.3094]],
+
+         [[ 3.0052, -3.8823,  5.2081],
+          [-1.1396, -1.1254, -1.8828],
+          [-8.7451,  5.6340,  1.0574]]],
+
+
+        [[[-2.1286,  4.1980,  3.0721],
+          [ 3.2088, -2.9642, -0.4720],
+          [ 7.1533, -7.0010,  0.0638]],
+
+         [[ 0.9540, -1.9908, -6.1978],
+          [-2.7408,  1.7874,  4.2381],
+          [-1.4889,  0.0583,  0.3094]],
+
+         [[ 3.0052, -3.8823,  5.2081],
+          [-1.1396, -1.1254, -1.8828],
+          [-8.7451,  5.6340,  1.0574]]],
+
+
+        [[[-2.1286,  4.1980,  3.0721],
+          [ 3.2088, -2.9642, -0.4720],
+          [ 7.1533, -7.0010,  0.0638]],
+
+         [[ 0.9540, -1.9908, -6.1978],
+          [-2.7408,  1.7874,  4.2381],
+          [-1.4889,  0.0583,  0.3094]],
+
+         [[ 3.0052, -3.8823,  5.2081],
+          [-1.1396, -1.1254, -1.8828],
+          [-8.7451,  5.6340,  1.0574]]]])
+0	train	0.9897445026905306	0.013899064904718773
+ 	val	0.917786568403244	0.0722495811060071
+1	train	0.8979703880125477	0.04829438289086665
+ 	val	0.890591699630022	0.03717965492978692
+2	train	0.8856604281933077	0.03467841903048177
+ 	val	0.8852202966809273	0.03493403224274516
+3	train	0.880408723508158	0.03469822772087589
+ 	val	0.8812105022370815	0.03583656880073249
+4	train	0.8774508401270835	0.0357092502076299
+ 	val	0.8781331926584244	0.03700508666224778
+5	train	0.8739709152329352	0.03613813633039113
+ 	val	0.8758429028093815	0.03796681063249707
+6	train	0.8723931322174687	0.03718994521806317
+ 	val	0.8741637207567692	0.038740273914299905
+7	train	0.8712624772902458	0.0376282965524062
+ 	val	0.8729046657681465	0.039688220364041626
+8	train	0.8699796315162412	0.03870176974563829
+ 	val	0.8720560520887375	0.03976425598375499
+9	train	0.869652601980394	0.03837413914621838
+ 	val	0.8713138550519943	0.040502890828065574
+10	train	0.8680498715369932	0.03988999723186416
+ 	val	0.8707524947822094	0.04058815829921514
+11	train	0.8688752968465129	0.03951193890984981
+ 	val	0.8702824451029301	0.04086147772613913
+12	train	0.8673601467763224	0.04068700969219208
+ 	val	0.8699279986321926	0.04091438266914338
+13	train	0.8672125195303271	0.040822059847414494
+ 	val	0.8693640492856503	0.043377201771363616
+14	train	0.8649063312238262	0.04077692026452672
+ 	val	0.8690476939082146	0.04344799125101417
+15	train	0.8653632056328558	0.04362671269524482
+ 	val	0.8687421679496765	0.04435497336089611
+16	train	0.8650743672924657	0.043062386493529045
+ 	val	0.8685081228613853	0.044052309822291136
+17	train	0.8643792569637299	0.04211115254269492
+ 	val	0.8682066984474659	0.04468453989829868
+18	train	0.865095870148751	0.04356291211180149
+ 	val	0.8680528998374939	0.044362273649312556
+19	train	0.8661294329550958	0.043229151607280775
+ 	val	0.8677251040935516	0.045276669901795685
+20	train	0.864297075617698	0.044038420122477315
+ 	val	0.8675670735538006	0.044863705057650805
+21	train	0.8644589445283336	0.04308769951063779
+ 	val	0.8672632947564125	0.04506086918991059
+22	train	0.8628902262256991	0.04353311054048038
+ 	val	0.8670444674789906	0.045273461495526135
+23	train	0.8631000547639786	0.04392007050374823
+ 	val	0.8670288287103176	0.045064990990795195
+24	train	0.8638509137015189	0.04396561416046273
+ 	val	0.8669760264456272	0.04487018834333867
+25	train	0.8634922610175225	0.043915540490659974
+ 	val	0.86665403470397	0.045315219555050135
+26	train	0.8641538889177384	0.04435409872882789
+ 	val	0.8665884025394917	0.045268337591551244
+27	train	0.8624790224336809	0.043755117052745436
+ 	val	0.8665247820317745	0.04539640783332288
+28	train	0.8636987074728935	0.04438297014923826
+ 	val	0.8665688931941986	0.04511364293284714
+29	train	0.8621767518981811	0.04380719081288384
+ 	val	0.8663467168807983	0.04551055806223303
+30	train	0.8629364255935915	0.04436557709930405
+ 	val	0.8662801682949066	0.04554089275188744
+31	train	0.86259485636988	0.04379862754215156
+ 	val	0.8661990128457546	0.0457443764898926
+32	train	0.8623258413807038	0.04420760276937677
+ 	val	0.8663452155888081	0.04496814450249076
+33	train	0.8630196384845241	0.043953717055339965
+ 	val	0.8661569356918335	0.0457211754983291
+34	train	0.8627188436446651	0.04480747512030986
+ 	val	0.8661945424973965	0.04517294466495514
+35	train	0.8608751277769765	0.04463288806859524
+ 	val	0.8662727475166321	0.0447159914765507
+36	train	0.8618029759776208	0.04367561337928618
+ 	val	0.8660388141870499	0.04591188486665487
+37	train	0.8631594767493587	0.04442495122672089
+ 	val	0.8662445396184921	0.044805766083300114
+38	train	0.8628714036556983	0.04368579477792786
+ 	val	0.8661785908043385	0.04518069711048156
+39	train	0.8626731970617848	0.04409082134765002
+ 	val	0.8661249652504921	0.04499415087047964
+Final Training Loss: 0.8626731970617848, Dice: 0.4187623872872322, IoU: 0.34559760987758636, CL IoU: 0.04409082134765002
+Final Validation Loss: 0.8661249652504921, Dice: 0.4174893479794264, IoU: 0.3437641207128763, CL IoU: 0.04499415087047964
+Test Loss: 0.8215428531169892, Dice: 0.4178335577249527, IoU: 0.3451074331998825, CL IoU: 0.04357422605389729
+─────────────────────────────────────────────
+🧠  Probabilistic Circuit Network Summary
+─────────────────────────────────────────────
+📦 Classes: 1
+📏 Input size: torch.Size([100, 256, 256])
+⚙️  Depth: 5, Branching: 3
+💻 Device: cpu
+─────────────────────────────────────────────
+📊 Node counts:
+  • InputNode      : 15
+  • SumNode        : 6
+  • ProductNode    : 8
+  • ClassifierNode : 1
+─────────────────────────────────────────────
+🧩 Trainable parameters: 166
+  • SumNode        : 16
+  • InputNode      : 105
+─────────────────────────────────────────────
+📚 Structure:Memory usage: 0.47 KB
+
+└─ ClassifierNode(classes=2)
+   ├─ ProductNode(children=2)
+   │  ├─ InputNode(feat_0)
+   │  └─ InputNode(feat_8)
+   └─ ProductNode(children=2)
+      ├─ InputNode(feat_14)
+      └─ SumNode(children=2, weights=2)
+         ├─ SumNode(children=3, weights=3)
+         │  ├─ ProductNode(children=2)
+         │  │  ├─ InputNode(feat_7)
+         │  │  └─ ProductNode(children=2)
+         │  │     ├─ InputNode(feat_1)
+         │  │     └─ InputNode(feat_13)
+         │  ├─ ProductNode(children=2)
+         │  │  ├─ SumNode(children=3, weights=3)
+         │  │  │  ├─ InputNode(feat_2)
+         │  │  │  ├─ InputNode(feat_6)
+         │  │  │  └─ InputNode(feat_10)
+         │  │  └─ SumNode(children=3, weights=3)
+         │  │     ├─ InputNode(feat_9)
+         │  │     ├─ InputNode(feat_11)
+         │  │     └─ InputNode(feat_13)
+         │  └─ InputNode(feat_5)
+         └─ ProductNode(children=2)
+            ├─ InputNode(feat_14)
+            └─ SumNode(children=3, weights=3)
+               ├─ ProductNode(children=2)
+               │  ├─ InputNode(feat_12)
+               │  └─ InputNode(feat_3)
+               ├─ ProductNode(children=2)
+               │  ├─ InputNode(feat_12)
+               │  └─ InputNode(feat_4)
+               └─ SumNode(children=2, weights=2)
+                  ├─ InputNode(feat_11)
+                  └─ InputNode(feat_3)
+─────────────────────────────────────────────
