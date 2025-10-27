@@ -1,0 +1,19 @@
+Experiment Configurations: {'mlflow': None, 'experiment': 'crack_segmentation', 'algorithm': 'pcnet_ge', 'device': 'cpu', 'n_cpus': 4, 'data_path': 'data/GAPS384/train', 'test_path': 'data/GAPS384/test', 'save_path': 'models/', 'validation_split': 0.2, 'feature_extractor': 'cv_modules', 'cv_epochs': 10, 'epochs': 50, 'batch_size': 16, 'sample_size': 1000, 'test_size': 1000, 'resize_size': [256, 256], 'input_channels': 3, 'n_classes': 1, 'max_depth': 5, 'max_branching': 3, 'seed': 1000, 'filter_sizes': [15, 21], 'n_cv_modules': 10, 'n_filters': 100, 'ge': {'generations': 5, 'pop_size': 8, 'genome_len': 96, 'crossover_rate': 0.9, 'mutation_rate': 0.05, 'elite_k': 2, 'train_split': 0.1}, 'execution_mode': 'train', 'log_dir': 'logs/pcnet_ge/GAPS384/1000'}
+Dataset sizes: {'train': 376, 'val': 76, 'test': 28}
+[2025-10-27 13:27:59] Genome 3 pid 77479 evaluation started.
+[2025-10-27 13:27:59] Genome 0 pid 77476 evaluation started.
+[2025-10-27 13:27:59] Genome 1 pid 77477 evaluation started.
+[2025-10-27 13:27:59] Genome 2 pid 77478 evaluation started.
+[2025-10-27 13:32:23] Genome 6 pid 79407 evaluation started.
+[2025-10-27 13:32:23] Genome 5 pid 79406 evaluation started.
+[2025-10-27 13:32:23] Genome 4 pid 79405 evaluation started.
+[2025-10-27 13:32:23] Genome 7 pid 79408 evaluation started.
+2025-10-27 13:38:51 Gen 1: best loss so far = 0.9667
+[2025-10-27 13:38:56] Genome 0 pid 82297 evaluation started.
+[2025-10-27 13:38:56] Genome 3 pid 82300 evaluation started.
+[2025-10-27 13:38:56] Genome 1 pid 82298 evaluation started.
+[2025-10-27 13:38:56] Genome 2 pid 82299 evaluation started.
+[2025-10-27 13:41:08] Genome 4 pid 83323 evaluation started.
+[2025-10-27 13:41:08] Genome 6 pid 83325 evaluation started.
+[2025-10-27 13:41:08] Genome 7 pid 83326 evaluation started.
+[2025-10-27 13:41:08] Genome 5 pid 83324 evaluation started.

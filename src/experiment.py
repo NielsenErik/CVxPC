@@ -1786,13 +1786,24 @@ class ExperimentGEPC(ExperimentPC):
         print_info("Dataset size:", len(self.data))
         if self.execution_mode == "train":
             self.set_algorithm()
-
-            # 1st training step, find optimal structure
+            
 
             ge_train_size = int(self.ge_config["train_split"] * len(self.train_data))
-            
-            ge_X_train = torch.from_numpy(self.get_feature_tensor(np.array([self.train_data[i][0] for i in range(ge_train_size)]))).float().to(self.device)
-            ge_Y_train = torch.from_numpy(np.array([self.train_data[i][1] for i in range(ge_train_size)])).long().to(self.device)
+            print_info("GE Training size:", ge_train_size)
+            print_info(len(self.train_data))
+            ge_data = []
+            ge_masks = []
+            for i in range(ge_train_size):
+                try:
+                    x = self.train_data[i]
+                    ge_data.append(x[0])
+                    ge_masks.append(x[1])
+                except Exception as e:
+                    print_error(f"Error processing training sample {i}: {e}")
+            ge_data = np.array(ge_data)
+            ge_masks = np.array(ge_masks)
+            ge_X_train = torch.from_numpy(self.get_feature_tensor(ge_data)).float().to(self.device)
+            ge_Y_train = torch.from_numpy(ge_masks).long().to(self.device)
             self.set_criterion(ge_Y_train)
             best_pc, best_genome, history = self.ge.evolve(ge_X_train, ge_Y_train, criterion=self.criterion, generations = self.ge_config["generations"], n_classes=self.n_classes, train_steps=50, lr=self.learning_rate)
             print_info("Best genome:", best_genome)
@@ -1805,19 +1816,50 @@ class ExperimentGEPC(ExperimentPC):
             self.model = best_pc
             prune_features_idx = self.get_prune_features_idx(self.model)
             # 2nd training step, train the filters
-            cv_X_train = torch.from_numpy(np.array([self.train_data[i][0] for i in range(ge_train_size, 2*ge_train_size )])).float().to(self.device)
-            cv_Y_train = torch.from_numpy(np.array([self.train_data[i][1] for i in range(ge_train_size, 2*ge_train_size)])).long().to(self.device)
+            ge_data = []
+            ge_masks = []
+            for i in range(ge_train_size, 2*ge_train_size):
+                try:
+                    x = self.train_data[i]
+                    ge_data.append(x[0])
+                    ge_masks.append(x[1])
+                except Exception as e:
+                    print_error(f"Error processing training sample {i}: {e}")
+            ge_data = np.array(ge_data)
+            ge_masks = np.array(ge_masks)
+            cv_X_train = torch.from_numpy(self.get_feature_tensor(ge_data)).float().to(self.device)
+            cv_Y_train = torch.from_numpy(ge_masks).long().to(self.device)
 
             self.train_cv_modules(self.model, cv_X_train, cv_Y_train, prune_features=prune_features_idx, epochs=self.cv_epochs, lr=self.lr, n_cpus=self.n_cpus)
 
             with open(self.experiment_report, "a") as f:
                 f.write(f"CV Best Module: {self.cv_factory.best_module()}\n")
             f.close()
+            train_data = []
+            train_masks = []
+            for i in range(len(self.train_data)):
+                try:
+                    x = self.train_data[i]
+                    train_data.append(x[0])
+                    train_masks.append(x[1])
+                except Exception as e:
+                    print_error(f"Error processing training sample {i}: {e}")
 
-            self.feature_tensor = self.get_feature_tensor(np.array([self.train_data[i][0] for i in range(len(self.train_data))]), prune_features=prune_features_idx)
-            self.train_masks = np.array([self.train_data[i][1] for i in range(len(self.train_data))])
-            self.val_feature_tensor = self.get_feature_tensor(np.array([self.val_data[i][0] for i in range(len(self.val_data))]), prune_features=prune_features_idx)
-            self.val_masks = np.array([self.val_data[i][1] for i in range(len(self.val_data))]) if self.validation_split > 0 else None
+            self.feature_tensor = self.get_feature_tensor(np.array(train_data), prune_features=prune_features_idx)
+            self.train_masks = np.array(train_masks)
+
+            val_data = []
+            val_masks = []
+            for i in range(len(self.val_data)):
+                try:
+                    x = self.val_data[i]
+                    val_data.append(x[0])
+                    val_masks.append(x[1])
+                except Exception as e:
+                    print_error(f"Error processing validation sample {i}: {e}")
+
+            self.val_feature_tensor = self.get_feature_tensor(np.array(val_data), prune_features=prune_features_idx)
+            self.val_masks = np.array(val_masks)
             self.set_criterion(torch.from_numpy(self.train_masks).long().to(self.device))
             if self.device == "cuda":
                 self.model = self.train(self.model, epochs=self.epochs, lr=self.learning_rate, n_cpus=self.n_cpus)
