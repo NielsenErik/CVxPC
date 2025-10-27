@@ -13,8 +13,9 @@ def main():
     parser.add_argument("seed", type=int, help="Random seed to use")
     args = parser.parse_args()
     config = json.load(open(args.config))
+    dataset_name = config["data_path"].split("/")[1]
     config["seed"] = args.seed
-    config["log_dir"] = os.path.join("logs", config["algorithm"], str(config["seed"]))
+    config["log_dir"] = os.path.join("logs", config["algorithm"], dataset_name, str(config["seed"]))
     os.makedirs(config["log_dir"], exist_ok=True)
     json.dump(config, open(os.path.join(config["log_dir"], "config.json"), "w"), indent=4)
     set_up_mlflow(**config)

@@ -9,6 +9,7 @@ import torch.distributed as dist
 from torch.nn.parallel import DistributedDataParallel as DDP
 from torch.utils.data import DataLoader, DistributedSampler, TensorDataset
 import os
+import shutil
 
 def get_logdir_name():
     """
@@ -280,3 +281,62 @@ def all_gather_vector_robust(local_vec: torch.Tensor, pad_fill: float = float("i
 # --------- Round-robin sharding ---------
 def shard_indices(n_items, rank, world):
     return list(range(rank, n_items, world))
+
+def reorganize_dataset(datasetpath, datasetname):
+        # ============================================================
+    # Configuration
+    # ============================================================
+    root_dir = datasetpath
+    images_dir = os.path.join(root_dir, "images", datasetname)
+    masks_dir = os.path.join(root_dir, "masks", datasetname)
+    test_file = os.path.join(root_dir, "test.txt")
+
+    test_img_out = os.path.join(root_dir, "test", "images")
+    test_mask_out = os.path.join(root_dir, "test", "masks")
+    train_img_out = os.path.join(root_dir, "train", "images")
+    train_mask_out = os.path.join(root_dir, "train", "masks")
+
+    # ============================================================
+    # Create output folders
+    # ============================================================
+    for d in [test_img_out, test_mask_out, train_img_out, train_mask_out]:
+        os.makedirs(d, exist_ok=True)
+
+    # ============================================================
+    # Load test file list
+    # ============================================================
+    test_files = set()
+    with open(test_file, "r") as f:
+        for line in f:
+            img_path, mask_path = line.strip().split()
+            img_name = os.path.basename(img_path)
+            test_files.add(img_name)
+
+    print(f"[INFO] Loaded {len(test_files)} test files.")
+
+    # ============================================================
+    # Split dataset
+    # ============================================================
+    all_images = [f for f in os.listdir(images_dir) if f.lower().endswith(('.jpg', '.png'))]
+
+    for img_name in all_images:
+        mask_name = img_name  # same filename pattern for masks
+        mask_name = mask_name.replace(".jpg", ".png")
+
+        img_src = os.path.join(images_dir, img_name)
+        mask_src = os.path.join(masks_dir, mask_name)
+
+        if img_name in test_files:
+            img_dst = os.path.join(test_img_out, img_name)
+            mask_dst = os.path.join(test_mask_out, mask_name)
+        else:
+            img_dst = os.path.join(train_img_out, img_name)
+            mask_dst = os.path.join(train_mask_out, mask_name)
+
+        # copy (you can use move() instead if you prefer)
+        shutil.copy2(img_src, img_dst)
+        shutil.copy2(mask_src, mask_dst)
+
+    print(f"[DONE] Dataset reorganized:")
+    print(f"  → Train images: {len(os.listdir(train_img_out))}")
+    print(f"  → Test images:  {len(os.listdir(test_img_out))}")
