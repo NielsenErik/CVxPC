@@ -3,7 +3,7 @@
     "experiment": "crack_segmentation",
     "algorithm": "pcnet_ge",
     "device": "cpu",
-    "n_cpus": 40,
+    "n_cpus": 30,
     "data_path": "data/CrackSeg9k/train",
     "test_path": "data/CrackSeg9k/test",
     "save_path": "models/",
@@ -11,8 +11,8 @@
     "feature_extractor": "cv_modules",
     "epochs": 40,
     "batch_size": 96,
-    "sample_size": 8000,
-    "test_size": 1500,
+    "sample_size": 11000,
+    "test_size": 3500,
     "resize_size": [
         256,
         256

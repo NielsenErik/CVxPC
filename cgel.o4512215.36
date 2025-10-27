@@ -1,0 +1,1252 @@
+15:25:39 [[1m[94mCONFIGS[0m] Experiment Configurations: {'mlflow': None, 'experiment': 'crack_segmentation', 'algorithm': 'pcnet_ge', 'device': 'cpu', 'n_cpus': 30, 'data_path': 'data/CrackSeg9k/train', 'test_path': 'data/CrackSeg9k/test', 'save_path': 'models/', 'validation_split': 0.2, 'feature_extractor': 'cv_modules', 'epochs': 40, 'batch_size': 96, 'sample_size': 11000, 'test_size': 3500, 'resize_size': [256, 256], 'input_channels': 3, 'n_classes': 1, 'max_depth': 5, 'max_branching': 3, 'seed': 36, 'filter_sizes': [15, 21], 'n_cv_modules': 20, 'n_filters': 100, 'ge': {'generations': 10, 'pop_size': 20, 'genome_len': 96, 'crossover_rate': 0.9, 'mutation_rate': 0.05, 'elite_k': 2, 'train_split': 0.01}, 'execution_mode': 'train', 'log_dir': 'logs/pcnet_ge/36'}
+
+⚙️ Using 30 CPU cores (torch threads)
+15:25:39 [[1m[92mINFO[0m] Training samples: 5865, Validation samples: 1467
+
+15:25:39 [[1m[92mINFO[0m] Test samples: 1827
+
+15:25:39 [[1m[92mINFO[0m] Dataset size: 7332
+
+15:25:40 [[1m[92mINFO[0m] ⚙️ Using 20 processes for convolution module evaluation...
+
+15:25:40 [[1m[93mDEBUG[0m] Epoch 0
+
+15:25:55 [[1m[93mDEBUG[0m] [15:25:55] Worker 1 starting...
+
+15:25:55 [[1m[93mDEBUG[0m] [15:25:55] Worker 2 starting...
+
+15:25:55 [[1m[93mDEBUG[0m] [15:25:55] Worker 0 starting...
+
+15:25:55 [[1m[93mDEBUG[0m] [15:25:55] Worker 3 starting...
+
+15:25:55 [[1m[93mDEBUG[0m] [15:25:55] Worker 6 starting...
+
+15:25:56 [[1m[93mDEBUG[0m] [15:25:56] Worker 9 starting...
+
+15:25:56 [[1m[93mDEBUG[0m] [15:25:56] Worker 11 starting...
+
+15:25:55 [[1m[93mDEBUG[0m] [15:25:55] Worker 7 starting...
+
+15:25:56 [[1m[93mDEBUG[0m] [15:25:56] Worker 10 starting...
+
+15:25:55 [[1m[93mDEBUG[0m] [15:25:55] Worker 5 starting...
+
+15:25:56 [[1m[93mDEBUG[0m] [15:25:56] Worker 8 starting...
+
+15:25:56 [[1m[93mDEBUG[0m] [15:25:56] Worker 13 starting...
+
+15:25:56 [[1m[93mDEBUG[0m] [15:25:56] Worker 12 starting...
+
+15:25:55 [[1m[93mDEBUG[0m] [15:25:55] Worker 4 starting...
+
+15:25:57 [[1m[93mDEBUG[0m] [15:25:57] Worker 15 starting...
+
+15:25:57 [[1m[93mDEBUG[0m] [15:25:57] Worker 18 starting...
+
+15:25:57 [[1m[93mDEBUG[0m] [15:25:57] Worker 16 starting...
+
+15:25:56 [[1m[93mDEBUG[0m] [15:25:56] Worker 14 starting...
+
+15:25:57 [[1m[93mDEBUG[0m] [15:25:57] Worker 19 starting...
+
+15:26:01 [[1m[93mDEBUG[0m] Module fitness values: [11.033804893493652, 3.888207197189331, 1.6310001611709595, 1.438198447227478, 4.586266994476318, 3.5078821182250977, 15.538928031921387, 9.363785743713379, 19.635791778564453, 2.2861833572387695, 2.543585777282715, 2.8145546913146973, 0.9482105374336243, 1.8335700035095215, 0.8817881345748901, 1.1477373838424683, 29.240686416625977, 3.7839083671569824, 8.673251152038574, 6.497745990753174]
+
+New best fitness:  29.240686416625977
+15:26:01 [[1m[93mDEBUG[0m] Epoch 1
+
+15:26:17 [[1m[93mDEBUG[0m] [15:26:17] Worker 0 starting...
+
+15:26:17 [[1m[93mDEBUG[0m] [15:26:17] Worker 1 starting...
+
+15:26:18 [[1m[93mDEBUG[0m] [15:26:18] Worker 7 starting...
+
+15:26:17 [[1m[93mDEBUG[0m] [15:26:17] Worker 2 starting...
+
+15:26:18 [[1m[93mDEBUG[0m] [15:26:18] Worker 8 starting...
+
+15:26:17 [[1m[93mDEBUG[0m] [15:26:17] Worker 4 starting...
+
+15:26:18 [[1m[93mDEBUG[0m] [15:26:18] Worker 10 starting...
+
+15:26:18 [[1m[93mDEBUG[0m] [15:26:18] Worker 9 starting...
+
+15:26:17 [[1m[93mDEBUG[0m] [15:26:17] Worker 3 starting...
+
+15:26:18 [[1m[93mDEBUG[0m] [15:26:18] Worker 12 starting...
+
+15:26:17 [[1m[93mDEBUG[0m] [15:26:17] Worker 5 starting...
+
+15:26:17 [[1m[93mDEBUG[0m] [15:26:17] Worker 6 starting...
+
+15:26:18 [[1m[93mDEBUG[0m] [15:26:18] Worker 13 starting...
+
+15:26:19 [[1m[93mDEBUG[0m] [15:26:19] Worker 17 starting...
+
+15:26:19 [[1m[93mDEBUG[0m] [15:26:19] Worker 15 starting...
+
+15:26:18 [[1m[93mDEBUG[0m] [15:26:18] Worker 14 starting...
+
+15:26:19 [[1m[93mDEBUG[0m] [15:26:19] Worker 16 starting...
+
+15:26:19 [[1m[93mDEBUG[0m] [15:26:19] Worker 18 starting...
+
+15:26:18 [[1m[93mDEBUG[0m] [15:26:18] Worker 11 starting...
+
+15:26:23 [[1m[93mDEBUG[0m] Module fitness values: [3.4122416973114014, 2.3165886402130127, 11.859091758728027, 1.9739854335784912, 1.837059736251831, 5.641106605529785, 3.9736735820770264, 3.5749003887176514, 8.613539695739746, 4.178411483764648, 10.80488109588623, 7.071112632751465, 3.0391294956207275, 1.170938491821289, 4.73263692855835, 5.748776912689209, 3.4300122261047363, 4.290153980255127, 0.6636422276496887, 7.533509731292725]
+
+15:26:23 [[1m[93mDEBUG[0m] Epoch 2
+
+15:26:41 [[1m[93mDEBUG[0m] [15:26:41] Worker 1 starting...
+
+15:26:41 [[1m[93mDEBUG[0m] [15:26:41] Worker 0 starting...
+
+15:26:41 [[1m[93mDEBUG[0m] [15:26:41] Worker 2 starting...
+
+15:26:41 [[1m[93mDEBUG[0m] [15:26:41] Worker 3 starting...
+
+15:26:41 [[1m[93mDEBUG[0m] [15:26:41] Worker 7 starting...
+
+15:26:41 [[1m[93mDEBUG[0m] [15:26:41] Worker 5 starting...
+
+15:26:42 [[1m[93mDEBUG[0m] [15:26:42] Worker 10 starting...
+
+15:26:42 [[1m[93mDEBUG[0m] [15:26:42] Worker 11 starting...
+
+15:26:41 [[1m[93mDEBUG[0m] [15:26:41] Worker 8 starting...
+
+15:26:42 [[1m[93mDEBUG[0m] [15:26:42] Worker 12 starting...
+
+15:26:42 [[1m[93mDEBUG[0m] [15:26:42] Worker 13 starting...
+
+15:26:42 [[1m[93mDEBUG[0m] [15:26:42] Worker 14 starting...
+
+15:26:41 [[1m[93mDEBUG[0m] [15:26:41] Worker 4 starting...
+
+15:26:42 [[1m[93mDEBUG[0m] [15:26:42] Worker 15 starting...
+
+15:26:43 [[1m[93mDEBUG[0m] [15:26:43] Worker 17 starting...
+
+15:26:41 [[1m[93mDEBUG[0m] [15:26:41] Worker 6 starting...
+
+15:26:43 [[1m[93mDEBUG[0m] [15:26:43] Worker 19 starting...
+
+15:26:43 [[1m[93mDEBUG[0m] [15:26:43] Worker 18 starting...
+
+15:26:42 [[1m[93mDEBUG[0m] [15:26:42] Worker 9 starting...
+
+15:26:47 [[1m[93mDEBUG[0m] Module fitness values: [1.6723058223724365, 1.4309053421020508, 1.371472716331482, 1.7419847249984741, 7.786019802093506, 2.3780510425567627, 1.9362123012542725, 0.7292180061340332, 3.674544334411621, 3.5933139324188232, 1.903031349182129, 21.342199325561523, 7.683278560638428, 0.6673800349235535, 1.3368772268295288, 2.115379571914673, 0.6772773265838623, 3.4023027420043945, 2.0091164112091064, 6.481749057769775]
+
+15:26:47 [[1m[93mDEBUG[0m] Epoch 3
+
+15:27:03 [[1m[93mDEBUG[0m] [15:27:03] Worker 4 starting...
+
+15:27:03 [[1m[93mDEBUG[0m] [15:27:03] Worker 5 starting...
+
+15:27:04 [[1m[93mDEBUG[0m] [15:27:04] Worker 9 starting...
+
+15:27:03 [[1m[93mDEBUG[0m] [15:27:03] Worker 6 starting...
+
+15:27:03 [[1m[93mDEBUG[0m] [15:27:03] Worker 0 starting...
+
+15:27:04 [[1m[93mDEBUG[0m] [15:27:04] Worker 12 starting...
+
+15:27:03 [[1m[93mDEBUG[0m] [15:27:03] Worker 2 starting...
+
+15:27:04 [[1m[93mDEBUG[0m] [15:27:04] Worker 13 starting...
+
+15:27:03 [[1m[93mDEBUG[0m] [15:27:03] Worker 8 starting...
+
+15:27:03 [[1m[93mDEBUG[0m] [15:27:03] Worker 7 starting...
+
+15:27:03 [[1m[93mDEBUG[0m] [15:27:03] Worker 1 starting...
+
+15:27:04 [[1m[93mDEBUG[0m] [15:27:04] Worker 11 starting...
+
+15:27:04 [[1m[93mDEBUG[0m] [15:27:04] Worker 15 starting...
+
+15:27:03 [[1m[93mDEBUG[0m] [15:27:03] Worker 3 starting...
+
+15:27:04 [[1m[93mDEBUG[0m] [15:27:04] Worker 14 starting...
+
+15:27:05 [[1m[93mDEBUG[0m] [15:27:05] Worker 19 starting...
+
+15:27:05 [[1m[93mDEBUG[0m] [15:27:05] Worker 18 starting...
+
+15:27:04 [[1m[93mDEBUG[0m] [15:27:04] Worker 10 starting...
+
+15:27:05 [[1m[93mDEBUG[0m] [15:27:05] Worker 17 starting...
+
+15:27:09 [[1m[93mDEBUG[0m] Module fitness values: [3.5231785774230957, 3.9717507362365723, 1.391853928565979, 3.213392734527588, 2.8253424167633057, 9.585912704467773, 8.33565902709961, 10.946593284606934, 2.2377586364746094, 3.5908854007720947, 3.4740984439849854, 1.3252272605895996, 5.420890808105469, 3.9371278285980225, 3.2243268489837646, 7.359344005584717, 1.5182859897613525, 2.996673345565796, 1.826067328453064, 2.2503955364227295]
+
+15:27:09 [[1m[93mDEBUG[0m] Epoch 4
+
+15:27:24 [[1m[93mDEBUG[0m] [15:27:24] Worker 0 starting...
+
+15:27:24 [[1m[93mDEBUG[0m] [15:27:24] Worker 1 starting...
+
+15:27:24 [[1m[93mDEBUG[0m] [15:27:24] Worker 4 starting...
+
+15:27:24 [[1m[93mDEBUG[0m] [15:27:24] Worker 5 starting...
+
+15:27:25 [[1m[93mDEBUG[0m] [15:27:25] Worker 7 starting...
+
+15:27:25 [[1m[93mDEBUG[0m] [15:27:25] Worker 8 starting...
+
+15:27:26 [[1m[93mDEBUG[0m] [15:27:26] Worker 14 starting...
+
+15:27:25 [[1m[93mDEBUG[0m] [15:27:25] Worker 12 starting...
+
+15:27:25 [[1m[93mDEBUG[0m] [15:27:25] Worker 13 starting...
+
+15:27:26 [[1m[93mDEBUG[0m] [15:27:26] Worker 16 starting...
+
+15:27:26 [[1m[93mDEBUG[0m] [15:27:26] Worker 15 starting...
+
+15:27:25 [[1m[93mDEBUG[0m] [15:27:25] Worker 6 starting...
+
+15:27:26 [[1m[93mDEBUG[0m] [15:27:26] Worker 19 starting...
+
+15:27:26 [[1m[93mDEBUG[0m] [15:27:26] Worker 17 starting...
+
+15:27:25 [[1m[93mDEBUG[0m] [15:27:25] Worker 9 starting...
+
+15:27:25 [[1m[93mDEBUG[0m] [15:27:25] Worker 10 starting...
+
+15:27:24 [[1m[93mDEBUG[0m] [15:27:24] Worker 2 starting...
+
+15:27:24 [[1m[93mDEBUG[0m] [15:27:24] Worker 3 starting...
+
+15:27:30 [[1m[93mDEBUG[0m] Module fitness values: [2.447049856185913, 2.0457353591918945, 0.6032042503356934, 3.2571051120758057, 2.0456581115722656, 0.646056056022644, 1.0541527271270752, 2.5558054447174072, 4.650373458862305, 9.447243690490723, 1.3662071228027344, 1.9043933153152466, 4.101590633392334, 4.3759379386901855, 19.10979461669922, 2.784318685531616, 0.48612457513809204, 0.18884466588497162, 2.9871773719787598, 2.1695587635040283]
+
+15:27:32 [[1m[93mDEBUG[0m] Convolution module features shape: (58, 100, 256, 256), value range: -1.621129035949707 to 46.72821044921875, var: 29.240686416625977
+
+15:27:50 [[1m[92mINFO[0m] 🧬 Generation 1/10 (evaluating 20 genomes in parallel)
+
+15:27:50 [[1m[92mINFO[0m] 🧬 Evaluating population of size 20 using 20 parallel processes.
+
+15:28:05 [[1m[93mDEBUG[0m] Genome 7 (pid 95455) evaluation started.
+
+15:30:05 [[1m[92mINFO[0m]     - Genome 7 loss: 0.9010, clIoU: 0.0119, 
+
+15:28:05 [[1m[93mDEBUG[0m] Genome 16 (pid 95464) evaluation started.
+
+15:30:10 [[1m[92mINFO[0m]     - Genome 16 loss: 0.9031, clIoU: 0.0116, 
+
+15:28:05 [[1m[93mDEBUG[0m] Genome 6 (pid 95454) evaluation started.
+
+15:30:19 [[1m[92mINFO[0m]     - Genome 6 loss: 0.9025, clIoU: 0.0118, 
+
+15:28:04 [[1m[93mDEBUG[0m] Genome 8 (pid 95456) evaluation started.
+
+15:30:34 [[1m[92mINFO[0m]     - Genome 8 loss: 0.9904, clIoU: 0.0000, 
+
+15:28:04 [[1m[93mDEBUG[0m] Genome 10 (pid 95458) evaluation started.
+
+15:31:30 [[1m[92mINFO[0m]     - Genome 10 loss: 1.2585, clIoU: 0.0000, 
+
+15:28:05 [[1m[93mDEBUG[0m] Genome 17 (pid 95465) evaluation started.
+
+15:31:59 [[1m[92mINFO[0m]     - Genome 17 loss: 1.2998, clIoU: 0.0000, 
+
+15:28:05 [[1m[93mDEBUG[0m] Genome 2 (pid 95450) evaluation started.
+
+15:33:04 [[1m[92mINFO[0m]     - Genome 2 loss: 1.4980, clIoU: 0.0000, 
+
+15:28:05 [[1m[93mDEBUG[0m] Genome 1 (pid 95449) evaluation started.
+
+15:33:19 [[1m[92mINFO[0m]     - Genome 1 loss: 0.9061, clIoU: 0.0112, 
+
+15:28:04 [[1m[93mDEBUG[0m] Genome 3 (pid 95451) evaluation started.
+
+15:34:36 [[1m[92mINFO[0m]     - Genome 3 loss: 2.5189, clIoU: 0.0000, 
+
+15:28:05 [[1m[93mDEBUG[0m] Genome 13 (pid 95461) evaluation started.
+
+15:35:07 [[1m[92mINFO[0m]     - Genome 13 loss: 1.1359, clIoU: 0.0000, 
+
+15:28:05 [[1m[93mDEBUG[0m] Genome 12 (pid 95460) evaluation started.
+
+15:35:34 [[1m[92mINFO[0m]     - Genome 12 loss: 1.2885, clIoU: 0.0000, 
+
+15:28:05 [[1m[93mDEBUG[0m] Genome 9 (pid 95457) evaluation started.
+
+15:35:47 [[1m[92mINFO[0m]     - Genome 9 loss: 1.3723, clIoU: 0.0000, 
+
+15:28:05 [[1m[93mDEBUG[0m] Genome 19 (pid 95467) evaluation started.
+
+15:35:53 [[1m[92mINFO[0m]     - Genome 19 loss: 2.9766, clIoU: 0.0000, 
+
+15:28:05 [[1m[93mDEBUG[0m] Genome 18 (pid 95466) evaluation started.
+
+15:36:20 [[1m[92mINFO[0m]     - Genome 18 loss: 0.9260, clIoU: 0.0146, 
+
+15:28:04 [[1m[93mDEBUG[0m] Genome 0 (pid 95448) evaluation started.
+
+15:38:54 [[1m[92mINFO[0m]     - Genome 0 loss: 1.1421, clIoU: 0.0000, 
+
+15:28:04 [[1m[93mDEBUG[0m] Genome 11 (pid 95459) evaluation started.
+
+15:39:06 [[1m[92mINFO[0m]     - Genome 11 loss: 0.8769, clIoU: 0.0209, 
+
+15:28:04 [[1m[93mDEBUG[0m] Genome 15 (pid 95463) evaluation started.
+
+15:41:15 [[1m[92mINFO[0m]     - Genome 15 loss: 4.2309, clIoU: 0.0000, 
+
+15:28:05 [[1m[93mDEBUG[0m] Genome 5 (pid 95453) evaluation started.
+
+15:42:12 [[1m[92mINFO[0m]     - Genome 5 loss: 6.0121, clIoU: 0.0000, 
+
+15:28:05 [[1m[93mDEBUG[0m] Genome 14 (pid 95462) evaluation started.
+
+15:42:51 [[1m[92mINFO[0m]     - Genome 14 loss: 2.8367, clIoU: 0.0000, 
+
+15:28:05 [[1m[93mDEBUG[0m] Genome 4 (pid 95452) evaluation started.
+
+15:43:59 [[1m[92mINFO[0m]     - Genome 4 loss: 0.8781, clIoU: 0.0173, 
+
+15:44:01 [[1m[92mINFO[0m] 🧬 Population evaluation complete — losses: [1.1421359777450562, 0.9061332941055298, 1.4979760646820068, 2.518873929977417, 0.8781274557113647, 6.012120723724365, 0.9025301933288574, 0.9010124802589417, 0.9904247522354126, 1.372333288192749, 1.2584906816482544, 0.8768810629844666, 1.2884963750839233, 1.135934829711914, 2.8367037773132324, 4.230915546417236, 0.9031329154968262, 1.2998342514038086, 0.9260340929031372, 2.976590871810913]
+
+15:44:01 [[1m[92mINFO[0m] ✅ Gen 1: best loss so far = 0.8769
+
+15:44:01 [[1m[92mINFO[0m] 🧬 Generation 2/10 (evaluating 20 genomes in parallel)
+
+15:44:01 [[1m[92mINFO[0m] 🧬 Evaluating population of size 20 using 20 parallel processes.
+
+15:44:23 [[1m[93mDEBUG[0m] Genome 17 (pid 7006) evaluation started.
+
+15:46:33 [[1m[92mINFO[0m]     - Genome 17 loss: 0.9028, clIoU: 0.0120, 
+
+15:44:23 [[1m[93mDEBUG[0m] Genome 14 (pid 7003) evaluation started.
+
+15:47:03 [[1m[92mINFO[0m]     - Genome 14 loss: 0.9010, clIoU: 0.0119, 
+
+15:44:23 [[1m[93mDEBUG[0m] Genome 6 (pid 6995) evaluation started.
+
+15:47:09 [[1m[92mINFO[0m]     - Genome 6 loss: 0.9025, clIoU: 0.0118, 
+
+15:44:23 [[1m[93mDEBUG[0m] Genome 7 (pid 6996) evaluation started.
+
+15:47:09 [[1m[92mINFO[0m]     - Genome 7 loss: 0.9010, clIoU: 0.0119, 
+
+15:44:23 [[1m[93mDEBUG[0m] Genome 13 (pid 7002) evaluation started.
+
+15:47:19 [[1m[92mINFO[0m]     - Genome 13 loss: 0.9927, clIoU: 0.0000, 
+
+15:44:23 [[1m[93mDEBUG[0m] Genome 15 (pid 7004) evaluation started.
+
+15:51:20 [[1m[92mINFO[0m]     - Genome 15 loss: 1.0084, clIoU: 0.0000, 
+
+15:44:23 [[1m[93mDEBUG[0m] Genome 11 (pid 7000) evaluation started.
+
+15:51:58 [[1m[92mINFO[0m]     - Genome 11 loss: 2.4529, clIoU: 0.0000, 
+
+15:44:23 [[1m[93mDEBUG[0m] Genome 4 (pid 6993) evaluation started.
+
+15:52:05 [[1m[92mINFO[0m]     - Genome 4 loss: 0.9062, clIoU: 0.0110, 
+
+15:44:23 [[1m[93mDEBUG[0m] Genome 5 (pid 6994) evaluation started.
+
+15:52:58 [[1m[92mINFO[0m]     - Genome 5 loss: 1.0830, clIoU: 0.0000, 
+
+15:44:23 [[1m[93mDEBUG[0m] Genome 18 (pid 7007) evaluation started.
+
+15:53:21 [[1m[92mINFO[0m]     - Genome 18 loss: 1.7699, clIoU: 0.0000, 
+
+15:44:23 [[1m[93mDEBUG[0m] Genome 10 (pid 6999) evaluation started.
+
+15:53:28 [[1m[92mINFO[0m]     - Genome 10 loss: 1.1356, clIoU: 0.0000, 
+
+15:44:23 [[1m[93mDEBUG[0m] Genome 19 (pid 7008) evaluation started.
+
+15:54:33 [[1m[92mINFO[0m]     - Genome 19 loss: 1.5662, clIoU: 0.0000, 
+
+15:44:23 [[1m[93mDEBUG[0m] Genome 16 (pid 7005) evaluation started.
+
+15:55:16 [[1m[92mINFO[0m]     - Genome 16 loss: 0.8916, clIoU: 0.0147, 
+
+15:44:23 [[1m[93mDEBUG[0m] Genome 9 (pid 6998) evaluation started.
+
+15:55:26 [[1m[92mINFO[0m]     - Genome 9 loss: 2.3196, clIoU: 0.0000, 
+
+15:44:23 [[1m[93mDEBUG[0m] Genome 12 (pid 7001) evaluation started.
+
+15:56:09 [[1m[92mINFO[0m]     - Genome 12 loss: 0.9949, clIoU: 0.0000, 
+
+15:44:23 [[1m[93mDEBUG[0m] Genome 0 (pid 6989) evaluation started.
+
+15:44:26 [[1m[93mDEBUG[0m] Weight load failed: The size of tensor a (3) must match the size of tensor b (2) at non-singleton dimension 0
+
+15:58:37 [[1m[92mINFO[0m]     - Genome 0 loss: 0.8748, clIoU: 0.0223, 
+
+15:44:23 [[1m[93mDEBUG[0m] Genome 2 (pid 6991) evaluation started.
+
+15:59:21 [[1m[92mINFO[0m]     - Genome 2 loss: 1.0192, clIoU: 0.0102, 
+
+15:44:24 [[1m[93mDEBUG[0m] Genome 8 (pid 6997) evaluation started.
+
+16:00:14 [[1m[92mINFO[0m]     - Genome 8 loss: 0.8200, clIoU: 0.0335, 
+
+15:44:23 [[1m[93mDEBUG[0m] Genome 1 (pid 6990) evaluation started.
+
+15:44:26 [[1m[93mDEBUG[0m] Weight load failed: The size of tensor a (2) must match the size of tensor b (3) at non-singleton dimension 0
+
+16:00:40 [[1m[92mINFO[0m]     - Genome 1 loss: 0.8778, clIoU: 0.0176, 
+
+15:44:23 [[1m[93mDEBUG[0m] Genome 3 (pid 6992) evaluation started.
+
+16:03:20 [[1m[92mINFO[0m]     - Genome 3 loss: 1.2108, clIoU: 0.0000, 
+
+16:03:22 [[1m[92mINFO[0m] 🧬 Population evaluation complete — losses: [0.8747841715812683, 0.8777788877487183, 1.019187092781067, 1.210760474205017, 0.9061620831489563, 1.083013892173767, 0.9025301933288574, 0.9010124802589417, 0.82001793384552, 2.3195948600769043, 1.1356456279754639, 2.452885866165161, 0.9949147701263428, 0.9926728010177612, 0.9010313153266907, 1.008366584777832, 0.8916090726852417, 0.9027704000473022, 1.7698689699172974, 1.5661762952804565]
+
+16:03:22 [[1m[92mINFO[0m] ✅ Gen 2: best loss so far = 0.8200
+
+16:03:22 [[1m[92mINFO[0m] 🧬 Generation 3/10 (evaluating 20 genomes in parallel)
+
+16:03:22 [[1m[92mINFO[0m] 🧬 Evaluating population of size 20 using 20 parallel processes.
+
+16:03:39 [[1m[93mDEBUG[0m] Genome 9 (pid 16248) evaluation started.
+
+16:05:46 [[1m[92mINFO[0m]     - Genome 9 loss: 0.9034, clIoU: 0.0120, 
+
+16:03:39 [[1m[93mDEBUG[0m] Genome 4 (pid 16243) evaluation started.
+
+16:05:58 [[1m[92mINFO[0m]     - Genome 4 loss: 0.9032, clIoU: 0.0119, 
+
+16:03:39 [[1m[93mDEBUG[0m] Genome 16 (pid 16255) evaluation started.
+
+16:06:02 [[1m[92mINFO[0m]     - Genome 16 loss: 0.9031, clIoU: 0.0116, 
+
+16:03:39 [[1m[93mDEBUG[0m] Genome 13 (pid 16252) evaluation started.
+
+16:06:04 [[1m[92mINFO[0m]     - Genome 13 loss: 0.9006, clIoU: 0.0117, 
+
+16:03:39 [[1m[93mDEBUG[0m] Genome 15 (pid 16254) evaluation started.
+
+16:06:05 [[1m[92mINFO[0m]     - Genome 15 loss: 0.9021, clIoU: 0.0120, 
+
+16:03:39 [[1m[93mDEBUG[0m] Genome 7 (pid 16246) evaluation started.
+
+16:07:09 [[1m[92mINFO[0m]     - Genome 7 loss: 1.2761, clIoU: 0.0000, 
+
+16:03:39 [[1m[93mDEBUG[0m] Genome 19 (pid 16258) evaluation started.
+
+16:09:31 [[1m[92mINFO[0m]     - Genome 19 loss: 0.9292, clIoU: 0.0083, 
+
+16:03:39 [[1m[93mDEBUG[0m] Genome 17 (pid 16256) evaluation started.
+
+16:09:51 [[1m[92mINFO[0m]     - Genome 17 loss: 1.0352, clIoU: 0.0000, 
+
+16:03:39 [[1m[93mDEBUG[0m] Genome 10 (pid 16249) evaluation started.
+
+16:11:16 [[1m[92mINFO[0m]     - Genome 10 loss: 0.9141, clIoU: 0.0098, 
+
+16:03:39 [[1m[93mDEBUG[0m] Genome 5 (pid 16244) evaluation started.
+
+16:11:21 [[1m[92mINFO[0m]     - Genome 5 loss: 1.0925, clIoU: 0.0000, 
+
+16:03:39 [[1m[93mDEBUG[0m] Genome 12 (pid 16251) evaluation started.
+
+16:14:20 [[1m[92mINFO[0m]     - Genome 12 loss: 0.9709, clIoU: 0.0000, 
+
+16:03:39 [[1m[93mDEBUG[0m] Genome 3 (pid 16242) evaluation started.
+
+16:14:46 [[1m[92mINFO[0m]     - Genome 3 loss: 1.2823, clIoU: 0.0000, 
+
+16:03:39 [[1m[93mDEBUG[0m] Genome 11 (pid 16250) evaluation started.
+
+16:15:28 [[1m[92mINFO[0m]     - Genome 11 loss: 0.8197, clIoU: 0.0349, 
+
+16:03:39 [[1m[93mDEBUG[0m] Genome 8 (pid 16247) evaluation started.
+
+16:15:39 [[1m[92mINFO[0m]     - Genome 8 loss: 0.8204, clIoU: 0.0345, 
+
+16:03:39 [[1m[93mDEBUG[0m] Genome 14 (pid 16253) evaluation started.
+
+16:15:39 [[1m[92mINFO[0m]     - Genome 14 loss: 2.3022, clIoU: 0.0000, 
+
+16:03:39 [[1m[93mDEBUG[0m] Genome 1 (pid 16240) evaluation started.
+
+16:03:43 [[1m[93mDEBUG[0m] Weight load failed: The size of tensor a (2) must match the size of tensor b (3) at non-singleton dimension 0
+
+16:16:31 [[1m[92mINFO[0m]     - Genome 1 loss: 0.8753, clIoU: 0.0207, 
+
+16:03:39 [[1m[93mDEBUG[0m] Genome 6 (pid 16245) evaluation started.
+
+16:16:34 [[1m[92mINFO[0m]     - Genome 6 loss: 0.8234, clIoU: 0.0983, 
+
+16:03:39 [[1m[93mDEBUG[0m] Genome 18 (pid 16257) evaluation started.
+
+16:17:14 [[1m[92mINFO[0m]     - Genome 18 loss: 0.9299, clIoU: 0.0085, 
+
+16:03:39 [[1m[93mDEBUG[0m] Genome 0 (pid 16239) evaluation started.
+
+16:03:42 [[1m[93mDEBUG[0m] Weight load failed: The size of tensor a (3) must match the size of tensor b (2) at non-singleton dimension 0
+
+16:17:16 [[1m[92mINFO[0m]     - Genome 0 loss: 0.8236, clIoU: 0.0300, 
+
+16:03:39 [[1m[93mDEBUG[0m] Genome 2 (pid 16241) evaluation started.
+
+16:20:43 [[1m[92mINFO[0m]     - Genome 2 loss: 3.7095, clIoU: 0.0000, 
+
+16:20:46 [[1m[92mINFO[0m] 🧬 Population evaluation complete — losses: [0.823602020740509, 0.8752742409706116, 3.7095134258270264, 1.2823190689086914, 0.9032356142997742, 1.0925434827804565, 0.8234457969665527, 1.2760839462280273, 0.8204057812690735, 0.9034308195114136, 0.9141015410423279, 0.819680392742157, 0.9708718061447144, 0.9005646705627441, 2.3022139072418213, 0.9020967483520508, 0.9031329154968262, 1.0351811647415161, 0.9299259185791016, 0.9291722178459167]
+
+16:20:46 [[1m[92mINFO[0m] ✅ Gen 3: best loss so far = 0.8197
+
+16:20:46 [[1m[92mINFO[0m] 🧬 Generation 4/10 (evaluating 20 genomes in parallel)
+
+16:20:46 [[1m[92mINFO[0m] 🧬 Evaluating population of size 20 using 20 parallel processes.
+
+16:21:04 [[1m[93mDEBUG[0m] Genome 7 (pid 20151) evaluation started.
+
+16:23:33 [[1m[92mINFO[0m]     - Genome 7 loss: 0.9010, clIoU: 0.0119, 
+
+16:21:04 [[1m[93mDEBUG[0m] Genome 2 (pid 20146) evaluation started.
+
+16:23:33 [[1m[92mINFO[0m]     - Genome 2 loss: 0.9028, clIoU: 0.0115, 
+
+16:21:04 [[1m[93mDEBUG[0m] Genome 10 (pid 20154) evaluation started.
+
+16:23:36 [[1m[92mINFO[0m]     - Genome 10 loss: 0.9030, clIoU: 0.0120, 
+
+16:21:04 [[1m[93mDEBUG[0m] Genome 16 (pid 20160) evaluation started.
+
+16:24:02 [[1m[92mINFO[0m]     - Genome 16 loss: 0.9031, clIoU: 0.0116, 
+
+16:21:04 [[1m[93mDEBUG[0m] Genome 3 (pid 20147) evaluation started.
+
+16:27:25 [[1m[92mINFO[0m]     - Genome 3 loss: 0.9300, clIoU: 0.0085, 
+
+16:21:04 [[1m[93mDEBUG[0m] Genome 13 (pid 20157) evaluation started.
+
+16:28:51 [[1m[92mINFO[0m]     - Genome 13 loss: 0.9139, clIoU: 0.0099, 
+
+16:21:04 [[1m[93mDEBUG[0m] Genome 19 (pid 20163) evaluation started.
+
+16:29:00 [[1m[92mINFO[0m]     - Genome 19 loss: 0.9138, clIoU: 0.0104, 
+
+16:21:04 [[1m[93mDEBUG[0m] Genome 6 (pid 20150) evaluation started.
+
+16:32:14 [[1m[92mINFO[0m]     - Genome 6 loss: 1.5305, clIoU: 0.0000, 
+
+16:21:04 [[1m[93mDEBUG[0m] Genome 15 (pid 20159) evaluation started.
+
+16:32:40 [[1m[92mINFO[0m]     - Genome 15 loss: 0.9739, clIoU: 0.0000, 
+
+16:21:04 [[1m[93mDEBUG[0m] Genome 0 (pid 20144) evaluation started.
+
+16:21:07 [[1m[93mDEBUG[0m] Weight load failed: The size of tensor a (2) must match the size of tensor b (3) at non-singleton dimension 0
+
+16:32:49 [[1m[92mINFO[0m]     - Genome 0 loss: 0.8232, clIoU: 0.0331, 
+
+16:21:04 [[1m[93mDEBUG[0m] Genome 1 (pid 20145) evaluation started.
+
+16:21:07 [[1m[93mDEBUG[0m] Weight load failed: The size of tensor a (2) must match the size of tensor b (3) at non-singleton dimension 0
+
+16:33:14 [[1m[92mINFO[0m]     - Genome 1 loss: 0.8182, clIoU: 0.0345, 
+
+16:21:04 [[1m[93mDEBUG[0m] Genome 4 (pid 20148) evaluation started.
+
+16:33:36 [[1m[92mINFO[0m]     - Genome 4 loss: 1.2183, clIoU: 0.0177, 
+
+16:21:04 [[1m[93mDEBUG[0m] Genome 5 (pid 20149) evaluation started.
+
+16:33:47 [[1m[92mINFO[0m]     - Genome 5 loss: 0.8624, clIoU: 0.0464, 
+
+16:21:04 [[1m[93mDEBUG[0m] Genome 18 (pid 20162) evaluation started.
+
+16:34:17 [[1m[92mINFO[0m]     - Genome 18 loss: 0.9184, clIoU: 0.0088, 
+
+16:21:04 [[1m[93mDEBUG[0m] Genome 17 (pid 20161) evaluation started.
+
+16:34:53 [[1m[92mINFO[0m]     - Genome 17 loss: 0.8956, clIoU: 0.0133, 
+
+16:21:04 [[1m[93mDEBUG[0m] Genome 11 (pid 20155) evaluation started.
+
+16:35:21 [[1m[92mINFO[0m]     - Genome 11 loss: 0.9574, clIoU: 0.0091, 
+
+16:21:04 [[1m[93mDEBUG[0m] Genome 9 (pid 20153) evaluation started.
+
+16:35:25 [[1m[92mINFO[0m]     - Genome 9 loss: 1.4765, clIoU: 0.0000, 
+
+16:21:04 [[1m[93mDEBUG[0m] Genome 8 (pid 20152) evaluation started.
+
+16:38:10 [[1m[92mINFO[0m]     - Genome 8 loss: 0.8872, clIoU: 0.0132, 
+
+16:21:04 [[1m[93mDEBUG[0m] Genome 14 (pid 20158) evaluation started.
+
+16:39:40 [[1m[92mINFO[0m]     - Genome 14 loss: 0.8332, clIoU: 0.0351, 
+
+16:21:04 [[1m[93mDEBUG[0m] Genome 12 (pid 20156) evaluation started.
+
+16:40:57 [[1m[92mINFO[0m]     - Genome 12 loss: 1.9103, clIoU: 0.0000, 
+
+16:41:01 [[1m[92mINFO[0m] 🧬 Population evaluation complete — losses: [0.8231610059738159, 0.8182342052459717, 0.9027689099311829, 0.9300051927566528, 1.2182903289794922, 0.8623532056808472, 1.5305484533309937, 0.9010124802589417, 0.8871639966964722, 1.4764763116836548, 0.903031587600708, 0.9573854804039001, 1.9103262424468994, 0.913927435874939, 0.8331536054611206, 0.9739102125167847, 0.9031329154968262, 0.895649790763855, 0.9183778762817383, 0.9138132929801941]
+
+16:41:01 [[1m[92mINFO[0m] ✅ Gen 4: best loss so far = 0.8182
+
+16:41:01 [[1m[92mINFO[0m] 🧬 Generation 5/10 (evaluating 20 genomes in parallel)
+
+16:41:01 [[1m[92mINFO[0m] 🧬 Evaluating population of size 20 using 20 parallel processes.
+
+16:41:18 [[1m[93mDEBUG[0m] Genome 12 (pid 23542) evaluation started.
+
+16:43:16 [[1m[92mINFO[0m]     - Genome 12 loss: 0.9015, clIoU: 0.0119, 
+
+16:41:18 [[1m[93mDEBUG[0m] Genome 2 (pid 23532) evaluation started.
+
+16:43:17 [[1m[92mINFO[0m]     - Genome 2 loss: 0.9028, clIoU: 0.0115, 
+
+16:41:18 [[1m[93mDEBUG[0m] Genome 19 (pid 23549) evaluation started.
+
+16:43:20 [[1m[92mINFO[0m]     - Genome 19 loss: 0.9044, clIoU: 0.0120, 
+
+16:41:18 [[1m[93mDEBUG[0m] Genome 16 (pid 23546) evaluation started.
+
+16:43:21 [[1m[92mINFO[0m]     - Genome 16 loss: 0.9031, clIoU: 0.0116, 
+
+16:41:18 [[1m[93mDEBUG[0m] Genome 18 (pid 23548) evaluation started.
+
+16:43:23 [[1m[92mINFO[0m]     - Genome 18 loss: 0.9043, clIoU: 0.0117, 
+
+16:41:18 [[1m[93mDEBUG[0m] Genome 13 (pid 23543) evaluation started.
+
+16:43:30 [[1m[92mINFO[0m]     - Genome 13 loss: 0.9006, clIoU: 0.0117, 
+
+16:41:18 [[1m[93mDEBUG[0m] Genome 11 (pid 23541) evaluation started.
+
+16:43:30 [[1m[92mINFO[0m]     - Genome 11 loss: 0.9036, clIoU: 0.0117, 
+
+16:41:18 [[1m[93mDEBUG[0m] Genome 5 (pid 23535) evaluation started.
+
+16:43:30 [[1m[92mINFO[0m]     - Genome 5 loss: 0.9030, clIoU: 0.0118, 
+
+16:41:18 [[1m[93mDEBUG[0m] Genome 7 (pid 23537) evaluation started.
+
+16:45:56 [[1m[92mINFO[0m]     - Genome 7 loss: 0.8696, clIoU: 0.0121, 
+
+16:41:18 [[1m[93mDEBUG[0m] Genome 3 (pid 23533) evaluation started.
+
+16:48:49 [[1m[92mINFO[0m]     - Genome 3 loss: 0.8102, clIoU: 0.0439, 
+
+16:41:18 [[1m[93mDEBUG[0m] Genome 1 (pid 23531) evaluation started.
+
+16:41:21 [[1m[93mDEBUG[0m] Weight load failed: The size of tensor a (2) must match the size of tensor b (3) at non-singleton dimension 0
+
+16:50:15 [[1m[92mINFO[0m]     - Genome 1 loss: 0.8204, clIoU: 0.0323, 
+
+16:41:18 [[1m[93mDEBUG[0m] Genome 6 (pid 23536) evaluation started.
+
+16:50:44 [[1m[92mINFO[0m]     - Genome 6 loss: 1.1714, clIoU: 0.0000, 
+
+16:41:18 [[1m[93mDEBUG[0m] Genome 15 (pid 23545) evaluation started.
+
+16:51:14 [[1m[92mINFO[0m]     - Genome 15 loss: 0.8313, clIoU: 0.0347, 
+
+16:41:18 [[1m[93mDEBUG[0m] Genome 8 (pid 23538) evaluation started.
+
+16:51:22 [[1m[92mINFO[0m]     - Genome 8 loss: 6.7305, clIoU: 0.0000, 
+
+16:41:18 [[1m[93mDEBUG[0m] Genome 4 (pid 23534) evaluation started.
+
+16:51:29 [[1m[92mINFO[0m]     - Genome 4 loss: 0.8649, clIoU: 0.0448, 
+
+16:41:18 [[1m[93mDEBUG[0m] Genome 17 (pid 23547) evaluation started.
+
+16:51:52 [[1m[92mINFO[0m]     - Genome 17 loss: 0.8160, clIoU: 0.0316, 
+
+16:41:18 [[1m[93mDEBUG[0m] Genome 0 (pid 23530) evaluation started.
+
+16:41:21 [[1m[93mDEBUG[0m] Weight load failed: The size of tensor a (2) must match the size of tensor b (3) at non-singleton dimension 0
+
+16:52:14 [[1m[92mINFO[0m]     - Genome 0 loss: 0.8168, clIoU: 0.0383, 
+
+16:41:18 [[1m[93mDEBUG[0m] Genome 9 (pid 23539) evaluation started.
+
+16:52:58 [[1m[92mINFO[0m]     - Genome 9 loss: 0.9697, clIoU: 0.0000, 
+
+16:41:18 [[1m[93mDEBUG[0m] Genome 10 (pid 23540) evaluation started.
+
+16:54:17 [[1m[92mINFO[0m]     - Genome 10 loss: 0.8182, clIoU: 0.0754, 
+
+16:41:18 [[1m[93mDEBUG[0m] Genome 14 (pid 23544) evaluation started.
+
+16:55:34 [[1m[92mINFO[0m]     - Genome 14 loss: 6.2333, clIoU: 0.0000, 
+
+16:55:36 [[1m[92mINFO[0m] 🧬 Population evaluation complete — losses: [0.8167604207992554, 0.8204106092453003, 0.9027689099311829, 0.8102290630340576, 0.8649407625198364, 0.9030172228813171, 1.1714189052581787, 0.8695697784423828, 6.730528831481934, 0.9697367548942566, 0.818189263343811, 0.9035501480102539, 0.9015274047851562, 0.9005646705627441, 6.233274936676025, 0.8312899470329285, 0.9031329154968262, 0.8159714937210083, 0.904279351234436, 0.9044104814529419]
+
+16:55:36 [[1m[92mINFO[0m] ✅ Gen 5: best loss so far = 0.8102
+
+16:55:36 [[1m[92mINFO[0m] 🧬 Generation 6/10 (evaluating 20 genomes in parallel)
+
+16:55:36 [[1m[92mINFO[0m] 🧬 Evaluating population of size 20 using 20 parallel processes.
+
+16:55:55 [[1m[93mDEBUG[0m] Genome 19 (pid 27472) evaluation started.
+
+16:58:37 [[1m[92mINFO[0m]     - Genome 19 loss: 0.9044, clIoU: 0.0120, 
+
+16:55:55 [[1m[93mDEBUG[0m] Genome 2 (pid 27455) evaluation started.
+
+16:58:38 [[1m[92mINFO[0m]     - Genome 2 loss: 0.9028, clIoU: 0.0115, 
+
+16:55:55 [[1m[93mDEBUG[0m] Genome 8 (pid 27461) evaluation started.
+
+16:58:38 [[1m[92mINFO[0m]     - Genome 8 loss: 0.9033, clIoU: 0.0120, 
+
+16:55:55 [[1m[93mDEBUG[0m] Genome 3 (pid 27456) evaluation started.
+
+16:58:40 [[1m[92mINFO[0m]     - Genome 3 loss: 0.9043, clIoU: 0.0125, 
+
+16:55:55 [[1m[93mDEBUG[0m] Genome 4 (pid 27457) evaluation started.
+
+16:58:40 [[1m[92mINFO[0m]     - Genome 4 loss: 0.9032, clIoU: 0.0119, 
+
+16:55:55 [[1m[93mDEBUG[0m] Genome 18 (pid 27471) evaluation started.
+
+16:58:40 [[1m[92mINFO[0m]     - Genome 18 loss: 0.9043, clIoU: 0.0117, 
+
+16:55:55 [[1m[93mDEBUG[0m] Genome 15 (pid 27468) evaluation started.
+
+16:59:49 [[1m[92mINFO[0m]     - Genome 15 loss: 0.9545, clIoU: 0.0223, 
+
+16:55:55 [[1m[93mDEBUG[0m] Genome 14 (pid 27467) evaluation started.
+
+17:02:53 [[1m[92mINFO[0m]     - Genome 14 loss: 4.6242, clIoU: 0.0000, 
+
+16:55:55 [[1m[93mDEBUG[0m] Genome 0 (pid 27453) evaluation started.
+
+16:55:57 [[1m[93mDEBUG[0m] Weight load failed: The size of tensor a (3) must match the size of tensor b (2) at non-singleton dimension 0
+
+17:07:43 [[1m[92mINFO[0m]     - Genome 0 loss: 0.7978, clIoU: 0.0471, 
+
+16:55:55 [[1m[93mDEBUG[0m] Genome 12 (pid 27465) evaluation started.
+
+17:07:54 [[1m[92mINFO[0m]     - Genome 12 loss: 1.2781, clIoU: 0.0000, 
+
+16:55:55 [[1m[93mDEBUG[0m] Genome 7 (pid 27460) evaluation started.
+
+17:08:03 [[1m[92mINFO[0m]     - Genome 7 loss: 0.9125, clIoU: 0.0103, 
+
+16:55:55 [[1m[93mDEBUG[0m] Genome 17 (pid 27470) evaluation started.
+
+17:09:11 [[1m[92mINFO[0m]     - Genome 17 loss: 0.8016, clIoU: 0.0525, 
+
+16:55:55 [[1m[93mDEBUG[0m] Genome 13 (pid 27466) evaluation started.
+
+17:09:17 [[1m[92mINFO[0m]     - Genome 13 loss: 0.8192, clIoU: 0.0337, 
+
+16:55:55 [[1m[93mDEBUG[0m] Genome 6 (pid 27459) evaluation started.
+
+17:09:21 [[1m[92mINFO[0m]     - Genome 6 loss: 4.8045, clIoU: 0.0000, 
+
+16:55:55 [[1m[93mDEBUG[0m] Genome 11 (pid 27464) evaluation started.
+
+17:10:11 [[1m[92mINFO[0m]     - Genome 11 loss: 0.8717, clIoU: 0.0317, 
+
+16:55:55 [[1m[93mDEBUG[0m] Genome 1 (pid 27454) evaluation started.
+
+16:55:58 [[1m[93mDEBUG[0m] Weight load failed: The size of tensor a (2) must match the size of tensor b (3) at non-singleton dimension 0
+
+17:10:31 [[1m[92mINFO[0m]     - Genome 1 loss: 0.8128, clIoU: 0.0356, 
+
+16:55:55 [[1m[93mDEBUG[0m] Genome 9 (pid 27462) evaluation started.
+
+17:10:48 [[1m[92mINFO[0m]     - Genome 9 loss: 0.8254, clIoU: 0.0316, 
+
+16:55:55 [[1m[93mDEBUG[0m] Genome 16 (pid 27469) evaluation started.
+
+17:11:31 [[1m[92mINFO[0m]     - Genome 16 loss: 0.9143, clIoU: 0.0098, 
+
+16:55:55 [[1m[93mDEBUG[0m] Genome 10 (pid 27463) evaluation started.
+
+17:11:57 [[1m[92mINFO[0m]     - Genome 10 loss: 6.6787, clIoU: 0.0000, 
+
+16:55:55 [[1m[93mDEBUG[0m] Genome 5 (pid 27458) evaluation started.
+
+17:14:47 [[1m[92mINFO[0m]     - Genome 5 loss: 4.7652, clIoU: 0.0000, 
+
+17:14:51 [[1m[92mINFO[0m] 🧬 Population evaluation complete — losses: [0.797818660736084, 0.8127566576004028, 0.9027689099311829, 0.9043329954147339, 0.9032356142997742, 4.7651872634887695, 4.804514408111572, 0.9124540090560913, 0.9032623171806335, 0.8253601789474487, 6.678731918334961, 0.8716678619384766, 1.2780817747116089, 0.8191906809806824, 4.624167442321777, 0.9544913172721863, 0.914278507232666, 0.8015882968902588, 0.904279351234436, 0.9044104814529419]
+
+17:14:51 [[1m[92mINFO[0m] ✅ Gen 6: best loss so far = 0.7978
+
+17:14:51 [[1m[92mINFO[0m] 🧬 Generation 7/10 (evaluating 20 genomes in parallel)
+
+17:14:51 [[1m[92mINFO[0m] 🧬 Evaluating population of size 20 using 20 parallel processes.
+
+17:15:07 [[1m[93mDEBUG[0m] Genome 9 (pid 30061) evaluation started.
+
+17:17:55 [[1m[92mINFO[0m]     - Genome 9 loss: 0.9034, clIoU: 0.0120, 
+
+17:15:07 [[1m[93mDEBUG[0m] Genome 2 (pid 30054) evaluation started.
+
+17:17:57 [[1m[92mINFO[0m]     - Genome 2 loss: 0.9028, clIoU: 0.0115, 
+
+17:15:07 [[1m[93mDEBUG[0m] Genome 15 (pid 30067) evaluation started.
+
+17:17:58 [[1m[92mINFO[0m]     - Genome 15 loss: 0.9021, clIoU: 0.0120, 
+
+17:15:07 [[1m[93mDEBUG[0m] Genome 7 (pid 30059) evaluation started.
+
+17:17:59 [[1m[92mINFO[0m]     - Genome 7 loss: 0.9010, clIoU: 0.0119, 
+
+17:15:07 [[1m[93mDEBUG[0m] Genome 11 (pid 30063) evaluation started.
+
+17:18:00 [[1m[92mINFO[0m]     - Genome 11 loss: 0.9036, clIoU: 0.0117, 
+
+17:15:07 [[1m[93mDEBUG[0m] Genome 5 (pid 30057) evaluation started.
+
+17:20:46 [[1m[92mINFO[0m]     - Genome 5 loss: 1.6392, clIoU: 0.0000, 
+
+17:15:07 [[1m[93mDEBUG[0m] Genome 18 (pid 30070) evaluation started.
+
+17:21:56 [[1m[92mINFO[0m]     - Genome 18 loss: 0.9563, clIoU: 0.0000, 
+
+17:15:07 [[1m[93mDEBUG[0m] Genome 4 (pid 30056) evaluation started.
+
+17:24:01 [[1m[92mINFO[0m]     - Genome 4 loss: 0.9163, clIoU: 0.0101, 
+
+17:15:07 [[1m[93mDEBUG[0m] Genome 6 (pid 30058) evaluation started.
+
+17:24:12 [[1m[92mINFO[0m]     - Genome 6 loss: 1.2420, clIoU: 0.0000, 
+
+17:15:07 [[1m[93mDEBUG[0m] Genome 0 (pid 30052) evaluation started.
+
+17:15:10 [[1m[93mDEBUG[0m] Weight load failed: The size of tensor a (3) must match the size of tensor b (2) at non-singleton dimension 0
+
+17:25:00 [[1m[92mINFO[0m]     - Genome 0 loss: 0.8093, clIoU: 0.0420, 
+
+17:15:07 [[1m[93mDEBUG[0m] Genome 14 (pid 30066) evaluation started.
+
+17:27:26 [[1m[92mINFO[0m]     - Genome 14 loss: 3.6198, clIoU: 0.0000, 
+
+17:15:07 [[1m[93mDEBUG[0m] Genome 8 (pid 30060) evaluation started.
+
+17:27:40 [[1m[92mINFO[0m]     - Genome 8 loss: 1.7233, clIoU: 0.0000, 
+
+17:15:07 [[1m[93mDEBUG[0m] Genome 12 (pid 30064) evaluation started.
+
+17:27:41 [[1m[92mINFO[0m]     - Genome 12 loss: 0.9420, clIoU: 0.0121, 
+
+17:15:07 [[1m[93mDEBUG[0m] Genome 1 (pid 30053) evaluation started.
+
+17:15:10 [[1m[93mDEBUG[0m] Weight load failed: The size of tensor a (2) must match the size of tensor b (3) at non-singleton dimension 0
+
+17:28:34 [[1m[92mINFO[0m]     - Genome 1 loss: 0.8077, clIoU: 0.0483, 
+
+17:15:07 [[1m[93mDEBUG[0m] Genome 10 (pid 30062) evaluation started.
+
+17:29:22 [[1m[92mINFO[0m]     - Genome 10 loss: 0.8157, clIoU: 0.0352, 
+
+17:15:07 [[1m[93mDEBUG[0m] Genome 13 (pid 30065) evaluation started.
+
+17:29:29 [[1m[92mINFO[0m]     - Genome 13 loss: 2.9692, clIoU: 0.0000, 
+
+17:15:07 [[1m[93mDEBUG[0m] Genome 16 (pid 30068) evaluation started.
+
+17:29:46 [[1m[92mINFO[0m]     - Genome 16 loss: 0.9108, clIoU: 0.0112, 
+
+17:15:07 [[1m[93mDEBUG[0m] Genome 3 (pid 30055) evaluation started.
+
+17:31:09 [[1m[92mINFO[0m]     - Genome 3 loss: 0.8176, clIoU: 0.0323, 
+
+17:15:07 [[1m[93mDEBUG[0m] Genome 17 (pid 30069) evaluation started.
+
+17:31:23 [[1m[92mINFO[0m]     - Genome 17 loss: 0.9360, clIoU: 0.0092, 
+
+17:15:07 [[1m[93mDEBUG[0m] Genome 19 (pid 30071) evaluation started.
+
+17:32:26 [[1m[92mINFO[0m]     - Genome 19 loss: 0.9022, clIoU: 0.0104, 
+
+17:32:30 [[1m[92mINFO[0m] 🧬 Population evaluation complete — losses: [0.8092637062072754, 0.8077178597450256, 0.9027689099311829, 0.8176426291465759, 0.9162889719009399, 1.63923978805542, 1.2420037984848022, 0.9010124802589417, 1.7233244180679321, 0.9034308195114136, 0.8157356381416321, 0.9035501480102539, 0.9420300722122192, 2.969189167022705, 3.6198208332061768, 0.9020967483520508, 0.910792350769043, 0.9359731674194336, 0.9563469886779785, 0.9021552801132202]
+
+17:32:30 [[1m[92mINFO[0m] ✅ Gen 7: best loss so far = 0.7978
+
+17:32:30 [[1m[92mINFO[0m] 🧬 Generation 8/10 (evaluating 20 genomes in parallel)
+
+17:32:30 [[1m[92mINFO[0m] 🧬 Evaluating population of size 20 using 20 parallel processes.
+
+17:32:47 [[1m[93mDEBUG[0m] Genome 15 (pid 33880) evaluation started.
+
+17:34:54 [[1m[92mINFO[0m]     - Genome 15 loss: 0.9021, clIoU: 0.0120, 
+
+17:32:47 [[1m[93mDEBUG[0m] Genome 3 (pid 33868) evaluation started.
+
+17:34:55 [[1m[92mINFO[0m]     - Genome 3 loss: 0.9043, clIoU: 0.0125, 
+
+17:32:47 [[1m[93mDEBUG[0m] Genome 4 (pid 33869) evaluation started.
+
+17:35:16 [[1m[92mINFO[0m]     - Genome 4 loss: 0.9032, clIoU: 0.0119, 
+
+17:32:47 [[1m[93mDEBUG[0m] Genome 2 (pid 33867) evaluation started.
+
+17:35:23 [[1m[92mINFO[0m]     - Genome 2 loss: 0.9028, clIoU: 0.0115, 
+
+17:32:47 [[1m[93mDEBUG[0m] Genome 14 (pid 33879) evaluation started.
+
+17:37:41 [[1m[92mINFO[0m]     - Genome 14 loss: 0.9048, clIoU: 0.0141, 
+
+17:32:47 [[1m[93mDEBUG[0m] Genome 9 (pid 33874) evaluation started.
+
+17:38:01 [[1m[92mINFO[0m]     - Genome 9 loss: 1.6395, clIoU: 0.0000, 
+
+17:32:47 [[1m[93mDEBUG[0m] Genome 19 (pid 33884) evaluation started.
+
+17:39:12 [[1m[92mINFO[0m]     - Genome 19 loss: 2.7081, clIoU: 0.0000, 
+
+17:32:47 [[1m[93mDEBUG[0m] Genome 13 (pid 33878) evaluation started.
+
+17:42:32 [[1m[92mINFO[0m]     - Genome 13 loss: 0.9417, clIoU: 0.0091, 
+
+17:32:47 [[1m[93mDEBUG[0m] Genome 18 (pid 33883) evaluation started.
+
+17:43:10 [[1m[92mINFO[0m]     - Genome 18 loss: 0.8823, clIoU: 0.1105, 
+
+17:32:47 [[1m[93mDEBUG[0m] Genome 12 (pid 33877) evaluation started.
+
+17:43:40 [[1m[92mINFO[0m]     - Genome 12 loss: 0.8201, clIoU: 0.0330, 
+
+17:32:47 [[1m[93mDEBUG[0m] Genome 1 (pid 33866) evaluation started.
+
+17:32:49 [[1m[93mDEBUG[0m] Weight load failed: The size of tensor a (3) must match the size of tensor b (2) at non-singleton dimension 0
+
+17:44:00 [[1m[92mINFO[0m]     - Genome 1 loss: 0.8142, clIoU: 0.0378, 
+
+17:32:47 [[1m[93mDEBUG[0m] Genome 0 (pid 33865) evaluation started.
+
+17:32:50 [[1m[93mDEBUG[0m] Weight load failed: The size of tensor a (3) must match the size of tensor b (2) at non-singleton dimension 0
+
+17:45:24 [[1m[92mINFO[0m]     - Genome 0 loss: 0.8019, clIoU: 0.0510, 
+
+17:32:47 [[1m[93mDEBUG[0m] Genome 11 (pid 33876) evaluation started.
+
+17:45:26 [[1m[92mINFO[0m]     - Genome 11 loss: 0.9386, clIoU: 0.0087, 
+
+17:32:47 [[1m[93mDEBUG[0m] Genome 7 (pid 33872) evaluation started.
+
+17:47:10 [[1m[92mINFO[0m]     - Genome 7 loss: 0.8150, clIoU: 0.0363, 
+
+17:32:47 [[1m[93mDEBUG[0m] Genome 16 (pid 33881) evaluation started.
+
+17:47:10 [[1m[92mINFO[0m]     - Genome 16 loss: 0.8973, clIoU: 0.0151, 
+
+17:32:47 [[1m[93mDEBUG[0m] Genome 5 (pid 33870) evaluation started.
+
+17:47:56 [[1m[92mINFO[0m]     - Genome 5 loss: 0.8990, clIoU: 0.0120, 
+
+17:32:47 [[1m[93mDEBUG[0m] Genome 17 (pid 33882) evaluation started.
+
+17:48:22 [[1m[92mINFO[0m]     - Genome 17 loss: 0.9360, clIoU: 0.0092, 
+
+17:32:47 [[1m[93mDEBUG[0m] Genome 10 (pid 33875) evaluation started.
+
+17:49:15 [[1m[92mINFO[0m]     - Genome 10 loss: 2.7634, clIoU: 0.0000, 
+
+17:32:47 [[1m[93mDEBUG[0m] Genome 8 (pid 33873) evaluation started.
+
+17:49:17 [[1m[92mINFO[0m]     - Genome 8 loss: 1.0545, clIoU: 0.0085, 
+
+17:32:47 [[1m[93mDEBUG[0m] Genome 6 (pid 33871) evaluation started.
+
+17:51:19 [[1m[92mINFO[0m]     - Genome 6 loss: 0.8614, clIoU: 0.0177, 
+
+17:51:22 [[1m[92mINFO[0m] 🧬 Population evaluation complete — losses: [0.8018805384635925, 0.81424480676651, 0.9027689099311829, 0.9043329954147339, 0.9032356142997742, 0.8989849090576172, 0.8613572120666504, 0.8149504065513611, 1.0545258522033691, 1.6395443677902222, 2.763357400894165, 0.9386212229728699, 0.8201282620429993, 0.9416531324386597, 0.9047943949699402, 0.9020967483520508, 0.8972662687301636, 0.9359731674194336, 0.8823181390762329, 2.7080507278442383]
+
+17:51:22 [[1m[92mINFO[0m] ✅ Gen 8: best loss so far = 0.7978
+
+17:51:22 [[1m[92mINFO[0m] 🧬 Generation 9/10 (evaluating 20 genomes in parallel)
+
+17:51:22 [[1m[92mINFO[0m] 🧬 Evaluating population of size 20 using 20 parallel processes.
+
+17:51:40 [[1m[93mDEBUG[0m] Genome 4 (pid 37670) evaluation started.
+
+17:54:13 [[1m[92mINFO[0m]     - Genome 4 loss: 0.9032, clIoU: 0.0119, 
+
+17:51:40 [[1m[93mDEBUG[0m] Genome 19 (pid 37685) evaluation started.
+
+17:54:23 [[1m[92mINFO[0m]     - Genome 19 loss: 0.9044, clIoU: 0.0120, 
+
+17:51:40 [[1m[93mDEBUG[0m] Genome 12 (pid 37678) evaluation started.
+
+17:54:27 [[1m[92mINFO[0m]     - Genome 12 loss: 0.9015, clIoU: 0.0119, 
+
+17:51:40 [[1m[93mDEBUG[0m] Genome 3 (pid 37669) evaluation started.
+
+17:55:14 [[1m[92mINFO[0m]     - Genome 3 loss: 0.9911, clIoU: 0.0000, 
+
+17:51:40 [[1m[93mDEBUG[0m] Genome 6 (pid 37672) evaluation started.
+
+17:56:45 [[1m[92mINFO[0m]     - Genome 6 loss: 1.0018, clIoU: 0.0000, 
+
+17:51:40 [[1m[93mDEBUG[0m] Genome 11 (pid 37677) evaluation started.
+
+17:57:43 [[1m[92mINFO[0m]     - Genome 11 loss: 0.8940, clIoU: 0.0143, 
+
+17:51:40 [[1m[93mDEBUG[0m] Genome 17 (pid 37683) evaluation started.
+
+17:58:15 [[1m[92mINFO[0m]     - Genome 17 loss: 1.0500, clIoU: 0.0000, 
+
+17:51:40 [[1m[93mDEBUG[0m] Genome 13 (pid 37679) evaluation started.
+
+17:58:18 [[1m[92mINFO[0m]     - Genome 13 loss: 2.0138, clIoU: 0.0000, 
+
+17:51:40 [[1m[93mDEBUG[0m] Genome 5 (pid 37671) evaluation started.
+
+18:01:22 [[1m[92mINFO[0m]     - Genome 5 loss: 0.8154, clIoU: 0.0388, 
+
+17:51:40 [[1m[93mDEBUG[0m] Genome 7 (pid 37673) evaluation started.
+
+18:01:41 [[1m[92mINFO[0m]     - Genome 7 loss: 0.7949, clIoU: 0.0550, 
+
+17:51:40 [[1m[93mDEBUG[0m] Genome 1 (pid 37667) evaluation started.
+
+17:51:43 [[1m[93mDEBUG[0m] Weight load failed: The size of tensor a (3) must match the size of tensor b (2) at non-singleton dimension 0
+
+18:03:41 [[1m[92mINFO[0m]     - Genome 1 loss: 0.8097, clIoU: 0.0401, 
+
+17:51:40 [[1m[93mDEBUG[0m] Genome 9 (pid 37675) evaluation started.
+
+18:03:50 [[1m[92mINFO[0m]     - Genome 9 loss: 0.8962, clIoU: 0.0194, 
+
+17:51:40 [[1m[93mDEBUG[0m] Genome 10 (pid 37676) evaluation started.
+
+18:04:09 [[1m[92mINFO[0m]     - Genome 10 loss: 1.0476, clIoU: 0.0089, 
+
+17:51:40 [[1m[93mDEBUG[0m] Genome 8 (pid 37674) evaluation started.
+
+18:04:21 [[1m[92mINFO[0m]     - Genome 8 loss: 1.0673, clIoU: 0.0000, 
+
+17:51:40 [[1m[93mDEBUG[0m] Genome 18 (pid 37684) evaluation started.
+
+18:05:05 [[1m[92mINFO[0m]     - Genome 18 loss: 0.9782, clIoU: 0.0101, 
+
+17:51:40 [[1m[93mDEBUG[0m] Genome 14 (pid 37680) evaluation started.
+
+18:05:13 [[1m[92mINFO[0m]     - Genome 14 loss: 0.8583, clIoU: 0.0346, 
+
+17:51:40 [[1m[93mDEBUG[0m] Genome 15 (pid 37681) evaluation started.
+
+18:05:24 [[1m[92mINFO[0m]     - Genome 15 loss: 0.8426, clIoU: 0.0224, 
+
+17:51:40 [[1m[93mDEBUG[0m] Genome 16 (pid 37682) evaluation started.
+
+18:05:46 [[1m[92mINFO[0m]     - Genome 16 loss: 1.2308, clIoU: 0.0000, 
+
+17:51:40 [[1m[93mDEBUG[0m] Genome 2 (pid 37668) evaluation started.
+
+18:05:51 [[1m[92mINFO[0m]     - Genome 2 loss: 0.8277, clIoU: 0.0305, 
+
+17:51:40 [[1m[93mDEBUG[0m] Genome 0 (pid 37666) evaluation started.
+
+17:51:43 [[1m[93mDEBUG[0m] Weight load failed: The size of tensor a (2) must match the size of tensor b (3) at non-singleton dimension 0
+
+18:06:13 [[1m[92mINFO[0m]     - Genome 0 loss: 0.8019, clIoU: 0.0510, 
+
+18:06:17 [[1m[92mINFO[0m] 🧬 Population evaluation complete — losses: [0.8018805384635925, 0.8096812963485718, 0.8276696801185608, 0.9910968542098999, 0.9032356142997742, 0.8153648376464844, 1.0017669200897217, 0.7949074506759644, 1.06725013256073, 0.8962076306343079, 1.0475572347640991, 0.8939775228500366, 0.9015274047851562, 2.0138180255889893, 0.8582543134689331, 0.8425745964050293, 1.2307617664337158, 1.0499813556671143, 0.9782192707061768, 0.9044104814529419]
+
+18:06:17 [[1m[92mINFO[0m] ✅ Gen 9: best loss so far = 0.7949
+
+18:06:17 [[1m[92mINFO[0m] 🧬 Generation 10/10 (evaluating 20 genomes in parallel)
+
+18:06:17 [[1m[92mINFO[0m] 🧬 Evaluating population of size 20 using 20 parallel processes.
+
+18:06:34 [[1m[93mDEBUG[0m] Genome 4 (pid 40238) evaluation started.
+
+18:09:02 [[1m[92mINFO[0m]     - Genome 4 loss: 0.9032, clIoU: 0.0119, 
+
+18:06:34 [[1m[93mDEBUG[0m] Genome 11 (pid 40245) evaluation started.
+
+18:09:05 [[1m[92mINFO[0m]     - Genome 11 loss: 0.9036, clIoU: 0.0117, 
+
+18:06:34 [[1m[93mDEBUG[0m] Genome 6 (pid 40240) evaluation started.
+
+18:09:12 [[1m[92mINFO[0m]     - Genome 6 loss: 0.9025, clIoU: 0.0118, 
+
+18:06:34 [[1m[93mDEBUG[0m] Genome 14 (pid 40248) evaluation started.
+
+18:12:05 [[1m[92mINFO[0m]     - Genome 14 loss: 0.9123, clIoU: 0.0108, 
+
+18:06:34 [[1m[93mDEBUG[0m] Genome 5 (pid 40239) evaluation started.
+
+18:12:13 [[1m[92mINFO[0m]     - Genome 5 loss: 1.0746, clIoU: 0.0000, 
+
+18:06:34 [[1m[93mDEBUG[0m] Genome 17 (pid 40251) evaluation started.
+
+18:12:19 [[1m[92mINFO[0m]     - Genome 17 loss: 1.3893, clIoU: 0.0000, 
+
+18:06:34 [[1m[93mDEBUG[0m] Genome 10 (pid 40244) evaluation started.
+
+18:12:37 [[1m[92mINFO[0m]     - Genome 10 loss: 1.1263, clIoU: 0.0000, 
+
+18:06:34 [[1m[93mDEBUG[0m] Genome 19 (pid 40253) evaluation started.
+
+18:13:10 [[1m[92mINFO[0m]     - Genome 19 loss: 1.3542, clIoU: 0.0000, 
+
+18:06:34 [[1m[93mDEBUG[0m] Genome 13 (pid 40247) evaluation started.
+
+18:13:28 [[1m[92mINFO[0m]     - Genome 13 loss: 1.0488, clIoU: 0.0000, 
+
+18:06:34 [[1m[93mDEBUG[0m] Genome 16 (pid 40250) evaluation started.
+
+18:14:24 [[1m[92mINFO[0m]     - Genome 16 loss: 1.1200, clIoU: 0.0000, 
+
+18:06:34 [[1m[93mDEBUG[0m] Genome 12 (pid 40246) evaluation started.
+
+18:14:42 [[1m[92mINFO[0m]     - Genome 12 loss: 0.8670, clIoU: 0.0304, 
+
+18:06:34 [[1m[93mDEBUG[0m] Genome 9 (pid 40243) evaluation started.
+
+18:15:29 [[1m[92mINFO[0m]     - Genome 9 loss: 1.0175, clIoU: 0.0000, 
+
+18:06:34 [[1m[93mDEBUG[0m] Genome 8 (pid 40242) evaluation started.
+
+18:15:49 [[1m[92mINFO[0m]     - Genome 8 loss: 1.9325, clIoU: 0.0000, 
+
+18:06:34 [[1m[93mDEBUG[0m] Genome 2 (pid 40236) evaluation started.
+
+18:16:32 [[1m[92mINFO[0m]     - Genome 2 loss: 1.2459, clIoU: 0.0000, 
+
+18:06:34 [[1m[93mDEBUG[0m] Genome 1 (pid 40235) evaluation started.
+
+18:06:37 [[1m[93mDEBUG[0m] Weight load failed: The size of tensor a (3) must match the size of tensor b (2) at non-singleton dimension 0
+
+18:16:57 [[1m[92mINFO[0m]     - Genome 1 loss: 0.8024, clIoU: 0.0525, 
+
+18:06:34 [[1m[93mDEBUG[0m] Genome 3 (pid 40237) evaluation started.
+
+18:17:18 [[1m[92mINFO[0m]     - Genome 3 loss: 0.9259, clIoU: 0.0105, 
+
+18:06:34 [[1m[93mDEBUG[0m] Genome 15 (pid 40249) evaluation started.
+
+18:17:19 [[1m[92mINFO[0m]     - Genome 15 loss: 0.8622, clIoU: 0.0312, 
+
+18:06:34 [[1m[93mDEBUG[0m] Genome 7 (pid 40241) evaluation started.
+
+18:17:21 [[1m[92mINFO[0m]     - Genome 7 loss: 0.9933, clIoU: 0.0333, 
+
+18:06:34 [[1m[93mDEBUG[0m] Genome 18 (pid 40252) evaluation started.
+
+18:17:44 [[1m[92mINFO[0m]     - Genome 18 loss: 0.9460, clIoU: 0.0151, 
+
+18:06:34 [[1m[93mDEBUG[0m] Genome 0 (pid 40234) evaluation started.
+
+18:06:37 [[1m[93mDEBUG[0m] Weight load failed: The size of tensor a (2) must match the size of tensor b (3) at non-singleton dimension 0
+
+18:17:56 [[1m[92mINFO[0m]     - Genome 0 loss: 0.7951, clIoU: 0.0571, 
+
+18:17:59 [[1m[92mINFO[0m] 🧬 Population evaluation complete — losses: [0.7950664758682251, 0.802403450012207, 1.2459485530853271, 0.9258525371551514, 0.9032356142997742, 1.074589729309082, 0.9025301933288574, 0.9932668209075928, 1.9324934482574463, 1.017504334449768, 1.1262948513031006, 0.9035501480102539, 0.8669635057449341, 1.0487765073776245, 0.9123221635818481, 0.862218976020813, 1.1199705600738525, 1.3893213272094727, 0.9459772109985352, 1.354169487953186]
+
+18:17:59 [[1m[92mINFO[0m] ✅ Gen 10: best loss so far = 0.7949
+
+18:18:02 [[1m[92mINFO[0m] Best genome: [35, 96, 166, 133, 102, 176, 36, 180, 192, 99, 133, 136, 132, 26, 5, 102, 255, 234, 102, 161, 100, 45, 2, 86, 81, 49, 162, 6, 155, 237, 176, 114, 107, 78, 18, 153, 145, 1, 106, 71, 43, 179, 134, 162, 182, 86, 205, 158, 78, 46, 62, 232, 20, 27, 161, 68, 49, 74, 49, 209, 254, 150, 185, 126, 3, 21, 68, 62, 215, 215, 218, 163, 33, 166, 104, 171, 203, 195, 157, 104, 185, 93, 190, 138, 222, 150, 238, 216, 84, 197, 136, 196, 176, 218, 94, 129]
+
+18:18:02 [[1m[92mINFO[0m] Best PC: ─────────────────────────────────────────────
+🧠  Probabilistic Circuit Network Summary
+─────────────────────────────────────────────
+📦 Classes: 1
+📏 Input size: torch.Size([100, 256, 256])
+⚙️  Depth: 5, Branching: 3
+💻 Device: cpu
+─────────────────────────────────────────────
+📊 Node counts:
+  • InputNode      : 26
+  • SumNode        : 8
+  • ProductNode    : 15
+  • ClassifierNode : 1
+─────────────────────────────────────────────
+🧩 Trainable parameters: 295
+  • InputNode      : 182
+  • SumNode        : 20
+─────────────────────────────────────────────
+📚 Structure:Memory usage: 0.79 KB
+
+└─ ClassifierNode(classes=2)
+   ├─ ProductNode(children=2)
+   │  ├─ InputNode(feat_66)
+   │  └─ SumNode(children=2, weights=2)
+   │     ├─ ProductNode(children=2)
+   │     │  ├─ InputNode(feat_80)
+   │     │  └─ InputNode(feat_99)
+   │     └─ SumNode(children=2, weights=2)
+   │        ├─ InputNode(feat_26)
+   │        └─ ProductNode(children=2)
+   │           ├─ InputNode(feat_55)
+   │           └─ InputNode(feat_2)
+   └─ ProductNode(children=2)
+      ├─ SumNode(children=3, weights=3)
+      │  ├─ ProductNode(children=2)
+      │  │  ├─ ProductNode(children=2)
+      │  │  │  ├─ InputNode(feat_49)
+      │  │  │  └─ InputNode(feat_6)
+      │  │  └─ ProductNode(children=2)
+      │  │     ├─ InputNode(feat_76)
+      │  │     └─ InputNode(feat_7)
+      │  ├─ InputNode(feat_18)
+      │  └─ InputNode(feat_45)
+      └─ SumNode(children=2, weights=2)
+         ├─ ProductNode(children=2)
+         │  ├─ SumNode(children=3, weights=3)
+         │  │  ├─ ProductNode(children=2)
+         │  │  │  ├─ InputNode(feat_62)
+         │  │  │  └─ InputNode(feat_82)
+         │  │  ├─ ProductNode(children=2)
+         │  │  │  ├─ InputNode(feat_5)
+         │  │  │  └─ InputNode(feat_58)
+         │  │  └─ InputNode(feat_46)
+         │  └─ ProductNode(children=2)
+         │     ├─ SumNode(children=2, weights=2)
+         │     │  ├─ InputNode(feat_27)
+         │     │  └─ InputNode(feat_61)
+         │     └─ ProductNode(children=2)
+         │        ├─ InputNode(feat_49)
+         │        └─ InputNode(feat_74)
+         └─ SumNode(children=3, weights=3)
+            ├─ ProductNode(children=2)
+            │  ├─ InputNode(feat_85)
+            │  └─ InputNode(feat_3)
+            ├─ InputNode(feat_68)
+            └─ ProductNode(children=2)
+               ├─ ProductNode(children=2)
+               │  ├─ InputNode(feat_15)
+               │  └─ InputNode(feat_18)
+               └─ SumNode(children=3, weights=3)
+                  ├─ InputNode(feat_66)
+                  ├─ InputNode(feat_4)
+                  └─ InputNode(feat_71)
+─────────────────────────────────────────────
+
+18:18:04 [[1m[92mINFO[0m] CV Modules Training Epoch 1/5
+
+18:23:17 [[1m[92mINFO[0m]    CV Module Fitnesses: [-1.0860346257686615, -1.0257109105587006, -1.0701774954795837, -1.0105657428503036, -1.0361752808094025, -1.0339220017194748, -1.048356294631958, -1.0412339866161346, -1.0221047550439835, -1.0413029491901398, -1.058237373828888, -1.049344390630722, -1.032886877655983, -1.0309524834156036, -1.0756437182426453, -1.0350269079208374, -1.0400688648223877, -1.0392583012580872, -1.0230704247951508, -1.0373297333717346]
+
+New best fitness:  -1.0105657428503036
+18:23:17 [[1m[92mINFO[0m] CV Modules Training Epoch 2/5
+
+18:28:08 [[1m[92mINFO[0m]    CV Module Fitnesses: [-1.0436594784259796, -1.0116295516490936, -1.038496345281601, -1.0417966544628143, -1.0138614922761917, -1.0395588874816895, -1.0220417380332947, -1.0141485333442688, -1.0410025119781494, -1.0216044932603836, -1.0283838510513306, -1.0799553394317627, -1.062863051891327, -1.0280314981937408, -1.0403238385915756, -1.0706489980220795, -1.0218640267848969, -1.051299437880516, -1.0290901213884354, -1.031888723373413]
+
+18:28:08 [[1m[92mINFO[0m] CV Modules Training Epoch 3/5
+
+18:32:55 [[1m[92mINFO[0m]    CV Module Fitnesses: [-1.0401757955551147, -1.039892926812172, -1.0324175655841827, -1.0765745341777802, -1.0324742496013641, -1.020321011543274, -1.022667944431305, -1.0447919070720673, -1.0371558964252472, -1.0354586839675903, -1.023302674293518, -1.0424094498157501, -1.0309365093708038, -1.026157945394516, -1.076619029045105, -1.0249484777450562, -1.0494012236595154, -1.0035406053066254, -1.0252169966697693, -1.0235708355903625]
+
+New best fitness:  -1.0035406053066254
+18:32:55 [[1m[92mINFO[0m] CV Modules Training Epoch 4/5
+
+18:38:02 [[1m[92mINFO[0m]    CV Module Fitnesses: [-1.0335369110107422, -1.0223892629146576, -1.0663007497787476, -1.0589762032032013, -1.0042665898799896, -1.0164793729782104, -1.0403587818145752, -1.0430447459220886, -1.0440846681594849, -1.0335514098405838, -1.0207995772361755, -1.0489496290683746, -1.0662342309951782, -1.057372510433197, -1.0545296967029572, -1.0688831508159637, -1.0294887721538544, -1.0459156334400177, -1.0353267192840576, -1.036119431257248]
+
+18:38:02 [[1m[92mINFO[0m] CV Modules Training Epoch 5/5
+
+18:42:56 [[1m[92mINFO[0m]    CV Module Fitnesses: [-1.0514771044254303, -1.0337989330291748, -1.0315214395523071, -1.0640524923801422, -1.0718906223773956, -1.0487742722034454, -1.046217441558838, -1.0251452922821045, -1.0220354497432709, -1.06439870595932, -1.0669019520282745, -1.0688823759555817, -1.0400965511798859, -1.0241042077541351, -1.028475433588028, -1.0421054512262344, -1.0608810186386108, -1.0342828631401062, -1.0812940299510956, -1.0671540796756744]
+
+18:48:14 [[1m[93mDEBUG[0m] Convolution module features shape: (5865, 26, 256, 256), value range: -21.76034164428711 to 1.2602849006652832, var: 7.890791893005371
+
+18:52:09 [[1m[93mDEBUG[0m] Convolution module features shape: (1467, 26, 256, 256), value range: -21.448516845703125 to 1.0640017986297607, var: 8.091915130615234
+
+⚙️ Using 30 CPU cores (torch threads)
+18:52:37 [[1m[92mINFO[0m] Number of trainable parameters: 202
+
+01:28:41 [[1m[92mINFO[0m] ✅ Training complete.
+
+01:35:43 [[1m[93mDEBUG[0m] Convolution module features shape: (1827, 26, 256, 256), value range: -21.474428176879883 to 1.3419842720031738, var: 8.85278606414795
+
+01:46:04 [[1m[92mINFO[0m] Test Loss: 0.7892065525054932 Dice: 0.4446000397205353 IoU: 0.38155561685562134 CL IoU: 0.11550172758288682
+
+08:45:18 [[1m[93mDEBUG[0m] logs/pcnet_ge/36
+
