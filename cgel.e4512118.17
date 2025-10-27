@@ -1,17 +1,0 @@
-Training CV Modules:   0%|          | 0/5 [00:00<?, ?it/s]Training CV Modules:  20%|██        | 1/5 [06:09<24:36, 369.21s/it]Training CV Modules:  40%|████      | 2/5 [12:15<18:22, 367.37s/it]Training CV Modules:  60%|██████    | 3/5 [18:25<12:17, 368.63s/it]Training CV Modules:  80%|████████  | 4/5 [24:31<06:07, 367.44s/it]Training CV Modules: 100%|██████████| 5/5 [30:34<00:00, 366.01s/it]Training CV Modules: 100%|██████████| 5/5 [30:34<00:00, 366.90s/it]
-Traceback (most recent call last):
-  File "/home/erik.nielsen/PCNet/crack-detection/src/main.py", line 27, in <module>
-    main()
-  File "/home/erik.nielsen/PCNet/crack-detection/src/main.py", line 22, in main
-    run_experiment(config)
-  File "/home/erik.nielsen/PCNet/crack-detection/src/experiment.py", line 71, in run_experiment
-    experiment.run()
-  File "/home/erik.nielsen/PCNet/crack-detection/src/experiment.py", line 1817, in run
-    self.feature_tensor = self.get_feature_tensor(np.array([self.train_data[i][0] for i in range(len(self.train_data))]), prune_features=prune_features_idx)
-  File "/home/erik.nielsen/PCNet/crack-detection/src/experiment.py", line 1162, in get_feature_tensor
-    return self.convolution_modules_tensor(images, self.cv_factory, return_maps=True, n_jobs=self.n_cpus, prune_features=prune_features)
-  File "/home/erik.nielsen/PCNet/crack-detection/src/experiment.py", line 1133, in convolution_modules_tensor
-    feats_np = np.stack(feats_np, axis=0)  # [N, C, H, W] or [N, H, W]
-  File "/home/erik.nielsen/PCNet/crack-detection/.venv/lib/python3.10/site-packages/numpy/_core/shape_base.py", line 467, in stack
-    return _nx.concatenate(expanded_arrays, axis=axis, out=out,
-numpy._core._exceptions._ArrayMemoryError: Unable to allocate 143. GiB for an array with shape (5865, 100, 256, 256) and data type float32
