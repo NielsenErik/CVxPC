@@ -14,8 +14,8 @@
     "sample_size": 11000,
     "test_size": 3500,
     "resize_size": [
-        256,
-        256
+        512,
+        512
     ],
     "input_channels": 3,
     "n_classes": 1,
