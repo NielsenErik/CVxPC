@@ -14,6 +14,7 @@
 
     "cv_epochs": 2,
     "epochs": 50,
+    "sample_size": 50,
     "batch_size": 16,
     "resize_size": [
         256,
