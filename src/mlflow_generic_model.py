@@ -8,35 +8,70 @@ import datetime
 import uuid
 import json
 import base64
+import os
+from PIL import Image
+from torchvision import transforms
+import glob
 
-# wrapper used for sklearn transformers to apply transformations to columns
-class ModelOut (mlflow.pyfunc.PythonModel):
-    def __init__(self, model, output_columns):
-        self.model = model
-        self.output_columns = output_columns
+class CrackDataset(Dataset):
+    '''
+    Crack Dataset for image segmentation tasks.
+    Args:
+        images (list): List of image file paths or numpy arrays.
+        ground_truth (list): List of corresponding ground truth masks.
+        transform (callable, optional): Optional transform to be applied on a sample.
+        resize_size (tuple, optional): Desired output size (width, height) for resizing images and masks.
+    Returns:
+        torch.utils.data.Dataset: Dataset object for loading crack images and masks.
+    '''
+    def __init__(self, images_path, ground_truths_path = None, resize_size=(256, 256), sample_size=None):
+        self.sample_size = sample_size
+        image_exts = ["*.jpg", "*.jpeg", "*.png"]
+        mask_exts = ["*.jpg", "*.jpeg", "*.png"]
+        self.img_paths = sorted(
+            [p for ext in image_exts for p in glob.glob(os.path.join(images_path, ext))]
+        )
+        if ground_truths_path is not None:
+            self.mask_paths = sorted(
+                [p for ext in mask_exts for p in glob.glob(os.path.join(ground_truths_path, ext))]
+            )
+        if sample_size is not None:
+            self.img_paths = self.img_paths[:sample_size]
+            self.mask_paths = self.mask_paths[:sample_size]
+        self.resize_size = resize_size
 
-    def fit(self, model_input: pd.DataFrame):
-        model_input = model_input.to_numpy()
-        if len(model_input.shape)==1:
-            model_input = model_input.reshape(-1,1)
-        self.model.fit(model_input)
+    def resize_img(self, image, w, h):
+        transform = transforms.Compose([
+            transforms.Resize((w, h)),
+            transforms.ToTensor()
+        ])
+        return transform(image) 
 
-    def predict(self, model_input: pd.DataFrame):
-        # apply transformation and obtain a dataframe with correct columns
-        model_input = model_input.to_numpy()
-        if len(model_input.shape)==1:
-            model_input = model_input.reshape(-1,1)
-        transformed_data = self.model.transform(model_input)
+    def resize_gt(self, gt, w, h):
+        transform = transforms.Compose([
+            transforms.Resize((w, h), interpolation=Image.NEAREST),
+            transforms.ToTensor()
+        ])
+        return transform(gt)
+
+    def __len__(self):
+        return len(self.img_paths)
+
+    def __getitem__(self, idx):
+        img = Image.open(self.img_paths[idx]).convert("RGB")   # 3 channels
+        if self.mask_paths is None:
+            mask = None
+        else:
+            mask = Image.open(self.mask_paths[idx]).convert("L")   # 1 channel (grayscale)
         
-        return pd.DataFrame(transformed_data, columns=self.output_columns)
+        img = self.resize_img(img, self.resize_size[0], self.resize_size[1])
+        if mask is not None:
+            mask = self.resize_gt(mask, self.resize_size[0], self.resize_size[1])
+            return img, mask
+
+        return img, None
     
-    def inverse_predict(self, model_input):
-        if len(model_input.shape)==1:
-            model_input = model_input.reshape(-1,1)
-        if isinstance(model_input, pd.DataFrame):
-            model_input = model_input.to_numpy()
-        transformed_data = self.model.inverse_transform(model_input)
-        return pd.DataFrame(transformed_data, columns=self.output_columns)
+
     
 class PytorchWrapper(mlflow.pyfunc.PythonModel):
     def __init__(self, model_class, data_scaler, output_columns):

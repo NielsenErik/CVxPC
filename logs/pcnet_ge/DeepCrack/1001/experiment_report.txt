@@ -1,0 +1,14 @@
+Experiment Configurations: {'mlflow': None, 'experiment': 'crack_segmentation', 'algorithm': 'pcnet_ge', 'device': 'cpu', 'n_cpus': 4, 'data_path': 'data/DeepCrack/train', 'test_path': 'data/DeepCrack/test', 'save_path': 'models/', 'validation_split': 0.2, 'feature_extractor': 'cv_modules', 'cv_epochs': 2, 'epochs': 50, 'batch_size': 16, 'resize_size': [256, 256], 'input_channels': 3, 'n_classes': 1, 'max_depth': 5, 'max_branching': 2, 'seed': 1001, 'filter_sizes': [15, 21], 'n_cv_modules': 10, 'n_filters': 100, 'ge': {'generations': 10, 'pop_size': 12, 'genome_len': 96, 'crossover_rate': 0.9, 'mutation_rate': 0.05, 'elite_k': 2, 'train_split': 0.1}, 'execution_mode': 'train', 'log_dir': 'logs/pcnet_ge/DeepCrack/1001'}
+Dataset sizes: {'train': 300, 'val': 60, 'test': 237}
+[16:17:44] Genome 0 started.
+[16:17:44] Genome 3 started.
+[16:17:44] Genome 1 started.
+[16:17:44] Genome 2 started.
+[16:21:35] Genome 4 started.
+[16:21:35] Genome 6 started.
+[16:21:35] Genome 5 started.
+[16:21:35] Genome 7 started.
+[16:26:48] Genome 9 started.
+[16:26:48] Genome 11 started.
+[16:26:48] Genome 10 started.
+[16:26:48] Genome 8 started.

@@ -237,8 +237,8 @@ class Experiment:
         self.save_path = self.config.get("save_path", "models/")
 
         self.batch_size = self.config.get("batch_size", 16)
-        self.sample_size = self.config.get("sample_size", 20)
-        self.test_size = self.config.get("test_size", 10)
+        self.sample_size = self.config.get("sample_size", None)
+        self.test_size = self.config.get("test_size", None)
         self.resize_size = self.config.get("resize_size", [256, 256])
         self.learning_rate = self.config.get("learning_rate", 0.001)
         self.threshold = self.config.get("threshold", 0.5)
@@ -268,17 +268,18 @@ class Experiment:
             self.ground_truth_path = train_path + "/masks/"        
             self.data = CrackDataset(self.images_path, self.ground_truth_path,sample_size=self.sample_size, resize_size=(self.resize_size[0], self.resize_size[1]))
             torch.manual_seed(self.config.get("seed", 42))
-            indices = torch.randperm(len(self.data))
-            self.data = torch.utils.data.Subset(self.data, indices)
+            perm = torch.randperm(len(self.data))  # permutation over CrackDataset
+
             if self.execution_mode == "train":
                 if self.validation_split > 0:
                     split_idx = int((1 - self.validation_split) * len(self.data))
-                    self.train_data = torch.utils.data.Subset(self.data, list(range(0, split_idx)))
-                    self.val_data = torch.utils.data.Subset(self.data, list(range(split_idx, len(self.data))))
-                    
+                    train_idx = perm[:split_idx]
+                    val_idx = perm[split_idx:]
+                    self.train_data = torch.utils.data.Subset(self.data, train_idx)
+                    self.val_data = torch.utils.data.Subset(self.data, val_idx)
                     print_info(f"Training samples: {len(self.train_data)}, Validation samples: {len(self.val_data)}")
                 else:
-                    self.train_data = self.data
+                    self.train_data = torch.utils.data.Subset(self.data, perm)
                     self.val_data = None
                     print_info(f"Training samples: {len(self.train_data)}")
             if test_path is not None:
@@ -859,7 +860,8 @@ class ExperimentPC(Experiment):
             device="cpu",
             max_depth=self.max_depth,
             max_branching=self.max_branching,
-            seed=self.seed
+            seed=self.seed,
+            cv_module = None
         )
 
     # --------------------------------------------------------
@@ -1350,187 +1352,6 @@ class ExperimentPC(Experiment):
                 f.write(f"Final Validation Loss: {val_losses[-1]}, Dice: {val_dices[-1]}, IoU: {val_ious[-1]}, CL IoU: {val_clious[-1]}\n")
 
         return model
-    
-    
-    
-    def train_parallel(self, model, epochs=10, lr=1e-3, n_cpus=8):
-        """
-        Parallel PCNet training using multiprocessing.
-        - Spawns `n_cpus` independent processes, each training on a dataset shard.
-        - Each process keeps its own model copy and optimizer.
-        - Metrics are collected asynchronously through queues and averaged on the main process.
-        """
-        # Unify threading
-        self._setup_cpu_env()
-
-        optimizer = torch.optim.Adam(model.params, lr=lr, weight_decay=1e-4)
-        print_info(f"Number of trainable parameters: {sum(p.numel() for p in model.params)}")
-
-        feature_tensor = torch.from_numpy(self.feature_tensor).float()
-        target = torch.from_numpy(self.train_masks).long()
-        if target.dim() == 4 and target.size(1) == 1:
-            target = target.squeeze(1)
-
-        # DataLoaders
-        train_loader = self.get_dataloaders(TensorDataset(feature_tensor, target), shuffle=True, batch_size=self.batch_size)
-
-        if self.val_feature_tensor is not None and self.val_masks is not None:
-            val_feature_tensor = torch.from_numpy(self.val_feature_tensor).float()
-            val_target = torch.from_numpy(self.val_masks).long()
-            if val_target.dim() == 4 and val_target.size(1) == 1:
-                val_target = val_target.squeeze(1)
-            val_loader = self.get_dataloaders(
-                TensorDataset(val_feature_tensor, val_target),
-                shuffle=False,
-                batch_size=self.batch_size
-            )
-
-        # Logs
-        train_losses, val_losses = [], []
-        train_dices, val_dices = [], []
-        train_ious, val_ious = [], []
-        train_clious, val_clious = [], []
-        gates_over_epochs = []
-
-        pbar = tqdm.tqdm(range(epochs), desc="Training PCNet")
-        for epoch in pbar:
-            batch_losses, batch_dices, batch_ious, batch_clious = [], [], [], []
-
-            for ft_batch, t_batch in train_loader:
-                optimizer.zero_grad()
-                logits = model.evaluate(ft_batch)                     # (B, C, H, W) log-probs
-                loss = self.criterion(logits, t_batch)
-                loss.backward()
-                optimizer.step()
-
-                # Metrics (vectorized)
-                pred_mask = torch.argmax(logits, dim=1, keepdim=True).float()   # (B,1,H,W)
-                true_mask = t_batch.unsqueeze(1).float()                        # (B,1,H,W)
-
-                dice_score = self.dice_coef(logits, t_batch)      # tensor
-                iou_score = self.iou_score(logits, t_batch)       # tensor
-                cl_iou_score = self.cl_iou_score(pred_mask, true_mask)  # float or tensor
-
-                batch_losses.append(loss.item())
-                batch_dices.append(float(torch.as_tensor(dice_score).detach().mean()))
-                batch_ious.append(float(torch.as_tensor(iou_score).detach().mean()))
-                batch_clious.append(float(torch.as_tensor(cl_iou_score).detach()))
-
-
-            # Collect gate values (if present) in parallel
-            gates_values = []
-            for n in model.get_nodes():
-                if hasattr(n, "gate"):
-                    with torch.no_grad():
-                        gates_values.append(float(n.gate.item()))
-            if gates_values:
-                gates_over_epochs.append(gates_values)
-
-            # Epoch metrics
-            epoch_loss = float(np.mean(batch_losses)) if batch_losses else 0.0
-            epoch_dice = float(np.mean(batch_dices)) if batch_dices else 0.0
-            epoch_iou = float(np.mean(batch_ious)) if batch_ious else 0.0
-            epoch_cl_iou = float(np.mean(batch_clious)) if batch_clious else 0.0
-
-            train_losses.append(epoch_loss)
-            train_dices.append(epoch_dice)
-            train_ious.append(epoch_iou)
-            train_clious.append(epoch_cl_iou)
-
-            mlflow.log_metrics({
-                "train_loss": epoch_loss,
-                "train_dice": epoch_dice,
-                "train_iou": epoch_iou,
-                "train_cl_iou": epoch_cl_iou
-            }, step=epoch)
-
-            # Validation
-            if val_loader is not None:
-                val_loss, val_dice, val_iou, val_cl_iou = self.evaluate(model, val_loader)
-                val_losses.append(val_loss)
-                val_dices.append(val_dice)
-                val_ious.append(val_iou)
-                val_clious.append(val_cl_iou)
-                mlflow.log_metrics({
-                    "val_loss": val_loss,
-                    "val_dice": val_dice,
-                    "val_iou": val_iou,
-                    "val_cl_iou": val_cl_iou
-                }, step=epoch)
-
-            pbar.set_postfix({
-                "train_loss": f"{epoch_loss:.4f}",
-                "val_loss": f"{val_losses[-1]:.4f}" if val_loader and val_losses else None
-            })
-
-        # Save logs
-        df_train = pd.DataFrame({
-            "train_loss": train_losses,
-            "train_dice": train_dices,
-            "train_iou": train_ious,
-            "train_cl_iou": train_clious
-        })
-        df_train.to_csv(os.path.join(self.log_path, "training.csv"), index=False)
-
-        if val_loader is not None:
-            df_val = pd.DataFrame({
-                "val_loss": val_losses,
-                "val_dice": val_dices,
-                "val_iou": val_ious,
-                "val_cl_iou": val_clious
-            })
-            df_val.to_csv(os.path.join(self.log_path, "validation.csv"), index=False)
-
-        # Save gates (if any)
-        if gates_over_epochs:
-            gates = np.array([np.pad(g, (0, max(map(len, gates_over_epochs)) - len(g)), constant_values=np.nan)
-                              for g in gates_over_epochs], dtype=np.float32)
-            df_importance = pd.DataFrame(gates, columns=[f"gate_{i}" for i in range(gates.shape[1])])
-            df_importance.to_csv(os.path.join(self.log_path, "gates.csv"), index=False)
-
-        # Plots
-        import matplotlib.pyplot as plt
-        # Loss
-        plt.figure(figsize=(8, 5))
-        plt.plot(train_losses, label="Train Loss")
-        if val_loader:
-            plt.plot(val_losses, label="Val Loss")
-        plt.legend(); plt.title("Training Loss over Epochs")
-        plt.savefig(os.path.join(self.log_path, "training_plot.png")); plt.close()
-
-        # Dice
-        plt.figure(figsize=(8, 5))
-        plt.plot(train_dices, label="Train Dice")
-        if val_loader:
-            plt.plot(val_dices, label="Val Dice")
-        plt.legend(); plt.title("Training Dice over Epochs")
-        plt.savefig(os.path.join(self.log_path, "dice_plot.png")); plt.close()
-
-        # IoU
-        plt.figure(figsize=(8, 5))
-        plt.plot(train_ious, label="Train IoU")
-        if val_loader:
-            plt.plot(val_ious, label="Val IoU")
-        plt.legend(); plt.title("Training IoU over Epochs")
-        plt.savefig(os.path.join(self.log_path, "iou_plot.png")); plt.close()
-
-        # clIoU
-        plt.figure(figsize=(8, 5))
-        plt.plot(train_clious, label="Train CL IoU")
-        if val_loader:
-            plt.plot(val_clious, label="Val CL IoU")
-        plt.legend(); plt.title("Training CL IoU over Epochs")
-        plt.savefig(os.path.join(self.log_path, "cliou_plot.png")); plt.close()
-
-        print_info("✅ Training complete.")
-        with open(self.experiment_report, "a") as f:
-            f.write(f"Final Training Loss: {train_losses[-1]}, Dice: {train_dices[-1]}, IoU: {train_ious[-1]}, CL IoU: {train_clious[-1]}\n")
-            if val_loader:
-                f.write(f"Final Validation Loss: {val_losses[-1]}, Dice: {val_dices[-1]}, IoU: {val_ious[-1]}, CL IoU: {val_clious[-1]}\n")
-
-        return model
-
-
 
     @torch.no_grad()
     def evaluate(self, model, dataloader):
@@ -1678,6 +1499,7 @@ class ExperimentGEPC(ExperimentPC):
                     crossover_rate=self.ge_config["crossover_rate"],
                     mutation_rate=self.ge_config["mutation_rate"],
                     elite_k=self.ge_config["elite_k"],
+                    n_classes=self.n_classes,
                     device=self.device,
                     n_jobs=self.n_cpus,
                     report=self.experiment_report
@@ -1695,48 +1517,38 @@ class ExperimentGEPC(ExperimentPC):
 
         return feats
     
-    def worker_cv_module_process(self, model, mod_chunk, X_np, Y_t, device, prune_idx, queue):
+    def worker_cv_module_process(self, model, module, X_np, Y_t, device, prune_idx, queue):
         """
         Worker that evaluates one or more modules on all training images.
         Returns list of fitness values (one per module).
         """
-        import torch, numpy as np
-        from torch.utils.data import TensorDataset, DataLoader
-        try:
             
+        # Extract features for this module
+        feats = []
+        for img in X_np:
+            out = module.get_output(img, return_map=True)
+            feats.append(torch.from_numpy(out))
+        X_tensor = torch.stack(feats).float().to(device)
 
-            fitness_list = []
-            for mod in mod_chunk:
-                # Extract features for this module
-                feats = []
-                for img in X_np:
-                    out = mod.get_output(img, return_map=True)
-                    feats.append(torch.from_numpy(out))
-                X_tensor = torch.stack(feats).float().to(device)
+        if prune_idx is not None:
+            X_tensor = X_tensor[:, prune_idx, :, :]
+    
+        dataset = TensorDataset(X_tensor, Y_t)
+        loader = DataLoader(dataset, batch_size=16, shuffle=True, num_workers=0)
 
-                if prune_idx is not None:
-                    X_tensor = X_tensor[:, prune_idx, :, :]
-
-                dataset = TensorDataset(X_tensor, Y_t)
-                loader = DataLoader(dataset, batch_size=16, shuffle=True, num_workers=0)
-
-                loss_total, cliou_total = 0.0, 0.0
-                with torch.no_grad():
-                    for Xb, Yb in loader:
-                        Xb, Yb = Xb.to(device), Yb.to(device)
-                        logits = model.evaluate(Xb)
-                        loss_total += float(self.criterion(logits, Yb.squeeze(1)).item())
-                        cliou_total += float(
-                            self.cl_iou_score(
-                                torch.argmax(logits, dim=1, keepdim=True).float(), Yb
-                            )
-                        )
-                avg_loss = loss_total / max(1, len(loader))
-                fitness_list.append(-avg_loss)  # higher = better
-            queue.put(fitness_list)
-        except Exception as e:
-            print(f"[Worker error] {e}")
-            queue.put([0.0] * len(mod_chunk))
+        loss_total, cliou_total = 0.0, 0.0
+        with torch.no_grad():
+            for Xb, Yb in loader:
+                Xb, Yb = Xb.to(device), Yb.to(device)
+                logits = model.evaluate(Xb)
+                loss_total += float(self.criterion(logits, Yb.squeeze(1)).item())
+                cliou_total += float(
+                    self.cl_iou_score(
+                        torch.argmax(logits, dim=1, keepdim=True).float(), Yb
+                    )
+                )
+        avg_loss = loss_total / max(1, len(loader))
+        return avg_loss
     
     def train_cv_modules(self, model, X_train, Y_train, prune_features=None, epochs=10, lr=1e-2, n_cpus=8):
         self.cv_factory._optimizer.best = None  # reset best found solution
@@ -1750,31 +1562,11 @@ class ExperimentGEPC(ExperimentPC):
 
             # Split modules into chunks for each worker
             n_procs = min(n_cpus, len(modules))
-            module_chunks = np.array_split(modules, n_procs)
-            queue = mp.Queue()
-
-            # Prepare shared inputs
-            X_np = np.array(X_train)
-            # Launch processes
-            processes = []
-            ctx = mp.get_context("spawn")  # safe for macOS and Linux
-            for chunk in module_chunks:
-                p = ctx.Process(
-                    target=self.worker_cv_module_process,
-                    args=(model, chunk, X_train, Y_train, self.device, prune_features, queue),
+            with multiprocessing.Pool(n_procs) as pool:
+                fitnesses = pool.starmap(
+                    self.worker_cv_module_process,
+                    [(model, module, X_train, Y_train, self.device, prune_features, None) for module in modules]
                 )
-                p.start()
-                processes.append(p)
-
-            # Gather fitnesses
-            fitnesses = []
-            for _ in range(n_procs):
-                res = queue.get()
-                fitnesses.extend(res)
-
-            for p in processes:
-                p.join()
-
             print_info(f"   CV Module Fitnesses: {fitnesses}")
             self.cv_factory.tell_pop(fitnesses)
 
@@ -1805,6 +1597,7 @@ class ExperimentGEPC(ExperimentPC):
             ge_X_train = torch.from_numpy(self.get_feature_tensor(ge_data)).float().to(self.device)
             ge_Y_train = torch.from_numpy(ge_masks).long().to(self.device)
             self.set_criterion(ge_Y_train)
+            
             best_pc, best_genome, history = self.ge.evolve(ge_X_train, ge_Y_train, criterion=self.criterion, generations = self.ge_config["generations"], n_classes=self.n_classes, train_steps=50, lr=self.learning_rate)
             print_info("Best genome:", best_genome)
             print_info("Best PC:", str(best_pc))
@@ -1827,7 +1620,7 @@ class ExperimentGEPC(ExperimentPC):
                     print_error(f"Error processing training sample {i}: {e}")
             ge_data = np.array(ge_data)
             ge_masks = np.array(ge_masks)
-            cv_X_train = torch.from_numpy(self.get_feature_tensor(ge_data)).float().to(self.device)
+            cv_X_train = torch.from_numpy(ge_data).float().to(self.device)
             cv_Y_train = torch.from_numpy(ge_masks).long().to(self.device)
 
             self.train_cv_modules(self.model, cv_X_train, cv_Y_train, prune_features=prune_features_idx, epochs=self.cv_epochs, lr=self.lr, n_cpus=self.n_cpus)
@@ -1835,6 +1628,7 @@ class ExperimentGEPC(ExperimentPC):
             with open(self.experiment_report, "a") as f:
                 f.write(f"CV Best Module: {self.cv_factory.best_module()}\n")
             f.close()
+            self.model.cv_module = self.cv_factory.best_module()
             train_data = []
             train_masks = []
             for i in range(len(self.train_data)):
@@ -1845,7 +1639,7 @@ class ExperimentGEPC(ExperimentPC):
                 except Exception as e:
                     print_error(f"Error processing training sample {i}: {e}")
 
-            self.feature_tensor = self.get_feature_tensor(np.array(train_data), prune_features=prune_features_idx)
+            self.feature_tensor = np.array(train_data)
             self.train_masks = np.array(train_masks)
 
             val_data = []
@@ -1858,7 +1652,7 @@ class ExperimentGEPC(ExperimentPC):
                 except Exception as e:
                     print_error(f"Error processing validation sample {i}: {e}")
 
-            self.val_feature_tensor = self.get_feature_tensor(np.array(val_data), prune_features=prune_features_idx)
+            self.val_feature_tensor = np.array(val_data)
             self.val_masks = np.array(val_masks)
             self.set_criterion(torch.from_numpy(self.train_masks).long().to(self.device))
             if self.device == "cuda":
@@ -1867,8 +1661,17 @@ class ExperimentGEPC(ExperimentPC):
                 self.model = self.train(self.model, epochs=self.epochs, lr=self.learning_rate, n_cpus=self.n_cpus)
             self.save_model("pcnet-ge")
             if self.test_path is not None:
-                self.test_inputs = torch.from_numpy(self.get_feature_tensor(np.array([self.test_data[i][0] for i in range(len(self.test_data))]), prune_features=prune_features_idx)).float().to(self.device)
-                self.test_ground_truth = torch.from_numpy(np.array([self.test_data[i][1] for i in range(len(self.test_data))])).long().to(self.device)
+                test_data = []
+                test_masks = []
+                for i in range(len(self.test_data)):
+                    try:
+                        x = self.test_data[i]
+                        test_data.append(x[0])
+                        test_masks.append(x[1])
+                    except Exception as e:
+                        print_error(f"Error processing validation sample {i}: {e}")
+                self.test_inputs = np.array(test_data)
+                self.test_ground_truth = torch.from_numpy(np.array(test_masks)).long().to(self.device)
                 if self.test_ground_truth.dim() == 4 and self.test_ground_truth.size(1) == 1:
                     self.test_ground_truth = self.test_ground_truth.squeeze(1)
                 test_loader = self.get_dataloaders(TensorDataset(self.test_inputs, self.test_ground_truth), shuffle=False, batch_size=self.batch_size*2)
