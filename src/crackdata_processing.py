@@ -84,31 +84,36 @@ class CrackAugmentations:
         return self.transform(image)
 
 class CrackDataset(Dataset):
-    '''
-    Crack Dataset for image segmentation tasks.
-    Args:
-        images (list): List of image file paths or numpy arrays.
-        ground_truth (list): List of corresponding ground truth masks.
-        transform (callable, optional): Optional transform to be applied on a sample.
-        resize_size (tuple, optional): Desired output size (width, height) for resizing images and masks.
-    Returns:
-        torch.utils.data.Dataset: Dataset object for loading crack images and masks.
-    '''
-    def __init__(self, images_path, ground_truths_path, resize_size=(256, 256), sample_size=None):
-        self.sample_size = sample_size
-        image_exts = ["*.jpg", "*.jpeg", "*.png"]
-        mask_exts = ["*.jpg", "*.jpeg", "*.png"]
-        self.img_paths = sorted(
-            [p for ext in image_exts for p in glob.glob(os.path.join(images_path, ext))]
-        )
-        self.mask_paths = sorted(
-            [p for ext in mask_exts for p in glob.glob(os.path.join(ground_truths_path, ext))]
-        )
-        if sample_size is not None:
-            self.img_paths = self.img_paths[:sample_size]
-            self.mask_paths = self.mask_paths[:sample_size]
-        self.resize_size = resize_size
+    def __init__(self, images_dir, masks_dir, resize_size=(128, 128), sample_size=None, **kwargs):
+        self.images_dir = images_dir
+        self.masks_dir  = masks_dir
 
+        # Collect all images and masks (any jpg/png/jpeg)
+        image_files = sorted(glob.glob(os.path.join(images_dir, "*.[pjPJ][pnPN][gG]")))
+        mask_files  = sorted(glob.glob(os.path.join(masks_dir,  "*.[pjPJ][pnPN][gG]")))
+
+        # Build mapping base_name -> full path (for all extensions)
+        image_map = {os.path.splitext(os.path.basename(f))[0]: f for f in image_files}
+        mask_map  = {os.path.splitext(os.path.basename(f))[0]: f for f in mask_files}
+
+        # Keep only common bases
+        common_bases = sorted(set(image_map.keys()) & set(mask_map.keys()))
+
+        self.img_paths = [image_map[b] for b in common_bases]
+        self.mask_paths  = [mask_map[b] for b in common_bases]
+
+        if sample_size:
+            self.img_paths = self.img_paths[:sample_size]
+            self.mask_paths  = self.mask_paths[:sample_size]
+
+        print(f"[INFO] CrackDataset paired: {len(self.img_paths)} image–mask pairs found "
+              f"(from {len(image_files)} images, {len(mask_files)} masks)")
+
+        self.resize_size = resize_size
+        # add any transforms or augmentation setup here
+
+    def __len__(self):
+        return len(self.img_paths)
 
 
     def resize_img(self, image, w, h):
@@ -130,10 +135,14 @@ class CrackDataset(Dataset):
 
     def __getitem__(self, idx):
         img = Image.open(self.img_paths[idx]).convert("RGB")   # 3 channels
-        mask = Image.open(self.mask_paths[idx]).convert("L")   # 1 channel (grayscale)
+        if self.mask_paths is None:
+            mask = None
+        else:
+            mask = Image.open(self.mask_paths[idx]).convert("L")   # 1 channel (grayscale)
         
         img = self.resize_img(img, self.resize_size[0], self.resize_size[1])
-        mask = self.resize_gt(mask, self.resize_size[0], self.resize_size[1])
+        if mask is not None:
+            mask = self.resize_gt(mask, self.resize_size[0], self.resize_size[1])
 
         return img, mask
     

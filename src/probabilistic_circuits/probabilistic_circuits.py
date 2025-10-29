@@ -143,6 +143,48 @@ class InputNode(nn.Module, Node):
         log_mix = torch.logsumexp(torch.log(weights).view(-1, *([1]*(logpdfs.ndim-1))) + logpdfs, dim=0)
         return log_mix * self.gate # scale by gate
 
+# ======================================================
+# Gate Node: learnable mixture of two children
+# ======================================================
+class GateNode(Node, nn.Module):
+    def __init__(self, a, b, device="cpu"):
+        nn.Module.__init__(self)
+        Node.__init__(self, [a, b])
+        self.alpha = nn.Parameter(torch.tensor(0.0, device=device))
+        self.device = device
+
+    def get_learnable_params(self):
+        return [self.alpha]
+
+    def evaluate(self, x):
+        gate = torch.sigmoid(self.alpha)
+        left, right = self.children
+        llog = left.evaluate(x)
+        rlog = right.evaluate(x)
+        return torch.logaddexp(llog + torch.log(gate + 1e-8),
+                               rlog + torch.log(1 - gate + 1e-8))
+
+
+# ======================================================
+# Residual Node: blend of base and subcircuit
+# ======================================================
+class ResidualNode(Node, nn.Module):
+    def __init__(self, base, sub, device="cpu"):
+        nn.Module.__init__(self)
+        Node.__init__(self, [base, sub])
+        self.beta = nn.Parameter(torch.tensor(0.5, device=device))
+        self.device = device
+
+    def get_learnable_params(self):
+        return [self.beta]
+
+    def evaluate(self, x):
+        b, s = self.children[0].evaluate(x), self.children[1].evaluate(x)
+        mix = torch.sigmoid(self.beta)
+        return torch.logsumexp(torch.stack([
+            b + torch.log(1 - mix + 1e-8),
+            s + torch.log(mix + 1e-8)
+        ]), dim=0)
 
 
 # ======================================================
@@ -394,15 +436,31 @@ class PCNet(ProbabilisticCircuit):
         return next_nodes
 
     def branchwise(self, nodes):
-        """Randomly group nodes with max_branching for SumNode"""
-        random.shuffle(nodes)
-        groups, current = [], nodes[:]
-        while len(current) > self.max_branching:
-            gsize = random.randint(2, self.max_branching)
-            groups.append(tuple(current[:gsize]))
-            current = current[gsize:]
-        if current:
-            groups.append(tuple(current))
+        """
+        Randomly group nodes for SumNode connections, allowing overlap so
+        that outgoing edges can connect across multiple groups.
+        - Each node can appear in multiple groups (no strict partition).
+        - The number and size of groups are randomized but bounded by max_branching.
+        """
+        n = len(nodes)
+        groups = []
+        max_b = self.max_branching
+
+        # Estimate how many groups we might want
+        n_groups = max(1, n // random.randint(2, max_b) + random.randint(0, 2))
+        
+        for _ in range(n_groups):
+            gsize = random.randint(2, min(max_b, n))
+            group = tuple(random.sample(nodes, gsize))
+            groups.append(group)
+
+        # Optional: ensure every node is represented in at least one group
+        covered = {x for g in groups for x in g}
+        missing = [x for x in nodes if x not in covered]
+        for m in missing:
+            # Randomly inject missing node into some existing group
+            groups[random.randrange(len(groups))] += (m,)
+
         return groups
 
     def sum_layer(self, current_nodes):
@@ -473,8 +531,13 @@ class PCNet(ProbabilisticCircuit):
         self.set_root(root)
         self.params = []
         for n in self.get_nodes():
-            if isinstance(n, SumNode) or isinstance(n, InputNode):
-                self.params += n.get_learnable_params()
+            if isinstance(n, nn.Module):
+                if hasattr(n, "get_learnable_params"):
+                    self.params += list(n.get_learnable_params())
+                else:
+                    for _, p in n.named_parameters(recurse=False):
+                        if p.requires_grad:
+                            self.params.append(p)
         print_configs(f"Initialized PCNet with {len(self.get_nodes())} nodes, "
                       f"{sum(p.numel() for p in self.params)} trainable parameters")
         print_info(self.info())

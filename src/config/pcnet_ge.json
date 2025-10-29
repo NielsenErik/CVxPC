@@ -5,34 +5,32 @@
     "device": "cpu",
     "n_cpus": 4,
 
-    "data_path": "data/GAPS384/train",
-    "test_path": "data/GAPS384/test",
+    "data_path": "data/DeepCrack/train",
+    "test_path": "data/DeepCrack/test",
     "save_path": "models/",
     "validation_split": 0.2,
 
     "feature_extractor": "cv_modules",
 
-    "cv_epochs": 10,
+    "cv_epochs": 2,
     "epochs": 50,
     "batch_size": 16,
-    "sample_size": 1000,
-    "test_size": 1000,
     "resize_size": [
         256,
         256
     ],
     "input_channels": 3,
     "n_classes": 1,
-    "max_depth": 5,
-    "max_branching": 3,
+    "max_depth": 4,
+    "max_branching": 2,
     "seed": 90,
     "filter_sizes": [15, 21],
     "n_cv_modules": 10,
     "n_filters": 100,
 
     "ge":{
-        "generations": 5,
-        "pop_size": 8,
+        "generations": 2,
+        "pop_size": 2,
         "genome_len": 96,
         "crossover_rate": 0.9,
         "mutation_rate": 0.05,

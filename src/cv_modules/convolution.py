@@ -12,6 +12,7 @@
 import torch
 import numpy as np
 from cv_modules.common import CVMetaClass, CVProcessingElement
+from torch import nn
 
 
 class ConvolutionModule(CVProcessingElement, metaclass=CVMetaClass):
@@ -34,37 +35,6 @@ class ConvolutionModule(CVProcessingElement, metaclass=CVMetaClass):
         self._device = device
         self._filters = torch.Tensor(np.array(filters))
         self._filters = self._filters.to(self._device)
-
-    def get_output(self, input_):
-        """
-        This method returns the output of the agent given the input
-
-        :input_: The agent's input (i.e., a 3d ndarray)
-        :returns: The agent's output, which may be either a scalar, an ndarray
-            or a torch Tensor
-        """
-        output = []
-
-        X = torch.Tensor(input_)
-        X = X.to(self._device)
-        if len(X.shape) == 3:
-            X = X.view(1, *X.shape)
-        conv_output = torch.nn.functional.conv2d(
-            X, self._filters).detach().cpu().numpy()[0]
-        im_w = X.shape[-2]
-
-        for out in conv_output:
-            argmax = np.argmax(out.flatten())
-            x = argmax % im_w
-            y = argmax // im_w
-
-            output.extend([x, y])
-
-            # Leave a hook for further customization
-            self._hook(input_, x, y)
-
-        output = np.array(output)
-        return output
 
     def _hook(self, input_, x, y):
         """
