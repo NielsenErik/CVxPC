@@ -4,14 +4,11 @@
     "algorithm": "pcnet_ge",
     "device": "cpu",
     "n_cpus": 30,
-
     "data_path": "data/DeepCrack/train",
     "test_path": "data/DeepCrack/test",
     "save_path": "models/",
     "validation_split": 0.2,
-
     "feature_extractor": "cv_modules",
-
     "epochs": 40,
     "batch_size": 96,
     "sample_size": 11000,
@@ -24,12 +21,14 @@
     "n_classes": 1,
     "max_depth": 5,
     "max_branching": 3,
-    "seed": 90,
-    "filter_sizes": [15, 21],
+    "seed": 210,
+    "filter_sizes": [
+        15,
+        21
+    ],
     "n_cv_modules": 20,
     "n_filters": 100,
-
-    "ge":{
+    "ge": {
         "generations": 10,
         "pop_size": 20,
         "genome_len": 96,
@@ -38,8 +37,6 @@
         "elite_k": 2,
         "train_split": 0.01
     },
-
-    "execution_mode": "train"
-    
-
+    "execution_mode": "train",
+    "log_dir": "logs/pcnet_ge/DeepCrack/210"
 }
