@@ -1660,8 +1660,6 @@ class ExperimentGEPC(ExperimentPC):
             ge_X_train = torch.from_numpy(ge_X_train).float().to(self.device)
             ge_Y_train = torch.from_numpy(ge_masks).long().to(self.device)
             self.set_criterion(ge_Y_train)
-            # TODO Sembra funzionare meglio senza tutti i cv modules?????????
-            self.init_cv_module(ge_X_train.cpu().numpy())
             best_pc, best_genome, history = self.ge.evolve(ge_X_train, ge_Y_train, criterion=self.criterion, generations = self.ge_config["generations"], n_classes=self.n_classes, train_steps=50, lr=self.learning_rate)
             print_info("Best genome:", best_genome)
             print_info("Best PC:", str(best_pc))
@@ -1671,28 +1669,10 @@ class ExperimentGEPC(ExperimentPC):
                 f.write(f"Best genome: {best_genome}\n")
 
             self.model = best_pc
-            prune_features_idx = self.get_prune_features_idx(self.model)
-            # 2nd training step, train the filters
-            ge_data = []
-            ge_masks = []
-            for i in range(ge_train_size, 2*ge_train_size):
-                try:
-                    x = self.train_data[i]
-                    ge_data.append(x[0])
-                    ge_masks.append(x[1])
-                except Exception as e:
-                    print_error(f"Error processing training sample {i}: {e}")
-            ge_data = np.array(ge_data)
-            ge_masks = np.array(ge_masks)
-            cv_X_train = torch.from_numpy(ge_data).float().to(self.device)
-            cv_Y_train = torch.from_numpy(ge_masks).long().to(self.device)
-
-            self.train_cv_modules(self.model, cv_X_train, cv_Y_train, prune_features=prune_features_idx, epochs=self.cv_epochs, lr=self.lr, n_cpus=self.n_cpus)
-
             with open(self.experiment_report, "a") as f:
                 f.write(f"CV Best Module: {self.cv_factory.best_module()}\n")
             f.close()
-            self.model.cv_module = self.cv_factory.best_module()
+            self.model.cv_module = None
             train_data = []
             train_masks = []
             for i in range(len(self.train_data)):
