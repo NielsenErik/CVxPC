@@ -1,7 +1,7 @@
 #!/bin/bash
 #PBS -l select=3:ncpus=10:mem=70gb
-#PBS -l walltime=12:00:00
-#PBS -q common_cpuQ
+#PBS -l walltime=6:00:00
+#PBS -q short_cpuQ
 #PBS -N cgel
 #PBS -M erik.nielsen@unitn.it
 #PBS -m abe
