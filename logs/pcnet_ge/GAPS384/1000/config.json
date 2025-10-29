@@ -9,19 +9,17 @@
     "save_path": "models/",
     "validation_split": 0.2,
     "feature_extractor": "cv_modules",
-    "cv_epochs": 10,
+    "cv_epochs": 2,
     "epochs": 50,
     "batch_size": 16,
-    "sample_size": 1000,
-    "test_size": 1000,
     "resize_size": [
         256,
         256
     ],
     "input_channels": 3,
     "n_classes": 1,
-    "max_depth": 5,
-    "max_branching": 3,
+    "max_depth": 3,
+    "max_branching": 2,
     "seed": 1000,
     "filter_sizes": [
         15,
@@ -30,8 +28,8 @@
     "n_cv_modules": 10,
     "n_filters": 100,
     "ge": {
-        "generations": 5,
-        "pop_size": 8,
+        "generations": 10,
+        "pop_size": 12,
         "genome_len": 96,
         "crossover_rate": 0.9,
         "mutation_rate": 0.05,
