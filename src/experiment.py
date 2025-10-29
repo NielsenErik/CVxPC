@@ -860,7 +860,8 @@ class ExperimentPC(Experiment):
             device="cpu",
             max_depth=self.max_depth,
             max_branching=self.max_branching,
-            seed=self.seed
+            seed=self.seed,
+            cv_module = None
         )
 
     # --------------------------------------------------------
@@ -1627,6 +1628,7 @@ class ExperimentGEPC(ExperimentPC):
             with open(self.experiment_report, "a") as f:
                 f.write(f"CV Best Module: {self.cv_factory.best_module()}\n")
             f.close()
+            self.model.cv_module = self.cv_factory.best_module()
             train_data = []
             train_masks = []
             for i in range(len(self.train_data)):
@@ -1637,7 +1639,7 @@ class ExperimentGEPC(ExperimentPC):
                 except Exception as e:
                     print_error(f"Error processing training sample {i}: {e}")
 
-            self.feature_tensor = self.get_feature_tensor(np.array(train_data), prune_features=prune_features_idx)
+            self.feature_tensor = np.array(train_data)
             self.train_masks = np.array(train_masks)
 
             val_data = []
@@ -1650,7 +1652,7 @@ class ExperimentGEPC(ExperimentPC):
                 except Exception as e:
                     print_error(f"Error processing validation sample {i}: {e}")
 
-            self.val_feature_tensor = self.get_feature_tensor(np.array(val_data), prune_features=prune_features_idx)
+            self.val_feature_tensor = np.array(val_data)
             self.val_masks = np.array(val_masks)
             self.set_criterion(torch.from_numpy(self.train_masks).long().to(self.device))
             if self.device == "cuda":
@@ -1668,7 +1670,7 @@ class ExperimentGEPC(ExperimentPC):
                         test_masks.append(x[1])
                     except Exception as e:
                         print_error(f"Error processing validation sample {i}: {e}")
-                self.test_inputs = torch.from_numpy(self.get_feature_tensor(np.array(test_data), prune_features=prune_features_idx)).float().to(self.device)
+                self.test_inputs = np.array(test_data)
                 self.test_ground_truth = torch.from_numpy(np.array(test_masks)).long().to(self.device)
                 if self.test_ground_truth.dim() == 4 and self.test_ground_truth.size(1) == 1:
                     self.test_ground_truth = self.test_ground_truth.squeeze(1)

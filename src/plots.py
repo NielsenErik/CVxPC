@@ -5,6 +5,7 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 from probabilistic_circuits.probabilistic_circuits import *
 from crackdata_processing import *
+import pickle
 
 import scienceplots
 plt.style.use('science')
@@ -33,9 +34,8 @@ class PCNetAnalyzer:
         plt.title("Distribution of Gate / Residual Coefficients")
         plt.xlabel("Value (after sigmoid)")
         plt.ylabel("Count")
-        plt.tight_layout()
         if save_path:
-            plt.savefig(save_path)
+            plt.savefig(save_path, bbox_inches='tight')
             print(f"Saved histogram to {save_path}")
         plt.show()
 
@@ -74,9 +74,8 @@ class PCNetAnalyzer:
                     yticklabels=names,
                     xticklabels=["Activation"])
         plt.title("Gate / Residual Activation Heatmap")
-        plt.tight_layout()
         if save_path:
-            plt.savefig(save_path)
+            plt.savefig(save_path, bbox_inches='tight')
             print(f"Saved heatmap to {save_path}")
         plt.show()
 
@@ -102,7 +101,6 @@ class PCNetAnalyzer:
             return
 
         gate_nodes = gate_nodes[:max_nodes]
-        inputs = inputs.to(self.pcnet.device)
 
         with torch.no_grad():
             for i, node in enumerate(gate_nodes):
@@ -142,7 +140,7 @@ if __name__ == "__main__":
     images_path = path + "images/"
     ground_truth_path = path + "/masks/"        
     data = CrackDataset(images_path, ground_truth_path,sample_size=4, resize_size=(256,256))
-    pcnet = PCNet(input_size=(3, 32, 32), n_classes=10, device="cpu")
+    pcnet = pickle.load(open("logs/pcnet_ge/DeepCrack/1001/pcnet-ge.pkl", "rb"))
     analyzer = PCNetAnalyzer(pcnet)
     analyzer.summary()
-    # analyzer.sample_gate_maps(data, save_dir="./gate_maps")
+    analyzer.sample_gate_maps(data, save_dir="./gate_maps")

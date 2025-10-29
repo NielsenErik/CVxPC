@@ -143,6 +143,7 @@ class InputNode(nn.Module, Node):
         log_mix = torch.logsumexp(torch.log(weights).view(-1, *([1]*(logpdfs.ndim-1))) + logpdfs, dim=0)
         return log_mix * self.gate # scale by gate
 
+
 # ======================================================
 # Gate Node: learnable mixture of two children
 # ======================================================
@@ -185,7 +186,6 @@ class ResidualNode(Node, nn.Module):
             b + torch.log(1 - mix + 1e-8),
             s + torch.log(mix + 1e-8)
         ]), dim=0)
-
 
 # ======================================================
 # Sum Node: log-sum-exp over children
@@ -400,7 +400,7 @@ class PCNet(ProbabilisticCircuit):
     def __init__(
         self, input_size=(256, 256), n_classes=2, distribution=None, device="cpu",
         max_depth=4, max_branching=3,
-        seed=42
+        seed=42, cv_module = None
     ):
         super().__init__(n_classes, device)
         self.input_size = input_size
@@ -408,6 +408,7 @@ class PCNet(ProbabilisticCircuit):
         self.max_depth = max_depth
         self.max_branching = max_branching
         self.seed = seed
+        self.cv_module = cv_module
         random.seed(self.seed)
 
     # --------------------------------------------------------
@@ -531,13 +532,8 @@ class PCNet(ProbabilisticCircuit):
         self.set_root(root)
         self.params = []
         for n in self.get_nodes():
-            if isinstance(n, nn.Module):
-                if hasattr(n, "get_learnable_params"):
-                    self.params += list(n.get_learnable_params())
-                else:
-                    for _, p in n.named_parameters(recurse=False):
-                        if p.requires_grad:
-                            self.params.append(p)
+            if isinstance(n, SumNode) or isinstance(n, InputNode):
+                self.params += n.get_learnable_params()
         print_configs(f"Initialized PCNet with {len(self.get_nodes())} nodes, "
                       f"{sum(p.numel() for p in self.params)} trainable parameters")
         print_info(self.info())
@@ -558,7 +554,11 @@ class PCNet(ProbabilisticCircuit):
         return nodes
     
     def evaluate(self, x):
-    # x should be (C, H, W), convert to (1, C, H, W)
+        # x should be (C, H, W), convert to (1, C, H, W)
+        if self.cv_module is not None:
+            x = [self.cv_module.get_output(x_, return_map=True) for x_ in x]
+            x = np.stack(x, axis=0)
+            x = torch.from_numpy(x).float().to(self.device)
         if x.ndim == 3:
             x = x.unsqueeze(0)
         out = self.root.evaluate(x)
