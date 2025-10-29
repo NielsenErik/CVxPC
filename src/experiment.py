@@ -1669,8 +1669,6 @@ class ExperimentGEPC(ExperimentPC):
                 f.write(f"Best genome: {best_genome}\n")
 
             self.model = best_pc
-            with open(self.experiment_report, "a") as f:
-                f.write(f"CV Best Module: {self.cv_factory.best_module()}\n")
             f.close()
             self.model.cv_module = None
             train_data = []
@@ -1714,11 +1712,12 @@ class ExperimentGEPC(ExperimentPC):
                         test_masks.append(x[1])
                     except Exception as e:
                         print_error(f"Error processing validation sample {i}: {e}")
-                self.test_inputs = np.array(test_data)
+                self.test_inputs = torch.from_numpy(np.array(test_data)).float().to(self.device)
                 self.test_ground_truth = torch.from_numpy(np.array(test_masks)).long().to(self.device)
                 if self.test_ground_truth.dim() == 4 and self.test_ground_truth.size(1) == 1:
                     self.test_ground_truth = self.test_ground_truth.squeeze(1)
-                test_loader = self.get_dataloaders(TensorDataset(self.test_inputs, self.test_ground_truth), shuffle=False, batch_size=self.batch_size*2)
+                
+                test_loader = self.get_dataloaders(TensorDataset(self.test_inputs, self.test_ground_truth), shuffle=False, batch_size=self.batch_size)
                 loss, dice, iou, cl_iou = self.evaluate(self.model, test_loader)
                 print_info("Test Loss:", loss, "Dice:", dice, "IoU:", iou, "CL IoU:", cl_iou)
                 with open(self.experiment_report, "a") as f:
