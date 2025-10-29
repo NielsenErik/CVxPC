@@ -28,8 +28,8 @@
     "n_cv_modules": 10,
     "n_filters": 100,
     "ge": {
-        "generations": 10,
-        "pop_size": 12,
+        "generations": 2,
+        "pop_size": 2,
         "genome_len": 96,
         "crossover_rate": 0.9,
         "mutation_rate": 0.05,

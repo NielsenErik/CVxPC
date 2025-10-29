@@ -1,14 +1,100 @@
-Experiment Configurations: {'mlflow': None, 'experiment': 'crack_segmentation', 'algorithm': 'pcnet_ge', 'device': 'cpu', 'n_cpus': 4, 'data_path': 'data/DeepCrack/train', 'test_path': 'data/DeepCrack/test', 'save_path': 'models/', 'validation_split': 0.2, 'feature_extractor': 'cv_modules', 'cv_epochs': 2, 'epochs': 50, 'batch_size': 16, 'resize_size': [256, 256], 'input_channels': 3, 'n_classes': 1, 'max_depth': 5, 'max_branching': 2, 'seed': 1001, 'filter_sizes': [15, 21], 'n_cv_modules': 10, 'n_filters': 100, 'ge': {'generations': 10, 'pop_size': 12, 'genome_len': 96, 'crossover_rate': 0.9, 'mutation_rate': 0.05, 'elite_k': 2, 'train_split': 0.1}, 'execution_mode': 'train', 'log_dir': 'logs/pcnet_ge/DeepCrack/1001'}
+Experiment Configurations: {'mlflow': None, 'experiment': 'crack_segmentation', 'algorithm': 'pcnet_ge', 'device': 'cpu', 'n_cpus': 4, 'data_path': 'data/DeepCrack/train', 'test_path': 'data/DeepCrack/test', 'save_path': 'models/', 'validation_split': 0.2, 'feature_extractor': 'cv_modules', 'cv_epochs': 2, 'epochs': 50, 'batch_size': 16, 'resize_size': [256, 256], 'input_channels': 3, 'n_classes': 1, 'max_depth': 5, 'max_branching': 2, 'seed': 1001, 'filter_sizes': [15, 21], 'n_cv_modules': 10, 'n_filters': 100, 'ge': {'generations': 2, 'pop_size': 2, 'genome_len': 96, 'crossover_rate': 0.9, 'mutation_rate': 0.05, 'elite_k': 2, 'train_split': 0.1}, 'execution_mode': 'train', 'log_dir': 'logs/pcnet_ge/DeepCrack/1001'}
 Dataset sizes: {'train': 300, 'val': 60, 'test': 237}
-[16:17:44] Genome 0 started.
-[16:17:44] Genome 3 started.
-[16:17:44] Genome 1 started.
-[16:17:44] Genome 2 started.
-[16:21:35] Genome 4 started.
-[16:21:35] Genome 6 started.
-[16:21:35] Genome 5 started.
-[16:21:35] Genome 7 started.
-[16:26:48] Genome 9 started.
-[16:26:48] Genome 11 started.
-[16:26:48] Genome 10 started.
-[16:26:48] Genome 8 started.
+[17:16:24] Genome 0 started.
+[17:16:24] Genome 1 started.
+[17:18:44] Genome 1 started.
+[17:18:44] Genome 0 started.
+─────────────────────────────────────────────
+🧠  Probabilistic Circuit Network Summary
+─────────────────────────────────────────────
+📦 Classes: 1
+📏 Input size: torch.Size([3, 256, 256])
+⚙️  Depth: 5, Branching: 2
+💻 Device: cpu
+─────────────────────────────────────────────
+📊 Node counts:
+  • InputNode      : 3
+  • SumNode        : 7
+  • ProductNode    : 5
+  • ClassifierNode : 1
+─────────────────────────────────────────────
+🧩 Trainable parameters: 111
+  • SumNode        : 14
+  • InputNode      : 21
+─────────────────────────────────────────────
+📚 Structure:Memory usage: 0.22 KB
+
+└─ ClassifierNode(classes=2)
+   ├─ ProductNode(children=2)
+   │  ├─ GateNode
+   │  │  ├─ ProductNode(children=2)
+   │  │  │  ├─ ProductNode(children=2)
+   │  │  │  │  ├─ InputNode(feat_0)
+   │  │  │  │  └─ ProductNode(children=2)
+   │  │  │  │     ├─ InputNode(feat_2)
+   │  │  │  │     └─ InputNode(feat_2)
+   │  │  │  └─ GateNode
+   │  │  │     ├─ SumNode(children=2, weights=2)
+   │  │  │     │  ├─ InputNode(feat_2)
+   │  │  │     │  └─ InputNode(feat_2)
+   │  │  │     └─ ResidualNode
+   │  │  │        ├─ InputNode(feat_0)
+   │  │  │        └─ InputNode(feat_0)
+   │  │  └─ ResidualNode
+   │  │     ├─ GateNode
+   │  │     │  ├─ ResidualNode
+   │  │     │  │  ├─ InputNode(feat_0)
+   │  │     │  │  └─ InputNode(feat_0)
+   │  │     │  └─ GateNode
+   │  │     │     ├─ InputNode(feat_1)
+   │  │     │     └─ InputNode(feat_1)
+   │  │     └─ SumNode(children=2, weights=2)
+   │  │        ├─ ProductNode(children=2)
+   │  │        │  ├─ InputNode(feat_1)
+   │  │        │  └─ InputNode(feat_1)
+   │  │        └─ ResidualNode
+   │  │           ├─ InputNode(feat_2)
+   │  │           └─ InputNode(feat_2)
+   │  └─ InputNode(feat_2)
+   └─ ResidualNode
+      ├─ SumNode(children=2, weights=2)
+      │  ├─ InputNode(feat_2)
+      │  └─ GateNode
+      │     ├─ InputNode(feat_1)
+      │     └─ GateNode
+      │        ├─ InputNode(feat_1)
+      │        └─ GateNode
+      │           ├─ InputNode(feat_1)
+      │           └─ InputNode(feat_1)
+      └─ SumNode(children=2, weights=2)
+         ├─ SumNode(children=2, weights=2)
+         │  ├─ SumNode(children=2, weights=2)
+         │  │  ├─ SumNode(children=2, weights=2)
+         │  │  │  ├─ InputNode(feat_0)
+         │  │  │  └─ InputNode(feat_0)
+         │  │  └─ ResidualNode
+         │  │     ├─ InputNode(feat_1)
+         │  │     └─ InputNode(feat_1)
+         │  └─ ResidualNode
+         │     ├─ InputNode(feat_2)
+         │     └─ GateNode
+         │        ├─ InputNode(feat_2)
+         │        └─ InputNode(feat_2)
+         └─ ResidualNode
+            ├─ GateNode
+            │  ├─ GateNode
+            │  │  ├─ InputNode(feat_2)
+            │  │  └─ InputNode(feat_2)
+            │  └─ ResidualNode
+            │     ├─ InputNode(feat_0)
+            │     └─ InputNode(feat_0)
+            └─ ResidualNode
+               ├─ ResidualNode
+               │  ├─ InputNode(feat_2)
+               │  └─ InputNode(feat_2)
+               └─ GateNode
+                  ├─ InputNode(feat_0)
+                  └─ InputNode(feat_0)
+─────────────────────────────────────────────
+History: {'loss': [0.4883919358253479, 0.4974516034126282], 'complexity': [57, 57]}
+Best genome: [22, 198, 167, 112, 110, 219, 22, 178, 51, 24, 134, 249, 188, 194, 183, 201, 131, 32, 214, 115, 128, 94, 46, 237, 200, 164, 103, 210, 139, 113, 115, 58, 23, 141, 227, 16, 219, 211, 70, 161, 42, 194, 179, 90, 17, 248, 114, 228, 173, 199, 194, 49, 93, 119, 127, 11, 139, 39, 190, 174, 236, 190, 93, 247, 105, 83, 231, 94, 19, 120, 203, 48, 118, 33, 175, 121, 84, 58, 144, 171, 240, 111, 41, 213, 161, 179, 24, 79, 196, 213, 111, 206, 215, 99, 229, 73]

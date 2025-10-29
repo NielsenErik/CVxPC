@@ -1149,6 +1149,62 @@ class ExperimentPC(Experiment):
         )
         feats_np = (feats_np - feats_np.mean()) / (feats_np.std() + 1e-8)
         return feats_np
+    
+    def get_cv_module(
+        self, images, cv_factory, return_maps=True, n_jobs=None, verbose=0, prune_features=None
+    ):
+        """
+        Torchrun-friendly version with multiprocessing image parallelism.
+        - Each rank processes a disjoint shard of images.
+        - Each shard is processed in parallel using multiprocessing (per-image chunks).
+        - Results are gathered with torch.distributed all_gather on tensors.
+        - Output shape: [N_images, C, H, W] or [N_images, H, W] depending on your modules.
+        """
+        import multiprocessing as mp
+        from joblib import Parallel, delayed
+        import torch.distributed as dist
+        import numpy as np
+        import os
+
+        # ---------------------------------------------------------
+        # Normalize input to numpy
+        # ---------------------------------------------------------
+        if isinstance(images, torch.Tensor):
+            images = images.detach().cpu().numpy()
+        if images.ndim == 3:
+            images = np.expand_dims(images, 0)  # [1, H, W]
+        total_images = len(images)
+        
+
+        # ---------------------------------------------------------
+        # Optimize module via variance (if no pruning provided)
+        # ---------------------------------------------------------
+        if prune_features is None:
+            # ---------------------------------------------------------
+            # CMA-ES optimization loop
+            # ---------------------------------------------------------
+            # Multiprocessing parallelization over MODULES
+            modules = cv_factory.ask_pop()
+            n_procs = min(n_jobs, len(modules))
+            print_info(f"⚙️ Using {n_procs} processes for convolution module evaluation...")
+            for epoch in trange(self.cv_epochs, desc="CV Module Optimization", disable=verbose == 0):
+                print_debugging(f"Epoch {epoch}")
+                modules = cv_factory.ask_pop()
+                if not isinstance(modules, list):
+                    modules = [modules]               
+
+                fitness = self.eval_cv_pop(modules, images)
+
+                print_debugging(f"Module fitness values: {fitness}")
+                # CMA-ES update
+                cv_factory.tell_pop(fitness)
+
+        # ---------------------------------------------------------
+        # Best module and final extraction
+        # ---------------------------------------------------------
+        module = cv_factory.best_module()
+
+        return module
 
 
 
@@ -1165,6 +1221,13 @@ class ExperimentPC(Experiment):
 
         else:
             raise ValueError(f"Unknown feature extractor {self.feature_extractor}")
+    
+    def init_cv_module(self, images):
+        self.cv_factory = CVModuleFactory(
+                    Optimizer={"class_name": "CMAES", "kwargs": {"n_params": 128, "lambda_": self.n_cv_modules, "seed": self.seed}},
+                    CVModule={"class_name": "ConvolutionModule", "kwargs": {"n_filters": self.n_filters, "filter_sizes": 3, "device": self.device}}
+                )
+        return self.get_cv_module(images, self.cv_factory, return_maps=True, n_jobs=self.n_cpus)
         
     def set_criterion(self, target):
         if target.dim() == 4 and target.size(1) == 1:
@@ -1592,12 +1655,11 @@ class ExperimentGEPC(ExperimentPC):
                     ge_masks.append(x[1])
                 except Exception as e:
                     print_error(f"Error processing training sample {i}: {e}")
-            ge_data = np.array(ge_data)
+            ge_X_train = np.array(ge_data)
             ge_masks = np.array(ge_masks)
-            ge_X_train = torch.from_numpy(self.get_feature_tensor(ge_data)).float().to(self.device)
+            ge_X_train = torch.from_numpy(ge_X_train).float().to(self.device)
             ge_Y_train = torch.from_numpy(ge_masks).long().to(self.device)
             self.set_criterion(ge_Y_train)
-            
             best_pc, best_genome, history = self.ge.evolve(ge_X_train, ge_Y_train, criterion=self.criterion, generations = self.ge_config["generations"], n_classes=self.n_classes, train_steps=50, lr=self.learning_rate)
             print_info("Best genome:", best_genome)
             print_info("Best PC:", str(best_pc))
@@ -1607,28 +1669,10 @@ class ExperimentGEPC(ExperimentPC):
                 f.write(f"Best genome: {best_genome}\n")
 
             self.model = best_pc
-            prune_features_idx = self.get_prune_features_idx(self.model)
-            # 2nd training step, train the filters
-            ge_data = []
-            ge_masks = []
-            for i in range(ge_train_size, 2*ge_train_size):
-                try:
-                    x = self.train_data[i]
-                    ge_data.append(x[0])
-                    ge_masks.append(x[1])
-                except Exception as e:
-                    print_error(f"Error processing training sample {i}: {e}")
-            ge_data = np.array(ge_data)
-            ge_masks = np.array(ge_masks)
-            cv_X_train = torch.from_numpy(ge_data).float().to(self.device)
-            cv_Y_train = torch.from_numpy(ge_masks).long().to(self.device)
-
-            self.train_cv_modules(self.model, cv_X_train, cv_Y_train, prune_features=prune_features_idx, epochs=self.cv_epochs, lr=self.lr, n_cpus=self.n_cpus)
-
             with open(self.experiment_report, "a") as f:
                 f.write(f"CV Best Module: {self.cv_factory.best_module()}\n")
             f.close()
-            self.model.cv_module = self.cv_factory.best_module()
+            self.model.cv_module = None
             train_data = []
             train_masks = []
             for i in range(len(self.train_data)):
