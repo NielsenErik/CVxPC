@@ -303,6 +303,7 @@ class GEOptimizer:
                 print(f"⚠️ Reuse failed: {e}")
         # train/val split
         split = int(0.8 * len(inputs))
+        
         x_tr, y_tr = inputs[:split].to(self.device), labels[:split].to(self.device)
         x_va, y_va = inputs[split:].to(self.device), labels[split:].to(self.device)
         opt = torch.optim.Adam(pc.params, lr=lr, weight_decay=1e-4)
