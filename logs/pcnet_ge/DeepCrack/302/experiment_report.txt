@@ -1,0 +1,509 @@
+Experiment Configurations: {'mlflow': None, 'experiment': 'crack_segmentation', 'algorithm': 'pcnet_ge', 'device': 'cpu', 'n_cpus': 30, 'data_path': 'data/DeepCrack/train', 'test_path': 'data/DeepCrack/test', 'save_path': 'models/', 'validation_split': 0.2, 'feature_extractor': 'cv_modules', 'epochs': 40, 'batch_size': 96, 'sample_size': 11000, 'test_size': 3500, 'resize_size': [256, 256], 'input_channels': 3, 'n_classes': 1, 'max_depth': 5, 'max_branching': 3, 'seed': 302, 'filter_sizes': [15, 21], 'n_cv_modules': 20, 'n_filters': 100, 'ge': {'generations': 10, 'pop_size': 20, 'genome_len': 96, 'crossover_rate': 0.9, 'mutation_rate': 0.05, 'elite_k': 2, 'train_split': 0.01}, 'execution_mode': 'train', 'log_dir': 'logs/pcnet_ge/DeepCrack/302'}
+Dataset sizes: {'train': 300, 'val': 60, 'test': 237}
+[21:45:09] Genome 2 started.
+[21:45:09] Genome 13 started.
+[21:45:09] Genome 10 started.
+[21:45:09] Genome 1 started.
+[21:45:09] Genome 4 started.
+[21:45:09] Genome 14 started.
+[21:45:09] Genome 18 started.
+[21:45:09] Genome 8 started.
+[21:45:09] Genome 0 started.
+[21:45:09] Genome 6 started.
+[21:45:09] Genome 19 started.
+[21:45:09] Genome 11 started.
+[21:45:09] Genome 16 started.
+[21:45:09] Genome 17 started.
+[21:45:09] Genome 9 started.
+[21:45:09] Genome 7 started.
+[21:45:09] Genome 15 started.
+[21:45:09] Genome 12 started.
+[21:45:09] Genome 5 started.
+[21:45:09] Genome 3 started.
+[21:46:07] Genome 11 started.
+[21:46:07] Genome 8 started.
+[21:46:07] Genome 6 started.
+[21:46:07] Genome 1 started.
+[21:46:07] Genome 17 started.
+[21:46:07] Genome 19 started.
+[21:46:07] Genome 0 started.
+[21:46:07] Genome 13 started.
+[21:46:07] Genome 15 started.
+[21:46:07] Genome 3 started.
+[21:46:07] Genome 16 started.
+[21:46:07] Genome 9 started.
+[21:46:07] Genome 14 started.
+[21:46:07] Genome 7 started.
+[21:46:07] Genome 2 started.
+[21:46:07] Genome 4 started.
+[21:46:07] Genome 10 started.
+[21:46:07] Genome 18 started.
+[21:46:07] Genome 12 started.
+[21:46:07] Genome 5 started.
+[21:47:05] Genome 13 started.
+[21:47:05] Genome 7 started.
+[21:47:05] Genome 15 started.
+[21:47:05] Genome 14 started.
+[21:47:05] Genome 16 started.
+[21:47:05] Genome 19 started.
+[21:47:05] Genome 11 started.
+[21:47:05] Genome 9 started.
+[21:47:05] Genome 6 started.
+[21:47:05] Genome 2 started.
+[21:47:05] Genome 1 started.
+[21:47:05] Genome 12 started.
+[21:47:05] Genome 0 started.
+[21:47:05] Genome 18 started.
+[21:47:05] Genome 10 started.
+[21:47:05] Genome 5 started.
+[21:47:05] Genome 17 started.
+[21:47:05] Genome 3 started.
+[21:47:05] Genome 4 started.
+[21:47:05] Genome 8 started.
+[21:47:57] Genome 7 started.
+[21:47:57] Genome 17 started.
+[21:47:57] Genome 13 started.
+[21:47:57] Genome 11 started.
+[21:47:57] Genome 16 started.
+[21:47:57] Genome 9 started.
+[21:47:57] Genome 2 started.
+[21:47:57] Genome 4 started.
+[21:47:57] Genome 6 started.
+[21:47:57] Genome 0 started.
+[21:47:57] Genome 5 started.
+[21:47:57] Genome 10 started.
+[21:47:57] Genome 8 started.
+[21:47:57] Genome 12 started.
+[21:47:57] Genome 1 started.
+[21:47:57] Genome 15 started.
+[21:47:57] Genome 14 started.
+[21:47:57] Genome 19 started.
+[21:47:57] Genome 3 started.
+[21:47:57] Genome 18 started.
+[21:48:47] Genome 16 started.
+[21:48:47] Genome 9 started.
+[21:48:47] Genome 1 started.
+[21:48:47] Genome 3 started.
+[21:48:47] Genome 2 started.
+[21:48:47] Genome 17 started.
+[21:48:47] Genome 12 started.
+[21:48:47] Genome 10 started.
+[21:48:47] Genome 11 started.
+[21:48:47] Genome 8 started.
+[21:48:47] Genome 19 started.
+[21:48:47] Genome 7 started.
+[21:48:47] Genome 13 started.
+[21:48:47] Genome 5 started.
+[21:48:47] Genome 14 started.
+[21:48:47] Genome 6 started.
+[21:48:47] Genome 4 started.
+[21:48:47] Genome 0 started.
+[21:48:47] Genome 18 started.
+[21:48:47] Genome 15 started.
+[21:49:37] Genome 18 started.
+[21:49:37] Genome 11 started.
+[21:49:37] Genome 3 started.
+[21:49:37] Genome 14 started.
+[21:49:37] Genome 9 started.
+[21:49:37] Genome 2 started.
+[21:49:37] Genome 4 started.
+[21:49:37] Genome 17 started.
+[21:49:37] Genome 10 started.
+[21:49:37] Genome 13 started.
+[21:49:37] Genome 7 started.
+[21:49:37] Genome 8 started.
+[21:49:37] Genome 6 started.
+[21:49:37] Genome 5 started.
+[21:49:37] Genome 19 started.
+[21:49:37] Genome 15 started.
+[21:49:37] Genome 12 started.
+[21:49:37] Genome 0 started.
+[21:49:37] Genome 1 started.
+[21:49:37] Genome 16 started.
+[21:50:39] Genome 9 started.
+[21:50:39] Genome 2 started.
+[21:50:39] Genome 17 started.
+[21:50:39] Genome 3 started.
+[21:50:39] Genome 10 started.
+[21:50:39] Genome 12 started.
+[21:50:39] Genome 7 started.
+[21:50:39] Genome 6 started.
+[21:50:39] Genome 18 started.
+[21:50:39] Genome 0 started.
+[21:50:39] Genome 1 started.
+[21:50:39] Genome 16 started.
+[21:50:39] Genome 4 started.
+[21:50:39] Genome 14 started.
+[21:50:39] Genome 11 started.
+[21:50:39] Genome 15 started.
+[21:50:39] Genome 19 started.
+[21:50:39] Genome 5 started.
+[21:50:39] Genome 13 started.
+[21:50:39] Genome 8 started.
+[21:51:41] Genome 2 started.
+[21:51:41] Genome 9 started.
+[21:51:41] Genome 13 started.
+[21:51:41] Genome 0 started.
+[21:51:41] Genome 5 started.
+[21:51:41] Genome 14 started.
+[21:51:41] Genome 16 started.
+[21:51:41] Genome 6 started.
+[21:51:41] Genome 4 started.
+[21:51:41] Genome 12 started.
+[21:51:41] Genome 17 started.
+[21:51:41] Genome 19 started.
+[21:51:41] Genome 3 started.
+[21:51:41] Genome 11 started.
+[21:51:41] Genome 1 started.
+[21:51:41] Genome 15 started.
+[21:51:41] Genome 7 started.
+[21:51:41] Genome 18 started.
+[21:51:41] Genome 10 started.
+[21:51:41] Genome 8 started.
+[21:52:50] Genome 17 started.
+[21:52:50] Genome 16 started.
+[21:52:50] Genome 8 started.
+[21:52:50] Genome 13 started.
+[21:52:50] Genome 3 started.
+[21:52:50] Genome 19 started.
+[21:52:50] Genome 7 started.
+[21:52:50] Genome 10 started.
+[21:52:50] Genome 15 started.
+[21:52:50] Genome 0 started.
+[21:52:50] Genome 9 started.
+[21:52:50] Genome 1 started.
+[21:52:50] Genome 2 started.
+[21:52:50] Genome 11 started.
+[21:52:50] Genome 18 started.
+[21:52:50] Genome 12 started.
+[21:52:50] Genome 5 started.
+[21:52:50] Genome 4 started.
+[21:52:50] Genome 6 started.
+[21:52:50] Genome 14 started.
+[21:53:52] Genome 9 started.
+[21:53:52] Genome 15 started.
+[21:53:52] Genome 12 started.
+[21:53:52] Genome 19 started.
+[21:53:52] Genome 7 started.
+[21:53:52] Genome 16 started.
+[21:53:52] Genome 11 started.
+[21:53:52] Genome 0 started.
+[21:53:52] Genome 10 started.
+[21:53:52] Genome 2 started.
+[21:53:52] Genome 14 started.
+[21:53:52] Genome 5 started.
+[21:53:52] Genome 4 started.
+[21:53:52] Genome 3 started.
+[21:53:52] Genome 1 started.
+[21:53:52] Genome 13 started.
+[21:53:52] Genome 8 started.
+[21:53:52] Genome 17 started.
+[21:53:52] Genome 6 started.
+[21:53:52] Genome 18 started.
+─────────────────────────────────────────────
+🧠  Probabilistic Circuit Network Summary
+─────────────────────────────────────────────
+📦 Classes: 1
+📏 Input size: torch.Size([3, 256, 256])
+⚙️  Depth: 5, Branching: 3
+💻 Device: cpu
+─────────────────────────────────────────────
+📊 Node counts:
+  • InputNode      : 3
+  • SumNode        : 10
+  • ProductNode    : 8
+  • ClassifierNode : 1
+─────────────────────────────────────────────
+🧩 Trainable parameters: 117
+  • InputNode      : 21
+  • SumNode        : 25
+─────────────────────────────────────────────
+📚 Structure:Memory usage: 0.26 KB
+
+└─ ClassifierNode(classes=2)
+   ├─ ProductNode(children=3)
+   │  ├─ ResidualNode
+   │  │  ├─ GateNode
+   │  │  │  ├─ SumNode(children=3, weights=3)
+   │  │  │  │  ├─ GateNode
+   │  │  │  │  │  ├─ InputNode(feat_1)
+   │  │  │  │  │  └─ InputNode(feat_1)
+   │  │  │  │  ├─ ProductNode(children=3)
+   │  │  │  │  │  ├─ InputNode(feat_2)
+   │  │  │  │  │  ├─ InputNode(feat_2)
+   │  │  │  │  │  └─ InputNode(feat_2)
+   │  │  │  │  └─ GateNode
+   │  │  │  │     ├─ InputNode(feat_0)
+   │  │  │  │     └─ InputNode(feat_0)
+   │  │  │  └─ GateNode
+   │  │  │     ├─ InputNode(feat_0)
+   │  │  │     └─ InputNode(feat_1)
+   │  │  └─ InputNode(feat_2)
+   │  ├─ SumNode(children=3, weights=3)
+   │  │  ├─ ProductNode(children=3)
+   │  │  │  ├─ ProductNode(children=2)
+   │  │  │  │  ├─ SumNode(children=2, weights=2)
+   │  │  │  │  │  ├─ InputNode(feat_1)
+   │  │  │  │  │  └─ InputNode(feat_1)
+   │  │  │  │  └─ ProductNode(children=2)
+   │  │  │  │     ├─ InputNode(feat_2)
+   │  │  │  │     └─ InputNode(feat_2)
+   │  │  │  ├─ SumNode(children=2, weights=2)
+   │  │  │  │  ├─ InputNode(feat_1)
+   │  │  │  │  └─ InputNode(feat_1)
+   │  │  │  └─ SumNode(children=2, weights=2)
+   │  │  │     ├─ InputNode(feat_1)
+   │  │  │     └─ SumNode(children=2, weights=2)
+   │  │  │        ├─ InputNode(feat_2)
+   │  │  │        └─ InputNode(feat_2)
+   │  │  ├─ GateNode
+   │  │  │  ├─ ResidualNode
+   │  │  │  │  ├─ InputNode(feat_1)
+   │  │  │  │  └─ InputNode(feat_0)
+   │  │  │  └─ GateNode
+   │  │  │     ├─ GateNode
+   │  │  │     │  ├─ InputNode(feat_1)
+   │  │  │     │  └─ InputNode(feat_1)
+   │  │  │     └─ InputNode(feat_0)
+   │  │  └─ ProductNode(children=2)
+   │  │     ├─ InputNode(feat_1)
+   │  │     └─ GateNode
+   │  │        ├─ GateNode
+   │  │        │  ├─ InputNode(feat_2)
+   │  │        │  └─ InputNode(feat_2)
+   │  │        └─ SumNode(children=4, weights=4)
+   │  │           ├─ InputNode(feat_1)
+   │  │           ├─ InputNode(feat_1)
+   │  │           ├─ InputNode(feat_1)
+   │  │           └─ InputNode(feat_1)
+   │  └─ ProductNode(children=2)
+   │     ├─ ProductNode(children=3)
+   │     │  ├─ SumNode(children=2, weights=2)
+   │     │  │  ├─ InputNode(feat_2)
+   │     │  │  └─ ResidualNode
+   │     │  │     ├─ InputNode(feat_2)
+   │     │  │     └─ InputNode(feat_2)
+   │     │  ├─ ResidualNode
+   │     │  │  ├─ InputNode(feat_2)
+   │     │  │  └─ GateNode
+   │     │  │     ├─ InputNode(feat_0)
+   │     │  │     └─ InputNode(feat_0)
+   │     │  └─ GateNode
+   │     │     ├─ ResidualNode
+   │     │     │  ├─ InputNode(feat_2)
+   │     │     │  └─ InputNode(feat_2)
+   │     │     └─ ResidualNode
+   │     │        ├─ InputNode(feat_0)
+   │     │        └─ InputNode(feat_0)
+   │     └─ GateNode
+   │        ├─ SumNode(children=2, weights=2)
+   │        │  ├─ SumNode(children=3, weights=3)
+   │        │  │  ├─ InputNode(feat_2)
+   │        │  │  ├─ InputNode(feat_2)
+   │        │  │  └─ InputNode(feat_2)
+   │        │  └─ ResidualNode
+   │        │     ├─ InputNode(feat_0)
+   │        │     └─ InputNode(feat_0)
+   │        └─ GateNode
+   │           ├─ ResidualNode
+   │           │  ├─ InputNode(feat_2)
+   │           │  └─ InputNode(feat_2)
+   │           └─ InputNode(feat_2)
+   └─ InputNode(feat_2)
+─────────────────────────────────────────────
+History: {'loss': [0.24912677705287933, 0.23455873131752014, 0.2338600605726242, 0.22572249174118042, 0.2251710593700409, 0.22443343698978424, 0.22443071007728577, 0.2230871617794037, 0.2230871617794037, 0.2230871617794037], 'complexity': [84, 43, 43, 59, 78, 75, 75, 74, 74, 74]}
+Best genome: [237, 134, 228, 26, 23, 213, 27, 13, 103, 135, 102, 25, 214, 215, 188, 231, 61, 97, 82, 216, 154, 42, 106, 214, 235, 253, 245, 142, 51, 214, 205, 253, 166, 36, 128, 114, 215, 100, 40, 27, 213, 193, 10, 111, 122, 120, 70, 38, 78, 46, 241, 232, 117, 11, 30, 40, 110, 74, 49, 80, 254, 218, 153, 14, 214, 218, 231, 76, 181, 151, 114, 148, 29, 70, 140, 180, 221, 48, 173, 146, 172, 170, 115, 183, 108, 206, 136, 255, 38, 75, 198, 34, 189, 35, 30, 147]
+0	train	2.8375120957692466	0.18478599190711975
+ 	val	3.033604145050049	0.1606157124042511
+1	train	2.8043745358784995	0.19048067927360535
+ 	val	2.953808069229126	0.15798650681972504
+2	train	2.7574294408162436	0.187966858347257
+ 	val	2.875440835952759	0.15543708205223083
+3	train	2.668940544128418	0.17125324656565985
+ 	val	2.7991621494293213	0.15334901213645935
+4	train	2.5515751043955484	0.17906378209590912
+ 	val	2.72483491897583	0.1516469269990921
+5	train	2.529341379801432	0.18252643942832947
+ 	val	2.652890920639038	0.1510889083147049
+6	train	2.4468435446421304	0.17913935581843057
+ 	val	2.5829975605010986	0.1500830054283142
+7	train	2.332244396209717	0.17204925417900085
+ 	val	2.5155868530273438	0.1484203189611435
+8	train	2.3126871585845947	0.17416817943255106
+ 	val	2.4509501457214355	0.1470147669315338
+9	train	2.279233376185099	0.1650662918885549
+ 	val	2.388511896133423	0.1470678299665451
+10	train	2.2516380151112876	0.16843419273694357
+ 	val	2.327943801879883	0.14597006142139435
+11	train	2.1124950647354126	0.15991322447856268
+ 	val	2.2696375846862793	0.14501507580280304
+12	train	2.194164752960205	0.17081821958223978
+ 	val	2.2139852046966553	0.14469487965106964
+13	train	2.0576651096343994	0.16557829082012177
+ 	val	2.1601405143737793	0.14432135224342346
+14	train	2.032906413078308	0.16629125674565634
+ 	val	2.108745574951172	0.14463494718074799
+15	train	1.9351048866907756	0.16264362633228302
+ 	val	2.059480667114258	0.14552681148052216
+16	train	1.9417908191680908	0.15471234172582626
+ 	val	2.0125770568847656	0.14503313601016998
+17	train	1.8316622575124104	0.16518549621105194
+ 	val	1.9673984050750732	0.14618124067783356
+18	train	1.8081941604614258	0.15734529991944632
+ 	val	1.924429178237915	0.14654478430747986
+19	train	1.8821239471435547	0.16085009276866913
+ 	val	1.8832427263259888	0.14658211171627045
+20	train	1.7438759803771973	0.16099370022614798
+ 	val	1.8435211181640625	0.14786270260810852
+21	train	1.749065359433492	0.16431435445944467
+ 	val	1.805332064628601	0.1491968184709549
+22	train	1.6616822878519695	0.16461761792500815
+ 	val	1.7685573101043701	0.15070685744285583
+23	train	1.6327462593714397	0.16881901025772095
+ 	val	1.7334659099578857	0.1515854150056839
+24	train	1.5877821445465088	0.16448883712291718
+ 	val	1.699987769126892	0.1534770429134369
+25	train	1.602937936782837	0.16814189652601877
+ 	val	1.6678895950317383	0.15521785616874695
+26	train	1.51400887966156	0.17002074917157492
+ 	val	1.637009620666504	0.15734510123729706
+27	train	1.5344847838083904	0.16759437322616577
+ 	val	1.6076589822769165	0.15944266319274902
+28	train	1.531090219815572	0.168649693330129
+ 	val	1.5795148611068726	0.16073141992092133
+29	train	1.4834070603052776	0.16674226025740305
+ 	val	1.552405595779419	0.1629473716020584
+30	train	1.3938803275426228	0.17125036319096884
+ 	val	1.5259896516799927	0.1654292196035385
+31	train	1.43678879737854	0.17443747321764627
+ 	val	1.5010645389556885	0.16769038140773773
+32	train	1.396682341893514	0.16919360061486563
+ 	val	1.4768753051757812	0.1694556027650833
+33	train	1.3740638097127278	0.17064238588015238
+ 	val	1.4537936449050903	0.17073120176792145
+34	train	1.3664947350819905	0.17035535474618277
+ 	val	1.431548833847046	0.17254990339279175
+35	train	1.332362453142802	0.17839346826076508
+ 	val	1.409893274307251	0.17452846467494965
+36	train	1.3648348649342854	0.17534071703751883
+ 	val	1.3892343044281006	0.17725805938243866
+37	train	1.339954932530721	0.16580108553171158
+ 	val	1.369349479675293	0.17874670028686523
+38	train	1.2849742571512859	0.17308238645394644
+ 	val	1.3499350547790527	0.18044956028461456
+39	train	1.2700328429539998	0.17891704042752585
+ 	val	1.331408977508545	0.18233422935009003
+Final Training Loss: 1.2700328429539998, Dice: 0.5085037449995676, IoU: 0.4255591730276744, CL IoU: 0.17891704042752585
+Final Validation Loss: 1.331408977508545, Dice: 0.5099174976348877, IoU: 0.4338623881340027, CL IoU: 0.18233422935009003
+Test Loss: 1.297229568163554, Dice: 0.5013804336388906, IoU: 0.4113305111726125, CL IoU: 0.16102302819490433
+─────────────────────────────────────────────
+🧠  Probabilistic Circuit Network Summary
+─────────────────────────────────────────────
+📦 Classes: 1
+📏 Input size: torch.Size([3, 256, 256])
+⚙️  Depth: 5, Branching: 3
+💻 Device: cpu
+─────────────────────────────────────────────
+📊 Node counts:
+  • InputNode      : 3
+  • SumNode        : 10
+  • ProductNode    : 8
+  • ClassifierNode : 1
+─────────────────────────────────────────────
+🧩 Trainable parameters: 117
+  • InputNode      : 21
+  • SumNode        : 25
+─────────────────────────────────────────────
+📚 Structure:Memory usage: 0.26 KB
+
+└─ ClassifierNode(classes=2)
+   ├─ ProductNode(children=3)
+   │  ├─ ResidualNode
+   │  │  ├─ GateNode
+   │  │  │  ├─ SumNode(children=3, weights=3)
+   │  │  │  │  ├─ GateNode
+   │  │  │  │  │  ├─ InputNode(feat_1)
+   │  │  │  │  │  └─ InputNode(feat_1)
+   │  │  │  │  ├─ ProductNode(children=3)
+   │  │  │  │  │  ├─ InputNode(feat_2)
+   │  │  │  │  │  ├─ InputNode(feat_2)
+   │  │  │  │  │  └─ InputNode(feat_2)
+   │  │  │  │  └─ GateNode
+   │  │  │  │     ├─ InputNode(feat_0)
+   │  │  │  │     └─ InputNode(feat_0)
+   │  │  │  └─ GateNode
+   │  │  │     ├─ InputNode(feat_0)
+   │  │  │     └─ InputNode(feat_1)
+   │  │  └─ InputNode(feat_2)
+   │  ├─ SumNode(children=3, weights=3)
+   │  │  ├─ ProductNode(children=3)
+   │  │  │  ├─ ProductNode(children=2)
+   │  │  │  │  ├─ SumNode(children=2, weights=2)
+   │  │  │  │  │  ├─ InputNode(feat_1)
+   │  │  │  │  │  └─ InputNode(feat_1)
+   │  │  │  │  └─ ProductNode(children=2)
+   │  │  │  │     ├─ InputNode(feat_2)
+   │  │  │  │     └─ InputNode(feat_2)
+   │  │  │  ├─ SumNode(children=2, weights=2)
+   │  │  │  │  ├─ InputNode(feat_1)
+   │  │  │  │  └─ InputNode(feat_1)
+   │  │  │  └─ SumNode(children=2, weights=2)
+   │  │  │     ├─ InputNode(feat_1)
+   │  │  │     └─ SumNode(children=2, weights=2)
+   │  │  │        ├─ InputNode(feat_2)
+   │  │  │        └─ InputNode(feat_2)
+   │  │  ├─ GateNode
+   │  │  │  ├─ ResidualNode
+   │  │  │  │  ├─ InputNode(feat_1)
+   │  │  │  │  └─ InputNode(feat_0)
+   │  │  │  └─ GateNode
+   │  │  │     ├─ GateNode
+   │  │  │     │  ├─ InputNode(feat_1)
+   │  │  │     │  └─ InputNode(feat_1)
+   │  │  │     └─ InputNode(feat_0)
+   │  │  └─ ProductNode(children=2)
+   │  │     ├─ InputNode(feat_1)
+   │  │     └─ GateNode
+   │  │        ├─ GateNode
+   │  │        │  ├─ InputNode(feat_2)
+   │  │        │  └─ InputNode(feat_2)
+   │  │        └─ SumNode(children=4, weights=4)
+   │  │           ├─ InputNode(feat_1)
+   │  │           ├─ InputNode(feat_1)
+   │  │           ├─ InputNode(feat_1)
+   │  │           └─ InputNode(feat_1)
+   │  └─ ProductNode(children=2)
+   │     ├─ ProductNode(children=3)
+   │     │  ├─ SumNode(children=2, weights=2)
+   │     │  │  ├─ InputNode(feat_2)
+   │     │  │  └─ ResidualNode
+   │     │  │     ├─ InputNode(feat_2)
+   │     │  │     └─ InputNode(feat_2)
+   │     │  ├─ ResidualNode
+   │     │  │  ├─ InputNode(feat_2)
+   │     │  │  └─ GateNode
+   │     │  │     ├─ InputNode(feat_0)
+   │     │  │     └─ InputNode(feat_0)
+   │     │  └─ GateNode
+   │     │     ├─ ResidualNode
+   │     │     │  ├─ InputNode(feat_2)
+   │     │     │  └─ InputNode(feat_2)
+   │     │     └─ ResidualNode
+   │     │        ├─ InputNode(feat_0)
+   │     │        └─ InputNode(feat_0)
+   │     └─ GateNode
+   │        ├─ SumNode(children=2, weights=2)
+   │        │  ├─ SumNode(children=3, weights=3)
+   │        │  │  ├─ InputNode(feat_2)
+   │        │  │  ├─ InputNode(feat_2)
+   │        │  │  └─ InputNode(feat_2)
+   │        │  └─ ResidualNode
+   │        │     ├─ InputNode(feat_0)
+   │        │     └─ InputNode(feat_0)
+   │        └─ GateNode
+   │           ├─ ResidualNode
+   │           │  ├─ InputNode(feat_2)
+   │           │  └─ InputNode(feat_2)
+   │           └─ InputNode(feat_2)
+   └─ InputNode(feat_2)
+─────────────────────────────────────────────

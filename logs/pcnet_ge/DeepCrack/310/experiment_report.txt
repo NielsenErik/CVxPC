@@ -1,0 +1,364 @@
+Experiment Configurations: {'mlflow': None, 'experiment': 'crack_segmentation', 'algorithm': 'pcnet_ge', 'device': 'cpu', 'n_cpus': 30, 'data_path': 'data/DeepCrack/train', 'test_path': 'data/DeepCrack/test', 'save_path': 'models/', 'validation_split': 0.2, 'feature_extractor': 'cv_modules', 'epochs': 40, 'batch_size': 96, 'sample_size': 11000, 'test_size': 3500, 'resize_size': [256, 256], 'input_channels': 3, 'n_classes': 1, 'max_depth': 5, 'max_branching': 3, 'seed': 310, 'filter_sizes': [15, 21], 'n_cv_modules': 20, 'n_filters': 100, 'ge': {'generations': 10, 'pop_size': 20, 'genome_len': 96, 'crossover_rate': 0.9, 'mutation_rate': 0.05, 'elite_k': 2, 'train_split': 0.01}, 'execution_mode': 'train', 'log_dir': 'logs/pcnet_ge/DeepCrack/310'}
+Dataset sizes: {'train': 300, 'val': 60, 'test': 237}
+[21:45:11] Genome 13 started.
+[21:45:11] Genome 9 started.
+[21:45:11] Genome 0 started.
+[21:45:11] Genome 3 started.
+[21:45:11] Genome 17 started.
+[21:45:11] Genome 10 started.
+[21:45:11] Genome 6 started.
+[21:45:11] Genome 8 started.
+[21:45:11] Genome 15 started.
+[21:45:11] Genome 7 started.
+[21:45:11] Genome 4 started.
+[21:45:11] Genome 12 started.
+[21:45:11] Genome 5 started.
+[21:45:11] Genome 19 started.
+[21:45:11] Genome 2 started.
+[21:45:11] Genome 18 started.
+[21:45:11] Genome 11 started.
+[21:45:11] Genome 14 started.
+[21:45:11] Genome 16 started.
+[21:45:11] Genome 1 started.
+[21:46:08] Genome 12 started.
+[21:46:08] Genome 11 started.
+[21:46:08] Genome 16 started.
+[21:46:08] Genome 7 started.
+[21:46:08] Genome 18 started.
+[21:46:08] Genome 6 started.
+[21:46:08] Genome 4 started.
+[21:46:08] Genome 3 started.
+[21:46:08] Genome 1 started.
+[21:46:08] Genome 10 started.
+[21:46:08] Genome 15 started.
+[21:46:08] Genome 13 started.
+[21:46:08] Genome 5 started.
+[21:46:08] Genome 17 started.
+[21:46:08] Genome 19 started.
+[21:46:08] Genome 2 started.
+[21:46:08] Genome 9 started.
+[21:46:08] Genome 8 started.
+[21:46:08] Genome 0 started.
+[21:46:08] Genome 14 started.
+[21:47:15] Genome 9 started.
+[21:47:15] Genome 19 started.
+[21:47:15] Genome 2 started.
+[21:47:15] Genome 1 started.
+[21:47:15] Genome 6 started.
+[21:47:15] Genome 7 started.
+[21:47:15] Genome 0 started.
+[21:47:15] Genome 14 started.
+[21:47:15] Genome 12 started.
+[21:47:15] Genome 4 started.
+[21:47:15] Genome 10 started.
+[21:47:15] Genome 8 started.
+[21:47:15] Genome 3 started.
+[21:47:15] Genome 11 started.
+[21:47:15] Genome 15 started.
+[21:47:15] Genome 18 started.
+[21:47:15] Genome 17 started.
+[21:47:15] Genome 13 started.
+[21:47:15] Genome 5 started.
+[21:47:15] Genome 16 started.
+[21:48:10] Genome 3 started.
+[21:48:10] Genome 13 started.
+[21:48:10] Genome 10 started.
+[21:48:10] Genome 8 started.
+[21:48:10] Genome 16 started.
+[21:48:10] Genome 9 started.
+[21:48:10] Genome 18 started.
+[21:48:10] Genome 6 started.
+[21:48:10] Genome 17 started.
+[21:48:10] Genome 12 started.
+[21:48:10] Genome 2 started.
+[21:48:10] Genome 0 started.
+[21:48:10] Genome 19 started.
+[21:48:10] Genome 7 started.
+[21:48:10] Genome 5 started.
+[21:48:10] Genome 14 started.
+[21:48:10] Genome 4 started.
+[21:48:10] Genome 15 started.
+[21:48:10] Genome 11 started.
+[21:48:10] Genome 1 started.
+[21:49:18] Genome 19 started.
+[21:49:18] Genome 7 started.
+[21:49:18] Genome 17 started.
+[21:49:18] Genome 16 started.
+[21:49:18] Genome 3 started.
+[21:49:18] Genome 1 started.
+[21:49:18] Genome 13 started.
+[21:49:18] Genome 4 started.
+[21:49:18] Genome 15 started.
+[21:49:18] Genome 14 started.
+[21:49:18] Genome 6 started.
+[21:49:18] Genome 11 started.
+[21:49:18] Genome 2 started.
+[21:49:18] Genome 9 started.
+[21:49:18] Genome 18 started.
+[21:49:18] Genome 12 started.
+[21:49:18] Genome 8 started.
+[21:49:18] Genome 10 started.
+[21:49:18] Genome 0 started.
+[21:49:18] Genome 5 started.
+[21:50:13] Genome 7 started.
+[21:50:13] Genome 10 started.
+[21:50:13] Genome 15 started.
+[21:50:13] Genome 8 started.
+[21:50:13] Genome 9 started.
+[21:50:13] Genome 18 started.
+[21:50:13] Genome 11 started.
+[21:50:13] Genome 6 started.
+[21:50:13] Genome 16 started.
+[21:50:13] Genome 2 started.
+[21:50:14] Genome 13 started.
+[21:50:14] Genome 19 started.
+[21:50:14] Genome 12 started.
+[21:50:14] Genome 14 started.
+[21:50:14] Genome 1 started.
+[21:50:14] Genome 0 started.
+[21:50:14] Genome 17 started.
+[21:50:14] Genome 5 started.
+[21:50:14] Genome 4 started.
+[21:50:14] Genome 3 started.
+[21:51:10] Genome 5 started.
+[21:51:10] Genome 15 started.
+[21:51:10] Genome 4 started.
+[21:51:10] Genome 3 started.
+[21:51:10] Genome 10 started.
+[21:51:10] Genome 19 started.
+[21:51:10] Genome 17 started.
+[21:51:10] Genome 2 started.
+[21:51:10] Genome 9 started.
+[21:51:10] Genome 14 started.
+[21:51:10] Genome 6 started.
+[21:51:10] Genome 16 started.
+[21:51:10] Genome 12 started.
+[21:51:10] Genome 18 started.
+[21:51:10] Genome 0 started.
+[21:51:10] Genome 11 started.
+[21:51:10] Genome 1 started.
+[21:51:10] Genome 13 started.
+[21:51:10] Genome 7 started.
+[21:51:10] Genome 8 started.
+[21:52:13] Genome 10 started.
+[21:52:13] Genome 14 started.
+[21:52:13] Genome 18 started.
+[21:52:13] Genome 15 started.
+[21:52:13] Genome 12 started.
+[21:52:13] Genome 0 started.
+[21:52:13] Genome 13 started.
+[21:52:13] Genome 11 started.
+[21:52:13] Genome 16 started.
+[21:52:13] Genome 17 started.
+[21:52:13] Genome 9 started.
+[21:52:13] Genome 7 started.
+[21:52:13] Genome 19 started.
+[21:52:13] Genome 5 started.
+[21:52:13] Genome 8 started.
+[21:52:13] Genome 2 started.
+[21:52:13] Genome 6 started.
+[21:52:13] Genome 3 started.
+[21:52:13] Genome 4 started.
+[21:52:13] Genome 1 started.
+[21:53:11] Genome 8 started.
+[21:53:11] Genome 13 started.
+[21:53:11] Genome 15 started.
+[21:53:11] Genome 2 started.
+[21:53:11] Genome 16 started.
+[21:53:11] Genome 18 started.
+[21:53:11] Genome 0 started.
+[21:53:11] Genome 3 started.
+[21:53:11] Genome 7 started.
+[21:53:11] Genome 14 started.
+[21:53:11] Genome 19 started.
+[21:53:11] Genome 11 started.
+[21:53:11] Genome 4 started.
+[21:53:11] Genome 12 started.
+[21:53:11] Genome 17 started.
+[21:53:11] Genome 10 started.
+[21:53:11] Genome 9 started.
+[21:53:11] Genome 6 started.
+[21:53:11] Genome 5 started.
+[21:53:11] Genome 1 started.
+[21:54:22] Genome 19 started.
+[21:54:22] Genome 12 started.
+[21:54:22] Genome 1 started.
+[21:54:22] Genome 17 started.
+[21:54:22] Genome 15 started.
+[21:54:22] Genome 2 started.
+[21:54:22] Genome 5 started.
+[21:54:22] Genome 8 started.
+[21:54:22] Genome 11 started.
+[21:54:22] Genome 18 started.
+[21:54:22] Genome 16 started.
+[21:54:22] Genome 14 started.
+[21:54:22] Genome 10 started.
+[21:54:22] Genome 13 started.
+[21:54:22] Genome 7 started.
+[21:54:22] Genome 0 started.
+[21:54:22] Genome 3 started.
+[21:54:22] Genome 9 started.
+[21:54:22] Genome 6 started.
+[21:54:22] Genome 4 started.
+─────────────────────────────────────────────
+🧠  Probabilistic Circuit Network Summary
+─────────────────────────────────────────────
+📦 Classes: 1
+📏 Input size: torch.Size([3, 256, 256])
+⚙️  Depth: 5, Branching: 3
+💻 Device: cpu
+─────────────────────────────────────────────
+📊 Node counts:
+  • InputNode      : 3
+  • SumNode        : 5
+  • ProductNode    : 8
+  • ClassifierNode : 1
+─────────────────────────────────────────────
+🧩 Trainable parameters: 148
+  • InputNode      : 21
+  • SumNode        : 17
+─────────────────────────────────────────────
+📚 Structure:Memory usage: 0.19 KB
+
+└─ ClassifierNode(classes=2)
+   ├─ ProductNode(children=3)
+   │  ├─ GateNode
+   │  │  ├─ InputNode(feat_2)
+   │  │  └─ SumNode(children=3, weights=3)
+   │  │     ├─ ResidualNode
+   │  │     │  ├─ InputNode(feat_2)
+   │  │     │  └─ SumNode(children=3, weights=3)
+   │  │     │     ├─ InputNode(feat_0)
+   │  │     │     ├─ InputNode(feat_0)
+   │  │     │     └─ InputNode(feat_0)
+   │  │     ├─ ProductNode(children=3)
+   │  │     │  ├─ SumNode(children=4, weights=4)
+   │  │     │  │  ├─ InputNode(feat_0)
+   │  │     │  │  ├─ InputNode(feat_0)
+   │  │     │  │  ├─ InputNode(feat_0)
+   │  │     │  │  └─ InputNode(feat_0)
+   │  │     │  ├─ InputNode(feat_2)
+   │  │     │  └─ ProductNode(children=3)
+   │  │     │     ├─ InputNode(feat_0)
+   │  │     │     ├─ InputNode(feat_0)
+   │  │     │     └─ InputNode(feat_0)
+   │  │     └─ ResidualNode
+   │  │        ├─ SumNode(children=3, weights=3)
+   │  │        │  ├─ InputNode(feat_0)
+   │  │        │  ├─ InputNode(feat_0)
+   │  │        │  └─ InputNode(feat_0)
+   │  │        └─ GateNode
+   │  │           ├─ InputNode(feat_1)
+   │  │           └─ InputNode(feat_1)
+   │  ├─ ResidualNode
+   │  │  ├─ InputNode(feat_2)
+   │  │  └─ ProductNode(children=3)
+   │  │     ├─ ResidualNode
+   │  │     │  ├─ ResidualNode
+   │  │     │  │  ├─ InputNode(feat_1)
+   │  │     │  │  └─ InputNode(feat_1)
+   │  │     │  └─ ResidualNode
+   │  │     │     ├─ InputNode(feat_2)
+   │  │     │     └─ InputNode(feat_2)
+   │  │     ├─ SumNode(children=4, weights=4)
+   │  │     │  ├─ ProductNode(children=2)
+   │  │     │  │  ├─ InputNode(feat_2)
+   │  │     │  │  └─ InputNode(feat_2)
+   │  │     │  ├─ ProductNode(children=2)
+   │  │     │  │  ├─ InputNode(feat_0)
+   │  │     │  │  └─ InputNode(feat_0)
+   │  │     │  ├─ ProductNode(children=2)
+   │  │     │  │  ├─ InputNode(feat_0)
+   │  │     │  │  └─ InputNode(feat_0)
+   │  │     │  └─ ProductNode(children=3)
+   │  │     │     ├─ InputNode(feat_1)
+   │  │     │     ├─ InputNode(feat_1)
+   │  │     │     └─ InputNode(feat_1)
+   │  │     └─ ResidualNode
+   │  │        ├─ GateNode
+   │  │        │  ├─ InputNode(feat_0)
+   │  │        │  └─ InputNode(feat_0)
+   │  │        └─ GateNode
+   │  │           ├─ InputNode(feat_1)
+   │  │           └─ InputNode(feat_1)
+   │  └─ InputNode(feat_2)
+   └─ InputNode(feat_1)
+─────────────────────────────────────────────
+History: {'loss': [0.4372914135456085, 0.3809598684310913, 0.4666668474674225, 0.451355516910553, 0.43437808752059937, 0.36191076040267944, 0.45543426275253296, 0.44115662574768066, 0.37256360054016113, 0.4556584358215332], 'complexity': [68, 75, 87, 93, 53, 49, 72, 50, 49, 133]}
+Best genome: [117, 28, 180, 158, 121, 61, 134, 145, 89, 151, 175, 217, 126, 1, 195, 248, 67, 199, 41, 205, 148, 199, 160, 164, 157, 199, 189, 34, 211, 137, 82, 202, 247, 219, 213, 118, 200, 98, 40, 163, 63, 68, 15, 35, 111, 122, 42, 106, 154, 59, 86, 94, 117, 93, 30, 83, 111, 97, 46, 80, 34, 76, 202, 242, 171, 78, 218, 123, 197, 84, 117, 137, 245, 217, 125, 167, 51, 205, 141, 136, 196, 162, 18, 231, 68, 201, 54, 47, 43, 143, 81, 26, 109, 167, 81, 244]
+0	train	0.937042772769928	0.19596059620380402
+ 	val	0.932746171951294	0.20729970932006836
+1	train	0.9303443829218546	0.19576371212800345
+ 	val	0.9249399900436401	0.21008886396884918
+2	train	0.9195078611373901	0.20013615489006042
+ 	val	0.9176318049430847	0.2141774445772171
+3	train	0.9118307828903198	0.20695833365122476
+ 	val	0.9105310440063477	0.21726484596729279
+4	train	0.9178315202395121	0.2087419629096985
+ 	val	0.9034975171089172	0.2205096036195755
+5	train	0.920001765092214	0.2030328313509623
+ 	val	0.8962866067886353	0.2234615981578827
+6	train	0.905747652053833	0.20554555455843607
+ 	val	0.8886388540267944	0.22690118849277496
+7	train	0.8925203879674276	0.21727202335993448
+ 	val	0.8807193040847778	0.23069453239440918
+8	train	0.9011096755663554	0.208187406261762
+ 	val	0.87221360206604	0.23442722856998444
+9	train	0.8954139749209086	0.22341658174991608
+ 	val	0.8631271123886108	0.23891180753707886
+10	train	0.8697366913159689	0.22543353835741678
+ 	val	0.853401780128479	0.24343028664588928
+11	train	0.8703952232996622	0.2248567392428716
+ 	val	0.8430726528167725	0.2478289157152176
+12	train	0.8629300395647684	0.23179558912913004
+ 	val	0.8321806192398071	0.25257405638694763
+13	train	0.8357325990994772	0.2433954526980718
+ 	val	0.8206872344017029	0.25731706619262695
+14	train	0.8289137283960978	0.24399845798810324
+ 	val	0.8086873292922974	0.2632646858692169
+15	train	0.8296232024828593	0.25427697598934174
+ 	val	0.7961850166320801	0.2693637013435364
+16	train	0.805543859799703	0.2634183168411255
+ 	val	0.7832540273666382	0.2758270800113678
+17	train	0.794448733329773	0.2741255859533946
+ 	val	0.7699979543685913	0.281514048576355
+18	train	0.7777426640192667	0.27671222885449726
+ 	val	0.7564898133277893	0.2875184714794159
+19	train	0.7856592933336893	0.27847368518511456
+ 	val	0.7428436875343323	0.29511937499046326
+20	train	0.7410372694333395	0.29507872462272644
+ 	val	0.7290465831756592	0.3018328845500946
+21	train	0.7286632259686788	0.3079522450764974
+ 	val	0.7152843475341797	0.30937862396240234
+22	train	0.7240129311879476	0.3199470639228821
+ 	val	0.7017967700958252	0.3161953389644623
+23	train	0.716628889242808	0.3187659978866577
+ 	val	0.6886880397796631	0.32377687096595764
+24	train	0.6931916077931722	0.3280932108561198
+ 	val	0.6761192679405212	0.33177700638771057
+25	train	0.705724835395813	0.34128905336062115
+ 	val	0.664310097694397	0.3392222225666046
+26	train	0.6984070738156637	0.34499549865722656
+ 	val	0.6533432006835938	0.3475138247013092
+27	train	0.663561224937439	0.355166216691335
+ 	val	0.6433638334274292	0.35654792189598083
+28	train	0.6488488515218099	0.37600815296173096
+ 	val	0.6346023082733154	0.3642931580543518
+29	train	0.656671384970347	0.3685924808184306
+ 	val	0.627044677734375	0.37172552943229675
+30	train	0.6447658737500509	0.374820739030838
+ 	val	0.6204609870910645	0.37876567244529724
+31	train	0.6517680684725443	0.3877483606338501
+ 	val	0.6147184371948242	0.38516491651535034
+32	train	0.6367598374684652	0.3869021534919739
+ 	val	0.6097986698150635	0.3901309370994568
+33	train	0.6449599464734396	0.3846425612767537
+ 	val	0.6054189205169678	0.39440253376960754
+34	train	0.6297902266184489	0.40579164028167725
+ 	val	0.6014167070388794	0.39861786365509033
+35	train	0.6298226714134216	0.4043661256631215
+ 	val	0.5979248285293579	0.40177711844444275
+36	train	0.6242774724960327	0.4059096972147624
+ 	val	0.5947186350822449	0.4052447974681854
+37	train	0.6270519693692526	0.41249117255210876
+ 	val	0.5918391346931458	0.4083920121192932
