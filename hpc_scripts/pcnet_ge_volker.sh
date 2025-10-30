@@ -15,5 +15,4 @@ module load cuda-11.3
 source $PWD/.venv/bin/activate
 
 # Launch distributed training
-python3  $PWD/src/main.py $PWD/src/config/hpc/pcnet_ge_gap.json $PBS_ARRAY_INDEX
-
+python3  $PWD/src/main.py $PWD/src/config/hpc/pcnet_ge_volker.json $PBS_ARRAY_INDEX

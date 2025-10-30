@@ -1,0 +1,292 @@
+Experiment Configurations: {'mlflow': None, 'experiment': 'crack_segmentation', 'algorithm': 'pcnet_ge', 'device': 'cpu', 'n_cpus': 4, 'data_path': 'data/crackseg9k_split/AEL/train', 'test_path': 'data/crackseg9k_split/AEL/test', 'save_path': 'models/', 'validation_split': 0.2, 'feature_extractor': 'cv_modules', 'cv_epochs': 2, 'epochs': 50, 'sample_size': 50, 'batch_size': 16, 'resize_size': [256, 256], 'input_channels': 3, 'n_classes': 1, 'max_depth': 5, 'max_branching': 2, 'seed': 1001, 'filter_sizes': [15, 21], 'n_cv_modules': 10, 'n_filters': 100, 'ge': {'generations': 2, 'pop_size': 2, 'genome_len': 96, 'crossover_rate': 0.9, 'mutation_rate': 0.05, 'elite_k': 2, 'train_split': 0.1}, 'execution_mode': 'train', 'log_dir': 'logs/pcnet_ge/AEL/1001'}
+Dataset sizes: {'train': 50, 'val': 10, 'test': 39}
+─────────────────────────────────────────────
+🧠  Probabilistic Circuit Network Summary
+─────────────────────────────────────────────
+📦 Classes: 1
+📏 Input size: torch.Size([3, 256, 256])
+⚙️  Depth: 5, Branching: 2
+💻 Device: cpu
+─────────────────────────────────────────────
+📊 Node counts:
+  • InputNode      : 3
+  • SumNode        : 7
+  • ProductNode    : 5
+  • ClassifierNode : 1
+─────────────────────────────────────────────
+🧩 Trainable parameters: 114
+  • InputNode      : 21
+  • SumNode        : 14
+─────────────────────────────────────────────
+📚 Structure:Memory usage: 0.22 KB
+
+└─ ClassifierNode(classes=2)
+   ├─ ProductNode(children=2)
+   │  ├─ GateNode
+   │  │  ├─ ProductNode(children=2)
+   │  │  │  ├─ ProductNode(children=2)
+   │  │  │  │  ├─ InputNode(feat_0)
+   │  │  │  │  └─ ProductNode(children=2)
+   │  │  │  │     ├─ InputNode(feat_2)
+   │  │  │  │     └─ InputNode(feat_2)
+   │  │  │  └─ GateNode
+   │  │  │     ├─ SumNode(children=2, weights=2)
+   │  │  │     │  ├─ InputNode(feat_2)
+   │  │  │     │  └─ InputNode(feat_2)
+   │  │  │     └─ ResidualNode
+   │  │  │        ├─ InputNode(feat_0)
+   │  │  │        └─ InputNode(feat_0)
+   │  │  └─ ResidualNode
+   │  │     ├─ GateNode
+   │  │     │  ├─ ResidualNode
+   │  │     │  │  ├─ InputNode(feat_0)
+   │  │     │  │  └─ InputNode(feat_0)
+   │  │     │  └─ GateNode
+   │  │     │     ├─ InputNode(feat_1)
+   │  │     │     └─ InputNode(feat_1)
+   │  │     └─ SumNode(children=2, weights=2)
+   │  │        ├─ ProductNode(children=2)
+   │  │        │  ├─ InputNode(feat_1)
+   │  │        │  └─ InputNode(feat_1)
+   │  │        └─ ResidualNode
+   │  │           ├─ InputNode(feat_2)
+   │  │           └─ InputNode(feat_2)
+   │  └─ InputNode(feat_2)
+   └─ ResidualNode
+      ├─ SumNode(children=2, weights=2)
+      │  ├─ InputNode(feat_2)
+      │  └─ GateNode
+      │     ├─ InputNode(feat_1)
+      │     └─ GateNode
+      │        ├─ InputNode(feat_1)
+      │        └─ GateNode
+      │           ├─ InputNode(feat_1)
+      │           └─ InputNode(feat_1)
+      └─ SumNode(children=2, weights=2)
+         ├─ SumNode(children=2, weights=2)
+         │  ├─ SumNode(children=2, weights=2)
+         │  │  ├─ SumNode(children=2, weights=2)
+         │  │  │  ├─ InputNode(feat_0)
+         │  │  │  └─ InputNode(feat_0)
+         │  │  └─ ResidualNode
+         │  │     ├─ InputNode(feat_1)
+         │  │     └─ InputNode(feat_1)
+         │  └─ ResidualNode
+         │     ├─ InputNode(feat_2)
+         │     └─ GateNode
+         │        ├─ InputNode(feat_2)
+         │        └─ InputNode(feat_2)
+         └─ ResidualNode
+            ├─ GateNode
+            │  ├─ GateNode
+            │  │  ├─ InputNode(feat_2)
+            │  │  └─ InputNode(feat_2)
+            │  └─ ResidualNode
+            │     ├─ InputNode(feat_0)
+            │     └─ InputNode(feat_0)
+            └─ ResidualNode
+               ├─ ResidualNode
+               │  ├─ InputNode(feat_2)
+               │  └─ InputNode(feat_2)
+               └─ GateNode
+                  ├─ InputNode(feat_0)
+                  └─ InputNode(feat_0)
+─────────────────────────────────────────────
+History: {'loss': [0.9331398010253906, 0.8935716152191162], 'complexity': [57, 57]}
+Best genome: [22, 198, 167, 112, 110, 219, 22, 178, 51, 24, 134, 249, 188, 194, 183, 201, 131, 32, 214, 115, 128, 94, 46, 237, 200, 164, 103, 210, 139, 113, 115, 58, 23, 141, 227, 16, 219, 211, 70, 161, 42, 194, 179, 90, 17, 248, 114, 228, 173, 199, 194, 49, 93, 119, 127, 11, 139, 39, 190, 174, 236, 190, 93, 247, 105, 83, 231, 94, 19, 120, 203, 48, 118, 33, 175, 121, 84, 58, 144, 171, 240, 111, 41, 213, 161, 179, 24, 79, 196, 213, 111, 206, 215, 99, 229, 73]
+0	train	0.7532487511634827	0.14553169409434
+ 	val	0.7550730109214783	0.10222480446100235
+1	train	0.7678719560305277	0.13757654279470444
+ 	val	0.7526140809059143	0.10232090950012207
+2	train	0.7693516214688619	0.1316169574856758
+ 	val	0.7503814697265625	0.10280770063400269
+3	train	0.7681181828180949	0.1322174370288849
+ 	val	0.7481706142425537	0.10345947742462158
+4	train	0.7873225808143616	0.13623271882534027
+ 	val	0.745938777923584	0.10415183007717133
+5	train	0.771526018778483	0.15680636713902155
+ 	val	0.7436788082122803	0.10483111441135406
+6	train	0.8227151036262512	0.13600501666466394
+ 	val	0.7414820194244385	0.10479538142681122
+7	train	0.7915498812993368	0.1411769688129425
+ 	val	0.7393636703491211	0.10487860441207886
+8	train	0.7480293909708658	0.14257098734378815
+ 	val	0.7371562123298645	0.1053604856133461
+9	train	0.76465372244517	0.1422589917977651
+ 	val	0.735015869140625	0.10567543655633926
+10	train	0.7639291882514954	0.14537339409192404
+ 	val	0.732966423034668	0.10597990453243256
+11	train	0.7425234317779541	0.14402065177758536
+ 	val	0.730802059173584	0.10646786540746689
+12	train	0.7611061533292135	0.13335493206977844
+ 	val	0.7287558913230896	0.10676050186157227
+13	train	0.7456695238749186	0.14458224177360535
+ 	val	0.7267496585845947	0.10653595626354218
+14	train	0.7533897360165914	0.13845907896757126
+ 	val	0.7247880697250366	0.1063062772154808
+15	train	0.7374979853630066	0.155734953780969
+ 	val	0.7228808403015137	0.10610301792621613
+16	train	0.7565304636955261	0.1488415946563085
+ 	val	0.720962405204773	0.10607297718524933
+17	train	0.7343460917472839	0.14479550222555795
+ 	val	0.7190247178077698	0.10609956830739975
+18	train	0.7365847031275431	0.13298813750346503
+ 	val	0.7170782089233398	0.10661312192678452
+19	train	0.7549538612365723	0.14727850506703058
+ 	val	0.7151862382888794	0.10622479021549225
+20	train	0.7224257389704386	0.14799253642559052
+ 	val	0.7133123874664307	0.10632751882076263
+21	train	0.7371147274971008	0.13862079878648123
+ 	val	0.7114546895027161	0.10628768056631088
+22	train	0.7497331500053406	0.15686260163784027
+ 	val	0.7096474170684814	0.1056552529335022
+23	train	0.7301934957504272	0.13682902852694193
+ 	val	0.7078697085380554	0.10509224236011505
+24	train	0.7478025754292806	0.1342087835073471
+ 	val	0.70610511302948	0.1047418937087059
+25	train	0.7588340640068054	0.13310953478018442
+ 	val	0.7043644785881042	0.10437454283237457
+26	train	0.7278439998626709	0.1448412537574768
+ 	val	0.7025540471076965	0.10396607965230942
+27	train	0.7415773073832194	0.15505353609720865
+ 	val	0.7008612155914307	0.10355880111455917
+28	train	0.7246566613515218	0.1395850827296575
+ 	val	0.6991077065467834	0.1033259853720665
+29	train	0.728683352470398	0.14172091086705527
+ 	val	0.6974606513977051	0.10234962403774261
+30	train	0.7166844010353088	0.1564515084028244
+ 	val	0.6957212686538696	0.10241083055734634
+31	train	0.7528263529141744	0.14267930636803308
+ 	val	0.6940608024597168	0.10236165672540665
+32	train	0.7340623736381531	0.14142091820637384
+ 	val	0.6924340724945068	0.10231413692235947
+33	train	0.7414598067601522	0.14305759221315384
+ 	val	0.6907944083213806	0.10222826153039932
+34	train	0.717515786488851	0.15861369172732034
+ 	val	0.6890969276428223	0.10201270878314972
+35	train	0.7316860357920328	0.14687126874923706
+ 	val	0.6874594688415527	0.1024281233549118
+36	train	0.7225430806477865	0.14859513441721597
+ 	val	0.6858404874801636	0.1026371493935585
+37	train	0.723154087861379	0.17225757986307144
+ 	val	0.6841825246810913	0.10282371193170547
+38	train	0.7324074109395345	0.1459116463859876
+ 	val	0.6826010942459106	0.10327981412410736
+39	train	0.7089468638102213	0.15470086534818014
+ 	val	0.6809135675430298	0.10393878072500229
+40	train	0.6904446880022684	0.1877288520336151
+ 	val	0.6793756484985352	0.10427156835794449
+41	train	0.7202806274096171	0.17079642911752066
+ 	val	0.6780112981796265	0.10435338318347931
+42	train	0.6957730054855347	0.1676100417971611
+ 	val	0.6767241954803467	0.10440852493047714
+43	train	0.7055501937866211	0.15701809525489807
+ 	val	0.675443172454834	0.10514581203460693
+44	train	0.700288454691569	0.1769103854894638
+ 	val	0.6741821765899658	0.10508999973535538
+45	train	0.7351518670717875	0.1740035613377889
+ 	val	0.6730623245239258	0.10460804402828217
+46	train	0.6946095029513041	0.17273294428984323
+ 	val	0.672032356262207	0.10448694229125977
+47	train	0.7006034453709921	0.18217885990937552
+ 	val	0.6709351539611816	0.10453756153583527
+48	train	0.7192864815394083	0.17154386639595032
+ 	val	0.6698624491691589	0.10420574992895126
+49	train	0.7029004096984863	0.17350952327251434
+ 	val	0.6687330603599548	0.10442111641168594
+Final Training Loss: 0.7029004096984863, Dice: 0.46720921993255615, IoU: 0.3748336434364319, CL IoU: 0.17350952327251434
+Final Validation Loss: 0.6687330603599548, Dice: 0.45565956830978394, IoU: 0.3583947718143463, CL IoU: 0.10442111641168594
+Test Loss: 0.6555, Dice: 0.4894, IoU: 0.3965, CL IoU: 0.2076
+Test Accuracy: 0.7746, Precision: 0.1300, Recall: 0.9040, F1-Score: 0.2273
+─────────────────────────────────────────────
+🧠  Probabilistic Circuit Network Summary
+─────────────────────────────────────────────
+📦 Classes: 1
+📏 Input size: torch.Size([3, 256, 256])
+⚙️  Depth: 5, Branching: 2
+💻 Device: cpu
+─────────────────────────────────────────────
+📊 Node counts:
+  • InputNode      : 3
+  • SumNode        : 7
+  • ProductNode    : 5
+  • ClassifierNode : 1
+─────────────────────────────────────────────
+🧩 Trainable parameters: 114
+  • InputNode      : 21
+  • SumNode        : 14
+─────────────────────────────────────────────
+📚 Structure:Memory usage: 0.22 KB
+
+└─ ClassifierNode(classes=2)
+   ├─ ProductNode(children=2)
+   │  ├─ GateNode
+   │  │  ├─ ProductNode(children=2)
+   │  │  │  ├─ ProductNode(children=2)
+   │  │  │  │  ├─ InputNode(feat_0)
+   │  │  │  │  └─ ProductNode(children=2)
+   │  │  │  │     ├─ InputNode(feat_2)
+   │  │  │  │     └─ InputNode(feat_2)
+   │  │  │  └─ GateNode
+   │  │  │     ├─ SumNode(children=2, weights=2)
+   │  │  │     │  ├─ InputNode(feat_2)
+   │  │  │     │  └─ InputNode(feat_2)
+   │  │  │     └─ ResidualNode
+   │  │  │        ├─ InputNode(feat_0)
+   │  │  │        └─ InputNode(feat_0)
+   │  │  └─ ResidualNode
+   │  │     ├─ GateNode
+   │  │     │  ├─ ResidualNode
+   │  │     │  │  ├─ InputNode(feat_0)
+   │  │     │  │  └─ InputNode(feat_0)
+   │  │     │  └─ GateNode
+   │  │     │     ├─ InputNode(feat_1)
+   │  │     │     └─ InputNode(feat_1)
+   │  │     └─ SumNode(children=2, weights=2)
+   │  │        ├─ ProductNode(children=2)
+   │  │        │  ├─ InputNode(feat_1)
+   │  │        │  └─ InputNode(feat_1)
+   │  │        └─ ResidualNode
+   │  │           ├─ InputNode(feat_2)
+   │  │           └─ InputNode(feat_2)
+   │  └─ InputNode(feat_2)
+   └─ ResidualNode
+      ├─ SumNode(children=2, weights=2)
+      │  ├─ InputNode(feat_2)
+      │  └─ GateNode
+      │     ├─ InputNode(feat_1)
+      │     └─ GateNode
+      │        ├─ InputNode(feat_1)
+      │        └─ GateNode
+      │           ├─ InputNode(feat_1)
+      │           └─ InputNode(feat_1)
+      └─ SumNode(children=2, weights=2)
+         ├─ SumNode(children=2, weights=2)
+         │  ├─ SumNode(children=2, weights=2)
+         │  │  ├─ SumNode(children=2, weights=2)
+         │  │  │  ├─ InputNode(feat_0)
+         │  │  │  └─ InputNode(feat_0)
+         │  │  └─ ResidualNode
+         │  │     ├─ InputNode(feat_1)
+         │  │     └─ InputNode(feat_1)
+         │  └─ ResidualNode
+         │     ├─ InputNode(feat_2)
+         │     └─ GateNode
+         │        ├─ InputNode(feat_2)
+         │        └─ InputNode(feat_2)
+         └─ ResidualNode
+            ├─ GateNode
+            │  ├─ GateNode
+            │  │  ├─ InputNode(feat_2)
+            │  │  └─ InputNode(feat_2)
+            │  └─ ResidualNode
+            │     ├─ InputNode(feat_0)
+            │     └─ InputNode(feat_0)
+            └─ ResidualNode
+               ├─ ResidualNode
+               │  ├─ InputNode(feat_2)
+               │  └─ InputNode(feat_2)
+               └─ GateNode
+                  ├─ InputNode(feat_0)
+                  └─ InputNode(feat_0)
+─────────────────────────────────────────────

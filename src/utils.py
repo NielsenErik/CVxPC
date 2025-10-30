@@ -341,5 +341,68 @@ def reorganize_dataset(datasetpath, datasetname):
     print(f"  → Train images: {len(os.listdir(train_img_out))}")
     print(f"  → Test images:  {len(os.listdir(test_img_out))}")
 
+def devide_crackseg9k(root_in, out_out):
+    import os
+    import shutil
+    from tqdm import tqdm
+
+    # Dataset identifiers (substrings used to detect which dataset each file belongs to)
+    DATASET_KEYS = {
+        "CRACK500": "CRACK500",
+        "DeepCrack": "DeepCrack",
+        "GAPS384": "GAPS384",
+        "Rissbilder": "Rissbilder",
+        "noncrack": "noncrack",
+        "cracktree200": "cracktree200",
+        "Volker": "Volker",
+        "Ceramic": "Ceramic",
+        "a_": "AEL",      # or any name you want for 'a_' / 'c_' prefixed sets
+        "c_": "CCIC"
+    }
+
+    def detect_dataset(name):
+        """Detect dataset name based on filename substrings."""
+        for key, dataset in DATASET_KEYS.items():
+            if key in name:
+                return dataset
+        return "Unknown"
+
+    def restructure_dataset(root, out):
+        for split in ["train", "test"]:
+            img_dir = os.path.join(root, split, "images")
+            mask_dir = os.path.join(root, split, "masks")
+
+            for img_name in tqdm(os.listdir(img_dir), desc=f"Processing {split} images"):
+                dataset_name = detect_dataset(img_name)
+                if dataset_name == "Unknown":
+                    continue
+
+                # Define output directories
+                out_img_dir = os.path.join(out, dataset_name, split, "images")
+                out_mask_dir = os.path.join(out, dataset_name, split, "masks")
+                os.makedirs(out_img_dir, exist_ok=True)
+                os.makedirs(out_mask_dir, exist_ok=True)
+
+                # Define paths
+                src_img = os.path.join(img_dir, img_name)
+                src_mask = os.path.join(mask_dir, img_name)
+                dst_img = os.path.join(out_img_dir, img_name)
+                dst_mask = os.path.join(out_mask_dir, img_name)
+
+                # Copy files (can change to `shutil.move` if you want to move instead)
+                shutil.copy2(src_img, dst_img)
+                if os.path.exists(src_mask):
+                    shutil.copy2(src_mask, dst_mask)
+                else:
+                    print(f"⚠️ No mask found for {img_name}")
+        
+    restructure_dataset(root_in, out_out)
+
 if __name__ == "__main__":
-    reorganize_dataset("data/AIGLE_RN", "")
+    # Root dataset directory (adjust this)
+    ROOT = "data/crackseg9k"
+
+    # Target base output folder
+    OUT = "data/crackseg9k_split"
+    devide_crackseg9k(ROOT, OUT)
+    print("\n✅ Dataset restructuring complete!")
