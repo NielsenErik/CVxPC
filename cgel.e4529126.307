@@ -1,1 +1,0 @@
-Training PCNet:   0%|          | 0/40 [00:00<?, ?it/s]/var/spool/pbs/mom_priv/jobs/4529126[307].hpc-head-n1.unitn.it.SC: line 18: 41725 Killed                  python3 $PWD/src/main.py $PWD/src/config/hpc/pcnet_ge.json $PBS_ARRAY_INDEX
