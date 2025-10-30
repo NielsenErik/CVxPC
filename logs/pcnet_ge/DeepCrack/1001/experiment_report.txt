@@ -1,9 +1,5 @@
 Experiment Configurations: {'mlflow': None, 'experiment': 'crack_segmentation', 'algorithm': 'pcnet_ge', 'device': 'cpu', 'n_cpus': 4, 'data_path': 'data/DeepCrack/train', 'test_path': 'data/DeepCrack/test', 'save_path': 'models/', 'validation_split': 0.2, 'feature_extractor': 'cv_modules', 'cv_epochs': 2, 'epochs': 50, 'sample_size': 50, 'batch_size': 16, 'resize_size': [256, 256], 'input_channels': 3, 'n_classes': 1, 'max_depth': 5, 'max_branching': 2, 'seed': 1001, 'filter_sizes': [15, 21], 'n_cv_modules': 10, 'n_filters': 100, 'ge': {'generations': 2, 'pop_size': 2, 'genome_len': 96, 'crossover_rate': 0.9, 'mutation_rate': 0.05, 'elite_k': 2, 'train_split': 0.1}, 'execution_mode': 'train', 'log_dir': 'logs/pcnet_ge/DeepCrack/1001'}
 Dataset sizes: {'train': 50, 'val': 10, 'test': 237}
-[12:00:32] Genome 1 started.
-[12:00:32] Genome 0 started.
-[12:00:57] Genome 0 started.
-[12:00:57] Genome 1 started.
 ─────────────────────────────────────────────
 🧠  Probabilistic Circuit Network Summary
 ─────────────────────────────────────────────
@@ -18,7 +14,7 @@ Dataset sizes: {'train': 50, 'val': 10, 'test': 237}
   • ProductNode    : 5
   • ClassifierNode : 1
 ─────────────────────────────────────────────
-🧩 Trainable parameters: 113
+🧩 Trainable parameters: 118
   • SumNode        : 14
   • InputNode      : 21
 ─────────────────────────────────────────────
@@ -96,7 +92,7 @@ Dataset sizes: {'train': 50, 'val': 10, 'test': 237}
                   ├─ InputNode(feat_0)
                   └─ InputNode(feat_0)
 ─────────────────────────────────────────────
-History: {'loss': [0.6764334440231323, 0.7416075468063354], 'complexity': [57, 57]}
+History: {'loss': [0.6764334440231323, 0.7269995808601379], 'complexity': [57, 57]}
 Best genome: [22, 198, 167, 112, 110, 219, 22, 178, 51, 24, 134, 249, 188, 194, 183, 201, 131, 32, 214, 115, 128, 94, 46, 237, 200, 164, 103, 210, 139, 113, 115, 58, 23, 141, 227, 16, 219, 211, 70, 161, 42, 194, 179, 90, 17, 248, 114, 228, 173, 199, 194, 49, 93, 119, 127, 11, 139, 39, 190, 174, 236, 190, 93, 247, 105, 83, 231, 94, 19, 120, 203, 48, 118, 33, 175, 121, 84, 58, 144, 171, 240, 111, 41, 213, 161, 179, 24, 79, 196, 213, 111, 206, 215, 99, 229, 73]
 0	train	0.5027805964152018	0.38262616594632465
  	val	0.5375989079475403	0.3667256832122803
@@ -216,7 +212,7 @@ Test Accuracy: 0.8757, Precision: 0.3287, Recall: 0.8687, F1-Score: 0.4401
   • ProductNode    : 5
   • ClassifierNode : 1
 ─────────────────────────────────────────────
-🧩 Trainable parameters: 113
+🧩 Trainable parameters: 118
   • SumNode        : 14
   • InputNode      : 21
 ─────────────────────────────────────────────

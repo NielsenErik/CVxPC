@@ -237,7 +237,8 @@ class GEOptimizer:
         device="cpu",
         seed=42,
         n_jobs=None,
-        report=None
+        report=None,
+        log_path=None
     ):
         self.pop_size = pop_size
         self.genome_len = genome_len
@@ -252,6 +253,11 @@ class GEOptimizer:
         self.rng = np.random.default_rng(seed)
         self.n_jobs = n_jobs or os.cpu_count()
         self.report = report
+        self.log_path = log_path
+        self.evolution_report = os.path.join(log_path, "evolution_report.txt") if log_path else None
+        if self.evolution_report:
+            with open(self.evolution_report, "w") as f:
+                f.write("Generation,Avg_Fitness,Best_Fitness,Avg_Complexity,Best_Complexity\n")
 
     # -----------------------------------------------------
     # GA primitives
@@ -400,8 +406,15 @@ class GEOptimizer:
             # --- Pareto sorting ---
             scored = list(zip(losses, complexities, population))
             scored.sort(key=lambda x: (x[0], x[1]))  # loss first, then smaller model
+            losses = [s[0] for s in scored]
+            complexities = [s[1] for s in scored]
+            avg_loss = sum(losses) / len(losses)
+            avg_complexity = sum(complexities) / len(complexities)
 
             best_loss, best_complexity, best = scored[0]
+            with open(self.evolution_report, "a") as f:
+                f.write(f"[{str(time.strftime('%H:%M:%S'))}]{gen+1},{avg_loss:.4f},{best_loss:.4f},{avg_complexity},{best_complexity}\n")
+            f.close()
             history.append(best_loss)
             complexity_hist.append(best_complexity)
 
@@ -435,9 +448,6 @@ class GEOptimizer:
 
             population = new_pop
             print(f"✅ Gen {gen+1}: best loss={best_score:.4f}, complexity={best_complexity}")
-            if self.report is not None:
-                with open(self.report, "a") as f:
-                    f.write(f"[{time.strftime('%H:%M:%S')}] Gen {gen+1}: best loss={best_score:.4f}, complexity={best_complexity}\n")
 
         # --- Final refinement of best genome ---
         trees = self.mapper.map_model(best_genome, inputs.shape[1], self.max_depth, self.max_branching)
