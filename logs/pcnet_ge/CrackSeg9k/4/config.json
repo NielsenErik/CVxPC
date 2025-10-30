@@ -4,14 +4,11 @@
     "algorithm": "pcnet_ge",
     "device": "cpu",
     "n_cpus": 30,
-
-    "data_path": "data/CRACK500/train",
-    "test_path": "data/CRACK500/test",
+    "data_path": "data/CrackSeg9k/train",
+    "test_path": "data/CrackSeg9k/test",
     "save_path": "models/",
     "validation_split": 0.2,
-
     "feature_extractor": "cv_modules",
-
     "epochs": 60,
     "batch_size": 32,
     "resize_size": [
@@ -20,14 +17,16 @@
     ],
     "input_channels": 3,
     "n_classes": 1,
-    "max_depth": 5,
-    "max_branching": 2,
-    "seed": 90,
-    "filter_sizes": [15, 21],
+    "max_depth": 8,
+    "max_branching": 3,
+    "seed": 4,
+    "filter_sizes": [
+        15,
+        21
+    ],
     "n_cv_modules": 20,
     "n_filters": 100,
-
-    "ge":{
+    "ge": {
         "generations": 10,
         "pop_size": 20,
         "genome_len": 96,
@@ -36,8 +35,6 @@
         "elite_k": 2,
         "train_split": 0.1
     },
-
-    "execution_mode": "train"
-    
-
+    "execution_mode": "train",
+    "log_dir": "logs/pcnet_ge/CrackSeg9k/4"
 }
