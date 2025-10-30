@@ -200,3 +200,75 @@ Dataset sizes: {'train': 300, 'val': 60, 'test': 237}
 [22:02:21] Genome 17 started.
 [22:02:22] Genome 13 started.
 [22:02:22] Genome 2 started.
+─────────────────────────────────────────────
+🧠  Probabilistic Circuit Network Summary
+─────────────────────────────────────────────
+📦 Classes: 1
+📏 Input size: torch.Size([3, 256, 256])
+⚙️  Depth: 5, Branching: 3
+💻 Device: cpu
+─────────────────────────────────────────────
+📊 Node counts:
+  • InputNode      : 3
+  • SumNode        : 3
+  • ProductNode    : 8
+  • ClassifierNode : 1
+─────────────────────────────────────────────
+🧩 Trainable parameters: 97
+  • SumNode        : 7
+  • InputNode      : 21
+─────────────────────────────────────────────
+📚 Structure:Memory usage: 0.15 KB
+
+└─ ClassifierNode(classes=2)
+   ├─ ProductNode(children=2)
+   │  ├─ GateNode
+   │  │  ├─ ProductNode(children=3)
+   │  │  │  ├─ ProductNode(children=2)
+   │  │  │  │  ├─ SumNode(children=3, weights=3)
+   │  │  │  │  │  ├─ InputNode(feat_1)
+   │  │  │  │  │  ├─ InputNode(feat_1)
+   │  │  │  │  │  └─ InputNode(feat_1)
+   │  │  │  │  └─ ProductNode(children=2)
+   │  │  │  │     ├─ InputNode(feat_2)
+   │  │  │  │     └─ InputNode(feat_2)
+   │  │  │  ├─ GateNode
+   │  │  │  │  ├─ SumNode(children=2, weights=2)
+   │  │  │  │  │  ├─ InputNode(feat_2)
+   │  │  │  │  │  └─ InputNode(feat_2)
+   │  │  │  │  └─ ProductNode(children=2)
+   │  │  │  │     ├─ InputNode(feat_0)
+   │  │  │  │     └─ InputNode(feat_0)
+   │  │  │  └─ ResidualNode
+   │  │  │     ├─ GateNode
+   │  │  │     │  ├─ InputNode(feat_2)
+   │  │  │     │  └─ InputNode(feat_2)
+   │  │  │     └─ ResidualNode
+   │  │  │        ├─ InputNode(feat_0)
+   │  │  │        └─ InputNode(feat_0)
+   │  │  └─ ResidualNode
+   │  │     ├─ InputNode(feat_0)
+   │  │     └─ ProductNode(children=3)
+   │  │        ├─ ProductNode(children=3)
+   │  │        │  ├─ InputNode(feat_2)
+   │  │        │  ├─ InputNode(feat_2)
+   │  │        │  └─ InputNode(feat_2)
+   │  │        ├─ ResidualNode
+   │  │        │  ├─ InputNode(feat_0)
+   │  │        │  └─ InputNode(feat_0)
+   │  │        └─ ResidualNode
+   │  │           ├─ InputNode(feat_1)
+   │  │           └─ InputNode(feat_1)
+   │  └─ SumNode(children=2, weights=2)
+   │     ├─ ProductNode(children=2)
+   │     │  ├─ InputNode(feat_1)
+   │     │  └─ InputNode(feat_0)
+   │     └─ GateNode
+   │        ├─ InputNode(feat_2)
+   │        └─ InputNode(feat_2)
+   └─ ResidualNode
+      ├─ InputNode(feat_2)
+      └─ InputNode(feat_2)
+─────────────────────────────────────────────
+History: {'loss': [0.5815461874008179, 0.5815461874008179, 0.5815899968147278, 0.5491229295730591, 0.5815461874008179, 0.580721378326416, 0.5289708375930786, 0.559089183807373, 0.5367946028709412, 0.54393470287323], 'complexity': [74, 74, 74, 74, 74, 74, 38, 38, 38, 60]}
+Best genome: [22, 198, 167, 112, 111, 219, 22, 178, 51, 24, 102, 249, 188, 194, 74, 105, 30, 97, 237, 109, 169, 166, 246, 222, 70, 235, 135, 63, 68, 60, 254, 190, 215, 209, 245, 116, 225, 17, 121, 27, 91, 37, 49, 211, 81, 79, 236, 36, 234, 235, 241, 42, 39, 72, 147, 40, 110, 29, 138, 224, 34, 218, 153, 89, 214, 78, 231, 76, 181, 151, 114, 101, 29, 70, 140, 180, 221, 48, 173, 21, 172, 170, 115, 46, 227, 60, 58, 63, 164, 146, 242, 106, 72, 12, 1, 95]

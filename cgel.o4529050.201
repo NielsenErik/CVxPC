@@ -1,0 +1,403 @@
+20:56:54 [[1m[94mCONFIGS[0m] Experiment Configurations: {'mlflow': None, 'experiment': 'crack_segmentation', 'algorithm': 'pcnet_ge', 'device': 'cpu', 'n_cpus': 30, 'data_path': 'data/DeepCrack/train', 'test_path': 'data/DeepCrack/test', 'save_path': 'models/', 'validation_split': 0.2, 'feature_extractor': 'cv_modules', 'epochs': 40, 'batch_size': 96, 'sample_size': 11000, 'test_size': 3500, 'resize_size': [256, 256], 'input_channels': 3, 'n_classes': 1, 'max_depth': 5, 'max_branching': 3, 'seed': 201, 'filter_sizes': [15, 21], 'n_cv_modules': 20, 'n_filters': 100, 'ge': {'generations': 10, 'pop_size': 20, 'genome_len': 96, 'crossover_rate': 0.9, 'mutation_rate': 0.05, 'elite_k': 2, 'train_split': 0.01}, 'execution_mode': 'train', 'log_dir': 'logs/pcnet_ge/DeepCrack/201'}
+
+⚙️ Using 30 CPU cores (torch threads)
+[INFO] CrackDataset paired: 300 image–mask pairs found (from 300 images, 300 masks)
+20:56:54 [[1m[92mINFO[0m] Training samples: 240, Validation samples: 60
+
+[INFO] CrackDataset paired: 237 image–mask pairs found (from 237 images, 237 masks)
+20:56:54 [[1m[92mINFO[0m] Test samples: 237
+
+20:56:54 [[1m[92mINFO[0m] Dataset size: 300
+
+20:56:54 [[1m[92mINFO[0m] GE Training size: 2
+
+20:56:54 [[1m[92mINFO[0m] 240
+
+20:56:55 [[1m[92mINFO[0m] ⚙️ Using 20 processes for convolution module evaluation...
+
+20:56:55 [[1m[93mDEBUG[0m] Epoch 0
+
+20:57:26 [[1m[93mDEBUG[0m] [20:57:26] Worker 0 starting...
+
+20:57:26 [[1m[93mDEBUG[0m] [20:57:26] Worker 1 starting...
+
+20:57:27 [[1m[93mDEBUG[0m] [20:57:27] Worker 3 starting...
+
+20:57:27 [[1m[93mDEBUG[0m] [20:57:27] Worker 6 starting...
+
+20:57:28 [[1m[93mDEBUG[0m] [20:57:28] Worker 9 starting...
+
+20:57:28 [[1m[93mDEBUG[0m] [20:57:28] Worker 14 starting...
+
+20:57:27 [[1m[93mDEBUG[0m] [20:57:27] Worker 5 starting...
+
+20:57:28 [[1m[93mDEBUG[0m] [20:57:28] Worker 7 starting...
+
+20:57:28 [[1m[93mDEBUG[0m] [20:57:28] Worker 10 starting...
+
+20:57:28 [[1m[93mDEBUG[0m] [20:57:28] Worker 16 starting...
+
+20:57:28 [[1m[93mDEBUG[0m] [20:57:28] Worker 11 starting...
+
+20:57:28 [[1m[93mDEBUG[0m] [20:57:28] Worker 17 starting...
+
+20:57:28 [[1m[93mDEBUG[0m] [20:57:28] Worker 15 starting...
+
+20:57:27 [[1m[93mDEBUG[0m] [20:57:27] Worker 2 starting...
+
+20:57:27 [[1m[93mDEBUG[0m] [20:57:27] Worker 4 starting...
+
+20:57:28 [[1m[93mDEBUG[0m] [20:57:28] Worker 8 starting...
+
+20:57:28 [[1m[93mDEBUG[0m] [20:57:28] Worker 13 starting...
+
+20:57:28 [[1m[93mDEBUG[0m] [20:57:28] Worker 18 starting...
+
+20:57:28 [[1m[93mDEBUG[0m] [20:57:28] Worker 12 starting...
+
+20:57:28 [[1m[93mDEBUG[0m] [20:57:28] Worker 19 starting...
+
+20:57:30 [[1m[93mDEBUG[0m] Module fitness values: [14.68919563293457, 1.3142014741897583, 2.2771596908569336, 3.309424638748169, 4.022355556488037, 1.7690342664718628, 0.7282309532165527, 1.0083343982696533, 7.6389994621276855, 5.868789196014404, 11.242805480957031, 7.020096302032471, 1.1583735942840576, 1.0436103343963623, 2.0971839427948, 15.909811019897461, 1.0299055576324463, 3.0726544857025146, 0.4966999888420105, 6.361980438232422]
+
+New best fitness:  15.909811019897461
+20:57:30 [[1m[93mDEBUG[0m] Epoch 1
+
+20:58:08 [[1m[93mDEBUG[0m] [20:58:08] Worker 0 starting...
+
+20:58:08 [[1m[93mDEBUG[0m] [20:58:08] Worker 4 starting...
+
+20:58:08 [[1m[93mDEBUG[0m] [20:58:08] Worker 6 starting...
+
+20:58:08 [[1m[93mDEBUG[0m] [20:58:08] Worker 7 starting...
+
+20:58:08 [[1m[93mDEBUG[0m] [20:58:08] Worker 3 starting...
+
+20:58:08 [[1m[93mDEBUG[0m] [20:58:08] Worker 9 starting...
+
+20:58:08 [[1m[93mDEBUG[0m] [20:58:08] Worker 8 starting...
+
+20:58:08 [[1m[93mDEBUG[0m] [20:58:08] Worker 10 starting...
+
+20:58:08 [[1m[93mDEBUG[0m] [20:58:08] Worker 5 starting...
+
+20:58:08 [[1m[93mDEBUG[0m] [20:58:08] Worker 1 starting...
+
+20:58:08 [[1m[93mDEBUG[0m] [20:58:08] Worker 2 starting...
+
+20:58:08 [[1m[93mDEBUG[0m] [20:58:08] Worker 11 starting...
+
+20:58:09 [[1m[93mDEBUG[0m] [20:58:09] Worker 15 starting...
+
+20:58:09 [[1m[93mDEBUG[0m] [20:58:09] Worker 18 starting...
+
+20:58:08 [[1m[93mDEBUG[0m] [20:58:08] Worker 12 starting...
+
+20:58:09 [[1m[93mDEBUG[0m] [20:58:09] Worker 17 starting...
+
+20:58:09 [[1m[93mDEBUG[0m] [20:58:09] Worker 16 starting...
+
+20:58:09 [[1m[93mDEBUG[0m] [20:58:09] Worker 14 starting...
+
+20:58:09 [[1m[93mDEBUG[0m] [20:58:09] Worker 13 starting...
+
+20:58:09 [[1m[93mDEBUG[0m] [20:58:09] Worker 19 starting...
+
+20:58:10 [[1m[93mDEBUG[0m] Module fitness values: [2.6826117038726807, 0.8530086278915405, 0.9939533472061157, 4.353808403015137, 2.2242558002471924, 1.3024002313613892, 1.985077977180481, 0.7997844219207764, 0.6751346588134766, 3.9488685131073, 0.931062638759613, 0.8057501316070557, 0.7118577361106873, 1.046471357345581, 1.7359410524368286, 2.7680366039276123, 2.457021713256836, 0.9002931118011475, 1.7054482698440552, 1.6262893676757812]
+
+20:58:10 [[1m[93mDEBUG[0m] Epoch 2
+
+20:58:45 [[1m[93mDEBUG[0m] [20:58:45] Worker 4 starting...
+
+20:58:45 [[1m[93mDEBUG[0m] [20:58:45] Worker 8 starting...
+
+20:58:46 [[1m[93mDEBUG[0m] [20:58:46] Worker 13 starting...
+
+20:58:44 [[1m[93mDEBUG[0m] [20:58:44] Worker 0 starting...
+
+20:58:44 [[1m[93mDEBUG[0m] [20:58:44] Worker 1 starting...
+
+20:58:45 [[1m[93mDEBUG[0m] [20:58:45] Worker 3 starting...
+
+20:58:45 [[1m[93mDEBUG[0m] [20:58:45] Worker 7 starting...
+
+20:58:45 [[1m[93mDEBUG[0m] [20:58:45] Worker 11 starting...
+
+20:58:46 [[1m[93mDEBUG[0m] [20:58:46] Worker 15 starting...
+
+20:58:46 [[1m[93mDEBUG[0m] [20:58:46] Worker 18 starting...
+
+20:58:45 [[1m[93mDEBUG[0m] [20:58:45] Worker 2 starting...
+
+20:58:45 [[1m[93mDEBUG[0m] [20:58:45] Worker 5 starting...
+
+20:58:45 [[1m[93mDEBUG[0m] [20:58:45] Worker 9 starting...
+
+20:58:46 [[1m[93mDEBUG[0m] [20:58:46] Worker 12 starting...
+
+20:58:46 [[1m[93mDEBUG[0m] [20:58:46] Worker 16 starting...
+
+20:58:46 [[1m[93mDEBUG[0m] [20:58:46] Worker 17 starting...
+
+20:58:45 [[1m[93mDEBUG[0m] [20:58:45] Worker 6 starting...
+
+20:58:45 [[1m[93mDEBUG[0m] [20:58:45] Worker 10 starting...
+
+20:58:46 [[1m[93mDEBUG[0m] [20:58:46] Worker 14 starting...
+
+20:58:46 [[1m[93mDEBUG[0m] [20:58:46] Worker 19 starting...
+
+20:58:47 [[1m[93mDEBUG[0m] Module fitness values: [0.5261105895042419, 0.17868953943252563, 2.3865041732788086, 0.5485947132110596, 0.7685669660568237, 1.344905138015747, 1.7649719715118408, 3.628380060195923, 2.137486696243286, 0.7086247205734253, 0.18377885222434998, 0.6277287006378174, 1.2731962203979492, 0.7695739269256592, 5.077226638793945, 2.8720223903656006, 0.3299241364002228, 1.089247465133667, 0.6793412566184998, 1.6388195753097534]
+
+20:58:47 [[1m[93mDEBUG[0m] Epoch 3
+
+20:59:24 [[1m[93mDEBUG[0m] [20:59:24] Worker 0 starting...
+
+20:59:24 [[1m[93mDEBUG[0m] [20:59:24] Worker 5 starting...
+
+20:59:24 [[1m[93mDEBUG[0m] [20:59:24] Worker 3 starting...
+
+20:59:24 [[1m[93mDEBUG[0m] [20:59:24] Worker 6 starting...
+
+20:59:24 [[1m[93mDEBUG[0m] [20:59:24] Worker 1 starting...
+
+20:59:24 [[1m[93mDEBUG[0m] [20:59:24] Worker 9 starting...
+
+20:59:24 [[1m[93mDEBUG[0m] [20:59:24] Worker 2 starting...
+
+20:59:24 [[1m[93mDEBUG[0m] [20:59:24] Worker 11 starting...
+
+20:59:24 [[1m[93mDEBUG[0m] [20:59:24] Worker 4 starting...
+
+20:59:24 [[1m[93mDEBUG[0m] [20:59:24] Worker 8 starting...
+
+20:59:24 [[1m[93mDEBUG[0m] [20:59:24] Worker 7 starting...
+
+20:59:24 [[1m[93mDEBUG[0m] [20:59:24] Worker 13 starting...
+
+20:59:24 [[1m[93mDEBUG[0m] [20:59:24] Worker 10 starting...
+
+20:59:24 [[1m[93mDEBUG[0m] [20:59:24] Worker 12 starting...
+
+20:59:24 [[1m[93mDEBUG[0m] [20:59:24] Worker 15 starting...
+
+20:59:24 [[1m[93mDEBUG[0m] [20:59:24] Worker 14 starting...
+
+20:59:24 [[1m[93mDEBUG[0m] [20:59:24] Worker 19 starting...
+
+20:59:24 [[1m[93mDEBUG[0m] [20:59:24] Worker 16 starting...
+
+20:59:24 [[1m[93mDEBUG[0m] [20:59:24] Worker 18 starting...
+
+20:59:24 [[1m[93mDEBUG[0m] [20:59:24] Worker 17 starting...
+
+20:59:25 [[1m[93mDEBUG[0m] Module fitness values: [0.45396900177001953, 0.3719326853752136, 4.6513142585754395, 4.012691020965576, 0.2966275215148926, 0.8958476185798645, 2.5089900493621826, 0.2805614173412323, 3.1150472164154053, 2.35599684715271, 2.195615530014038, 0.5813264846801758, 0.6129044890403748, 3.8792002201080322, 0.9063801765441895, 0.6232501864433289, 0.833981454372406, 1.002091407775879, 0.3260723352432251, 0.8166019320487976]
+
+20:59:25 [[1m[93mDEBUG[0m] Epoch 4
+
+20:59:59 [[1m[93mDEBUG[0m] [20:59:59] Worker 16 starting...
+
+20:59:57 [[1m[93mDEBUG[0m] [20:59:57] Worker 0 starting...
+
+20:59:57 [[1m[93mDEBUG[0m] [20:59:57] Worker 1 starting...
+
+20:59:57 [[1m[93mDEBUG[0m] [20:59:57] Worker 2 starting...
+
+20:59:58 [[1m[93mDEBUG[0m] [20:59:58] Worker 4 starting...
+
+20:59:58 [[1m[93mDEBUG[0m] [20:59:58] Worker 6 starting...
+
+20:59:58 [[1m[93mDEBUG[0m] [20:59:58] Worker 8 starting...
+
+20:59:59 [[1m[93mDEBUG[0m] [20:59:59] Worker 10 starting...
+
+20:59:59 [[1m[93mDEBUG[0m] [20:59:59] Worker 12 starting...
+
+20:59:59 [[1m[93mDEBUG[0m] [20:59:59] Worker 15 starting...
+
+20:59:59 [[1m[93mDEBUG[0m] [20:59:59] Worker 13 starting...
+
+21:00:00 [[1m[93mDEBUG[0m] [21:00:00] Worker 19 starting...
+
+21:00:00 [[1m[93mDEBUG[0m] [21:00:00] Worker 18 starting...
+
+20:59:57 [[1m[93mDEBUG[0m] [20:59:57] Worker 3 starting...
+
+20:59:58 [[1m[93mDEBUG[0m] [20:59:58] Worker 5 starting...
+
+20:59:58 [[1m[93mDEBUG[0m] [20:59:58] Worker 7 starting...
+
+20:59:59 [[1m[93mDEBUG[0m] [20:59:59] Worker 9 starting...
+
+20:59:59 [[1m[93mDEBUG[0m] [20:59:59] Worker 11 starting...
+
+20:59:59 [[1m[93mDEBUG[0m] [20:59:59] Worker 14 starting...
+
+21:00:00 [[1m[93mDEBUG[0m] [21:00:00] Worker 17 starting...
+
+21:00:01 [[1m[93mDEBUG[0m] Module fitness values: [1.1417182683944702, 0.9382778406143188, 2.163444757461548, 11.259845733642578, 1.7278435230255127, 0.7320564985275269, 0.3983203172683716, 4.174750328063965, 1.5351039171218872, 0.6281773447990417, 0.8649483323097229, 1.3366355895996094, 1.1249701976776123, 3.4225738048553467, 2.4207475185394287, 2.9980390071868896, 1.221029281616211, 0.5830537676811218, 5.599717617034912, 1.0900486707687378]
+
+21:00:01 [[1m[93mDEBUG[0m] Convolution module features shape: (2, 100, 256, 256), value range: 7.049847602844238 to 48.266326904296875, var: 15.909811019897461
+
+🧬 Generation 1/10
+✅ Gen 1: best loss=0.8084, complexity=194
+🧬 Generation 2/10
+⚠️ Reuse failed: The size of tensor a (3) must match the size of tensor b (2) at non-singleton dimension 0
+⚠️ Reuse failed: The size of tensor a (4) must match the size of tensor b (3) at non-singleton dimension 0
+✅ Gen 2: best loss=0.8084, complexity=181
+🧬 Generation 3/10
+⚠️ Reuse failed: The size of tensor a (4) must match the size of tensor b (3) at non-singleton dimension 0
+⚠️ Reuse failed: The size of tensor a (3) must match the size of tensor b (2) at non-singleton dimension 0
+21:07:33 [[1m[93mDEBUG[0m] Loaded 0 parameters, 128 missing.
+
+✅ Gen 3: best loss=0.8084, complexity=180
+🧬 Generation 4/10
+⚠️ Reuse failed: The size of tensor a (3) must match the size of tensor b (2) at non-singleton dimension 0
+⚠️ Reuse failed: The size of tensor a (3) must match the size of tensor b (2) at non-singleton dimension 0
+⚠️ Reuse failed: The size of tensor a (2) must match the size of tensor b (4) at non-singleton dimension 0
+✅ Gen 4: best loss=0.7988, complexity=153
+🧬 Generation 5/10
+21:12:54 [[1m[93mDEBUG[0m] Loaded 89 parameters, 0 missing.
+
+⚠️ Reuse failed: The size of tensor a (3) must match the size of tensor b (4) at non-singleton dimension 0
+⚠️ Reuse failed: The size of tensor a (2) must match the size of tensor b (4) at non-singleton dimension 0
+✅ Gen 5: best loss=0.7988, complexity=210
+🧬 Generation 6/10
+⚠️ Reuse failed: The size of tensor a (2) must match the size of tensor b (3) at non-singleton dimension 0
+⚠️ Reuse failed: The size of tensor a (3) must match the size of tensor b (2) at non-singleton dimension 0
+✅ Gen 6: best loss=0.7988, complexity=167
+🧬 Generation 7/10
+21:18:51 [[1m[93mDEBUG[0m] Loaded 0 parameters, 109 missing.
+
+⚠️ Reuse failed: The size of tensor a (4) must match the size of tensor b (3) at non-singleton dimension 0
+⚠️ Reuse failed: The size of tensor a (2) must match the size of tensor b (3) at non-singleton dimension 0
+✅ Gen 7: best loss=0.7957, complexity=161
+🧬 Generation 8/10
+⚠️ Reuse failed: The size of tensor a (4) must match the size of tensor b (3) at non-singleton dimension 0
+⚠️ Reuse failed: The size of tensor a (4) must match the size of tensor b (3) at non-singleton dimension 0
+✅ Gen 8: best loss=0.7957, complexity=232
+🧬 Generation 9/10
+21:24:06 [[1m[93mDEBUG[0m] Loaded 0 parameters, 70 missing.
+
+⚠️ Reuse failed: The size of tensor a (4) must match the size of tensor b (3) at non-singleton dimension 0
+⚠️ Reuse failed: The size of tensor a (2) must match the size of tensor b (3) at non-singleton dimension 0
+⚠️ Reuse failed: The size of tensor a (2) must match the size of tensor b (3) at non-singleton dimension 0
+✅ Gen 9: best loss=0.7957, complexity=188
+🧬 Generation 10/10
+21:26:14 [[1m[93mDEBUG[0m] Loaded 0 parameters, 70 missing.
+
+⚠️ Reuse failed: The size of tensor a (4) must match the size of tensor b (3) at non-singleton dimension 0
+⚠️ Reuse failed: The size of tensor a (4) must match the size of tensor b (2) at non-singleton dimension 0
+⚠️ Reuse failed: The size of tensor a (4) must match the size of tensor b (2) at non-singleton dimension 0
+✅ Gen 10: best loss=0.7957, complexity=187
+21:31:42 [[1m[92mINFO[0m] Best genome: [83, 250, 73, 105, 18, 203, 166, 21, 56, 135, 138, 54, 68, 236, 113, 210, 61, 9, 14, 95, 154, 12, 94, 27, 238, 172, 195, 182, 35, 198, 240, 196, 82, 27, 157, 234, 249, 58, 60, 9, 36, 219, 139, 94, 79, 215, 117, 206, 246, 81, 51, 243, 162, 74, 159, 131, 231, 65, 253, 194, 46, 42, 230, 11, 76, 147, 248, 254, 38, 228, 166, 191, 216, 228, 57, 228, 29, 132, 97, 80, 5, 197, 85, 169, 105, 95, 226, 24, 188, 191, 97, 67, 1, 136, 139, 61]
+
+21:31:42 [[1m[92mINFO[0m] Best PC: ─────────────────────────────────────────────
+🧠  Probabilistic Circuit Network Summary
+─────────────────────────────────────────────
+📦 Classes: 1
+📏 Input size: torch.Size([100, 256, 256])
+⚙️  Depth: 5, Branching: 3
+💻 Device: cpu
+─────────────────────────────────────────────
+📊 Node counts:
+  • InputNode      : 19
+  • SumNode        : 4
+  • ProductNode    : 6
+  • ClassifierNode : 1
+─────────────────────────────────────────────
+🧩 Trainable parameters: 285
+  • InputNode      : 133
+  • SumNode        : 13
+─────────────────────────────────────────────
+📚 Structure:Memory usage: 0.63 KB
+
+└─ ClassifierNode(classes=2)
+   ├─ GateNode
+   │  ├─ InputNode(feat_73)
+   │  └─ InputNode(feat_18)
+   └─ GateNode
+      ├─ SumNode(children=3, weights=3)
+      │  ├─ SumNode(children=4, weights=4)
+      │  │  ├─ GateNode
+      │  │  │  ├─ ResidualNode
+      │  │  │  │  ├─ InputNode(feat_97)
+      │  │  │  │  └─ InputNode(feat_97)
+      │  │  │  └─ GateNode
+      │  │  │     ├─ InputNode(feat_98)
+      │  │  │     └─ InputNode(feat_98)
+      │  │  ├─ InputNode(feat_54)
+      │  │  ├─ SumNode(children=3, weights=3)
+      │  │  │  ├─ InputNode(feat_61)
+      │  │  │  ├─ ResidualNode
+      │  │  │  │  ├─ InputNode(feat_3)
+      │  │  │  │  └─ InputNode(feat_3)
+      │  │  │  └─ ResidualNode
+      │  │  │     ├─ InputNode(feat_4)
+      │  │  │     └─ InputNode(feat_4)
+      │  │  └─ InputNode(feat_54)
+      │  ├─ ProductNode(children=2)
+      │  │  ├─ ResidualNode
+      │  │  │  ├─ ProductNode(children=3)
+      │  │  │  │  ├─ InputNode(feat_9)
+      │  │  │  │  ├─ InputNode(feat_9)
+      │  │  │  │  └─ InputNode(feat_9)
+      │  │  │  └─ GateNode
+      │  │  │     ├─ InputNode(feat_10)
+      │  │  │     └─ InputNode(feat_10)
+      │  │  └─ ProductNode(children=2)
+      │  │     ├─ InputNode(feat_82)
+      │  │     └─ InputNode(feat_98)
+      │  └─ InputNode(feat_96)
+      └─ ProductNode(children=2)
+         ├─ ProductNode(children=3)
+         │  ├─ ProductNode(children=3)
+         │  │  ├─ ResidualNode
+         │  │  │  ├─ InputNode(feat_21)
+         │  │  │  └─ InputNode(feat_21)
+         │  │  ├─ ResidualNode
+         │  │  │  ├─ InputNode(feat_22)
+         │  │  │  └─ InputNode(feat_22)
+         │  │  └─ GateNode
+         │  │     ├─ InputNode(feat_23)
+         │  │     └─ InputNode(feat_23)
+         │  ├─ InputNode(feat_9)
+         │  └─ SumNode(children=3, weights=3)
+         │     ├─ ResidualNode
+         │     │  ├─ InputNode(feat_28)
+         │     │  └─ InputNode(feat_28)
+         │     ├─ ResidualNode
+         │     │  ├─ InputNode(feat_29)
+         │     │  └─ InputNode(feat_29)
+         │     └─ ResidualNode
+         │        ├─ InputNode(feat_30)
+         │        └─ InputNode(feat_30)
+         └─ InputNode(feat_17)
+─────────────────────────────────────────────
+
+21:31:42 [[1m[92mINFO[0m] CV Modules Training Epoch 1/5
+
+21:34:26 [[1m[92mINFO[0m]    CV Module Fitnesses: [0.9114810228347778, 0.9359760284423828, 0.9051711559295654, 0.9143194556236267, 0.9068504571914673, 0.9156838059425354, 0.9100295305252075, 0.9082549214363098, 0.914575457572937, 0.9104020595550537, 0.9094961881637573, 0.9027633666992188, 0.907827615737915, 0.9144362211227417, 0.9079909324645996, 0.9063044190406799, 0.9106425046920776, 0.9188414812088013, 0.9143867492675781, 0.9119658470153809]
+
+New best fitness:  0.9359760284423828
+21:34:26 [[1m[92mINFO[0m] CV Modules Training Epoch 2/5
+
+21:37:09 [[1m[92mINFO[0m]    CV Module Fitnesses: [0.9061469435691833, 0.911596953868866, 0.9086315631866455, 0.909909725189209, 0.9085085391998291, 0.904940128326416, 0.9103399515151978, 0.9065904021263123, 0.9228560328483582, 0.9122705459594727, 0.9033024311065674, 0.9095612168312073, 0.9123942852020264, 0.9140424132347107, 0.9141397476196289, 0.9495275616645813, 0.922885537147522, 0.911029040813446, 0.9350228905677795, 0.9222160577774048]
+
+New best fitness:  0.9495275616645813
+21:37:09 [[1m[92mINFO[0m] CV Modules Training Epoch 3/5
+
+21:39:50 [[1m[92mINFO[0m]    CV Module Fitnesses: [0.9071886539459229, 0.9038548469543457, 0.905164361000061, 0.9048706889152527, 0.9075241088867188, 0.9119749069213867, 0.9181078672409058, 0.9046830534934998, 0.9054771661758423, 0.9132987260818481, 0.9064319133758545, 0.9083129167556763, 0.9044182300567627, 0.9072185754776001, 0.9083306193351746, 0.90450119972229, 0.9042130708694458, 0.9250214695930481, 0.9206995964050293, 0.9128057360649109]
+
+21:39:50 [[1m[92mINFO[0m] CV Modules Training Epoch 4/5
+
+21:42:33 [[1m[92mINFO[0m]    CV Module Fitnesses: [0.9039231538772583, 0.9048271775245667, 0.9051979780197144, 0.9039183259010315, 0.9070748090744019, 0.9079703092575073, 0.9035720229148865, 0.9047863483428955, 0.9037923812866211, 0.9047896862030029, 0.9049240350723267, 0.9069627523422241, 0.9059797525405884, 0.9034395217895508, 0.9047565460205078, 0.9022075533866882, 0.9022756814956665, 0.904961347579956, 0.9043110609054565, 0.9044955372810364]
+
+21:42:33 [[1m[92mINFO[0m] CV Modules Training Epoch 5/5
+
+21:45:14 [[1m[92mINFO[0m]    CV Module Fitnesses: [0.9061319231987, 0.9028270840644836, 0.9042146801948547, 0.9009334444999695, 0.9015963077545166, 0.9041564464569092, 0.9025044441223145, 0.903779923915863, 0.9036206603050232, 0.9028910398483276, 0.9055641889572144, 0.9031813740730286, 0.9058211445808411, 0.9018017649650574, 0.9015864133834839, 0.9029843807220459, 0.9017890095710754, 0.9061302542686462, 0.9034863710403442, 0.9049017429351807]
+
+⚙️ Using 30 CPU cores (torch threads)
+21:45:34 [[1m[92mINFO[0m] Number of trainable parameters: 161
+
+23:41:15 [[1m[92mINFO[0m] ✅ Training complete.
+
