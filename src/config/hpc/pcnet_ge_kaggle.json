@@ -12,7 +12,7 @@
 
     "feature_extractor": "cv_modules",
 
-    "epochs": 60,
+    "epochs": 80,
     "batch_size": 32,
     "resize_size": [
         256,
@@ -20,7 +20,7 @@
     ],
     "input_channels": 3,
     "n_classes": 1,
-    "max_depth": 8,
+    "max_depth": 6,
     "max_branching": 3,
     "seed": 90,
     "filter_sizes": [15, 21],
