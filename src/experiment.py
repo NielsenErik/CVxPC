@@ -1618,7 +1618,8 @@ class ExperimentGEPC(ExperimentPC):
                     n_classes=self.n_classes,
                     device=self.device,
                     n_jobs=self.n_cpus,
-                    report=self.experiment_report
+                    report=self.experiment_report,
+                    log_path = self.log_path
                 )
         
     def get_prune_features_idx(self, model):
