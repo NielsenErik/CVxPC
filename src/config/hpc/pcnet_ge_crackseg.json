@@ -3,7 +3,7 @@
     "experiment": "crack_segmentation",
     "algorithm": "pcnet_ge",
     "device": "cpu",
-    "n_cpus": 30,
+    "n_cpus": 40,
 
     "data_path": "data/CrackSeg9k/train",
     "test_path": "data/CrackSeg9k/test",
@@ -29,12 +29,12 @@
 
     "ge":{
         "generations": 10,
-        "pop_size": 20,
+        "pop_size": 40,
         "genome_len": 96,
         "crossover_rate": 0.9,
         "mutation_rate": 0.05,
         "elite_k": 2,
-        "train_split": 0.1
+        "train_split": 0.01
     },
 
     "execution_mode": "train"

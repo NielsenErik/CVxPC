@@ -18,6 +18,10 @@ import os, json, cv2
 import numpy as np
 import pandas as pd
 
+import os, json, cv2
+import numpy as np
+import pandas as pd
+
 def from_csv_to_multiclass_masks(
     csv_path,
     image_dir,
@@ -28,23 +32,14 @@ def from_csv_to_multiclass_masks(
     """
     Convert polygon annotations from Label Studio-like CSV into multi-class masks.
     Works with .png, .jpg, .jpeg image files.
-
-    Args:
-        csv_path (str): Path to CSV with 'annotations' column.
-        image_dir (str): Directory containing original images.
-        output_mask_dir (str): Directory to save mask images.
-        output_overlay_dir (str): Directory to save color overlays.
-        label_map (dict, optional): Map label_name->class_id (e.g. {'crack':1,'armour':2}).
-                                   If None, will auto-generate.
     """
-
     os.makedirs(output_mask_dir, exist_ok=True)
     os.makedirs(output_overlay_dir, exist_ok=True)
 
     df = pd.read_csv(csv_path)
     all_labels = set()
 
-    # ---------- PASS 1: discover all label names ----------
+    # ---------- PASS 1: collect all label names ----------
     for _, row in df.iterrows():
         anns = row.get("annotations")
         if pd.isna(anns):
@@ -56,45 +51,44 @@ def from_csv_to_multiclass_masks(
                 ann_list = json.loads(anns.replace("'", "\""))
             except Exception:
                 continue
+
         for ann in ann_list:
-            if ann.get("Type") == "polygonlabels":
+            val = ann.get("value") or ann.get("Value")
+            if not isinstance(val, dict):
                 try:
-                    val = json.loads(ann["Value"])
-                    labels = val.get("polygonlabels", [])
-                    all_labels.update(labels)
+                    val = json.loads(val)
                 except Exception:
                     continue
+            if ann.get("type") == "polygonlabels" or ann.get("Type") == "polygonlabels":
+                labels = val.get("polygonlabels", [])
+                all_labels.update(labels)
 
-    # Auto label map if not provided
     if label_map is None:
         label_map = {name: i + 1 for i, name in enumerate(sorted(all_labels))}
         print("Auto label map:", label_map)
 
-    # Assign random colors for overlay visualization
     colors = {
         label: tuple(np.random.randint(0, 255, 3).tolist())
         for label in label_map.keys()
     }
 
-    # Helper: find image file with any extension
     def find_image(base_name):
         for ext in [".png", ".jpg", ".jpeg", ".PNG", ".JPG", ".JPEG"]:
-            path = os.path.join(image_dir, base_name + ext)
-            if os.path.exists(path):
-                return path
+            p = os.path.join(image_dir, base_name + ext)
+            if os.path.exists(p):
+                return p
         return None
 
     # ---------- PASS 2: create masks ----------
     for _, row in df.iterrows():
-        base_name = os.path.splitext(row["id"])[0]
+        base_name = os.path.splitext(str(row["id"]))[0]
         image_path = find_image(base_name)
-        if image_path is None:
-            print(f"⚠️  Image not found for {base_name} (checked .png/.jpg/.jpeg)")
+        if not image_path:
+            print(f"⚠️  Image not found for {base_name}")
             continue
 
         anns = row.get("annotations")
         if pd.isna(anns):
-            print(f"Skipping {base_name}: no annotations")
             continue
 
         try:
@@ -116,44 +110,55 @@ def from_csv_to_multiclass_masks(
         overlay = image.copy()
 
         for ann in ann_list:
-            if ann.get("Type") != "polygonlabels":
+            val = ann.get("value") or ann.get("Value")
+            if not isinstance(val, dict):
+                try:
+                    val = json.loads(val)
+                except Exception:
+                    continue
+
+            if ann.get("type") != "polygonlabels" and ann.get("Type") != "polygonlabels":
                 continue
-            try:
-                val = json.loads(ann["Value"])
-                pts = val.get("points", [])
-                labels = val.get("polygonlabels", [])
-                if not labels or not pts:
-                    continue
 
-                label = labels[0]
-                if label not in label_map:
-                    continue
+            pts = val.get("points", [])
+            labels = val.get("polygonlabels", [])
+            if not pts or not labels:
+                continue
 
-                class_id = label_map[label]
+            label = labels[0]
+            
+            if label not in label_map:
+                continue
+
+            class_id = label_map[label]
+
+            # Handle both percent and absolute coordinate systems
+            if max(p[0] for p in pts) <= 100 and max(p[1] for p in pts) <= 100:
                 poly = np.array(
                     [[int(x / 100 * w), int(y / 100 * h)] for x, y in pts],
                     np.int32,
                 )
-
-                cv2.fillPoly(mask, [poly], class_id)
-                cv2.polylines(overlay, [poly], True, colors[label], 2)
-                overlay[mask == class_id] = (
-                    0.6 * overlay[mask == class_id] + 0.4 * np.array(colors[label])
-                ).astype(np.uint8)
-
-            except Exception as e:
-                print(f"Error parsing annotation for {base_name}: {e}")
-                continue
+            else:
+                poly = np.array(pts, np.int32)
+            cv2.fillPoly(mask, [poly], class_id)
+            
+            cv2.polylines(overlay, [poly], True, colors[label], 2)
+            overlay_mask = mask == class_id
+            overlay[overlay_mask] = (
+                0.6 * overlay[overlay_mask] + 0.4 * np.array(colors[label])
+            ).astype(np.uint8)
 
         mask_path = os.path.join(output_mask_dir, f"{base_name}_mask.png")
         overlay_path = os.path.join(output_overlay_dir, f"{base_name}_overlay.png")
-
         cv2.imwrite(mask_path, mask)
         cv2.imwrite(overlay_path, overlay)
 
         print(f"✅ Saved mask & overlay for {base_name}")
 
-    print("\nDone! Masks and overlays saved.")
+    print("\n✅ Done! Masks and overlays saved to:")
+    print(f" - Masks: {output_mask_dir}")
+    print(f" - Overlays: {output_overlay_dir}")
+
 
 def background_removal(image_dir, output_path):
     

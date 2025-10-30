@@ -4,14 +4,11 @@
     "algorithm": "pcnet_ge",
     "device": "cpu",
     "n_cpus": 4,
-
-    "data_path": "data/crackseg9k_split/CCIC/train",
-    "test_path": "data/crackseg9k_split/CCIC/test",
+    "data_path": "data/crackseg9k_split/AEL/train",
+    "test_path": "data/crackseg9k_split/AEL/test",
     "save_path": "models/",
     "validation_split": 0.2,
-
     "feature_extractor": "cv_modules",
-
     "cv_epochs": 2,
     "epochs": 50,
     "sample_size": 50,
@@ -24,22 +21,22 @@
     "n_classes": 1,
     "max_depth": 5,
     "max_branching": 2,
-    "seed": 90,
-    "filter_sizes": [15, 21],
+    "seed": 1001,
+    "filter_sizes": [
+        15,
+        21
+    ],
     "n_cv_modules": 10,
     "n_filters": 100,
-
-    "ge":{
+    "ge": {
         "generations": 2,
         "pop_size": 2,
         "genome_len": 96,
         "crossover_rate": 0.9,
         "mutation_rate": 0.05,
         "elite_k": 2,
-        "train_split": 0.9
+        "train_split": 0.1
     },
-
-    "execution_mode": "train"
-    
-
+    "execution_mode": "train",
+    "log_dir": "logs/pcnet_ge/AEL/1001"
 }

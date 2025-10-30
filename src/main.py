@@ -13,7 +13,10 @@ def main():
     parser.add_argument("seed", type=int, help="Random seed to use")
     args = parser.parse_args()
     config = json.load(open(args.config))
-    dataset_name = config["data_path"].split("/")[1]
+    if "crackseg9k_split" in config["data_path"]:
+        dataset_name = config["data_path"].split("/")[2]
+    else:
+        dataset_name = config["data_path"].split("/")[1]
     config["seed"] = args.seed
     config["log_dir"] = os.path.join("logs", config["algorithm"], dataset_name, str(config["seed"]))
     os.makedirs(config["log_dir"], exist_ok=True)
