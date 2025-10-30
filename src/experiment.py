@@ -1409,6 +1409,12 @@ class ExperimentPC(Experiment):
         plt.savefig(os.path.join(self.log_path, "cliou_plot.png")); plt.close()
 
         print_info("✅ Training complete.")
+        self.experiment_dict["training"] = {
+            "final_loss": train_losses[-1],
+            "final_dice": train_dices[-1],
+            "final_iou": train_ious[-1],
+            "final_cl_iou": train_clious[-1]
+        }
         with open(self.experiment_report, "a") as f:
             f.write(f"Final Training Loss: {train_losses[-1]}, Dice: {train_dices[-1]}, IoU: {train_ious[-1]}, CL IoU: {train_clious[-1]}\n")
             if val_loader:
@@ -1432,6 +1438,53 @@ class ExperimentPC(Experiment):
             dices.append(float(torch.as_tensor(dice_score).mean()))
             ious.append(float(torch.as_tensor(iou_score).mean()))
             clious.append(float(torch.as_tensor(cl_iou_score)))
+
+        return float(np.mean(losses)), float(np.mean(dices)), float(np.mean(ious)), float(np.mean(clious))
+    
+    @torch.no_grad()
+    def test(self, model, dataloader):
+        losses, dices, ious, clious = [], [], [], []
+        accuracies, precisions, recalls, f1_scores = [], [], [], []
+        for ft_batch, t_batch in dataloader:
+            logits = model.evaluate(ft_batch)
+            loss = self.criterion(logits, t_batch)
+            dice_score = self.dice_coef(logits, t_batch)
+            iou_score = self.iou_score(logits, t_batch)
+            pred_mask = torch.argmax(logits, dim=1, keepdim=True).float()
+            true_mask = t_batch.unsqueeze(1).float()
+            cl_iou_score = self.cl_iou_score(pred_mask, true_mask)
+
+            accuracy = ((pred_mask == true_mask).float().sum()) / torch.numel(true_mask)
+            precision = ( ( (pred_mask == 1) & (true_mask == 1) ).float().sum() ) / ( (pred_mask == 1).float().sum() + 1e-8 )
+            recall = ( ( (pred_mask == 1) & (true_mask == 1) ).float().sum() ) / ( (true_mask == 1).float().sum() + 1e-8 )
+            f1_score = 2 * (precision * recall) / (precision + recall + 1e-8)
+
+            losses.append(loss.item())
+            dices.append(float(torch.as_tensor(dice_score).mean()))
+            ious.append(float(torch.as_tensor(iou_score).mean()))
+            clious.append(float(torch.as_tensor(cl_iou_score)))
+
+            accuracies.append(accuracy.item())
+            precisions.append(precision.item())
+            recalls.append(recall.item())
+            f1_scores.append(f1_score.item())
+
+        print_info("✅ Testing complete.")
+        print_info(f"Test Loss: {np.mean(losses):.4f}, Dice: {np.mean(dices):.4f}, IoU: {np.mean(ious):.4f}, CL IoU: {np.mean(clious):.4f}")
+        print_info(f"Test Accuracy: {np.mean(accuracies):.4f}, Precision: {np.mean(precisions):.4f}, Recall: {np.mean(recalls):.4f}, F1-Score: {np.mean(f1_scores):.4f}")
+        self.experiment_dict["results"] = {
+            "test_loss": np.mean(losses),
+            "test_dice": np.mean(dices),
+            "test_iou": np.mean(ious),
+            "test_cl_iou": np.mean(clious),
+            "test_accuracy": np.mean(accuracies),
+            "test_precision": np.mean(precisions),
+            "test_recall": np.mean(recalls),
+            "test_f1_score": np.mean(f1_scores)
+        }
+        with open(self.experiment_report, "a") as f:
+            f.write(f"Test Loss: {np.mean(losses):.4f}, Dice: {np.mean(dices):.4f}, IoU: {np.mean(ious):.4f}, CL IoU: {np.mean(clious):.4f}\n")
+            f.write(f"Test Accuracy: {np.mean(accuracies):.4f}, Precision: {np.mean(precisions):.4f}, Recall: {np.mean(recalls):.4f}, F1-Score: {np.mean(f1_scores):.4f}\n")
         return float(np.mean(losses)), float(np.mean(dices)), float(np.mean(ious)), float(np.mean(clious))
 
     # --------------------------------------------------------
@@ -1490,7 +1543,7 @@ class ExperimentPC(Experiment):
             plt.close(fig)
 
         print_debugging(self.log_path)
-        model.visualize(save_path=self.log_path)
+        # model.visualize(save_path=self.log_path)
 
     def finetune(self):
         pass
@@ -1668,6 +1721,10 @@ class ExperimentGEPC(ExperimentPC):
                 f.write(f"History: {history}\n")
                 f.write(f"Best genome: {best_genome}\n")
 
+            self.experiment_dict["ge"] = {}
+            self.experiment_dict["ge"]["best_genome"] = best_genome
+            self.experiment_dict["ge"]["history"] = history
+
             self.model = best_pc
             f.close()
             self.model.cv_module = None
@@ -1718,11 +1775,8 @@ class ExperimentGEPC(ExperimentPC):
                     self.test_ground_truth = self.test_ground_truth.squeeze(1)
                 
                 test_loader = self.get_dataloaders(TensorDataset(self.test_inputs, self.test_ground_truth), shuffle=False, batch_size=self.batch_size)
-                loss, dice, iou, cl_iou = self.evaluate(self.model, test_loader)
-                print_info("Test Loss:", loss, "Dice:", dice, "IoU:", iou, "CL IoU:", cl_iou)
-                with open(self.experiment_report, "a") as f:
-                    f.write(f"Test Loss: {loss}, Dice: {dice}, IoU: {iou}, CL IoU: {cl_iou}\n")
-                f.close()
+                loss, dice, iou, cl_iou = self.test(self.model, test_loader)
+                json.dump(self.experiment_dict, open(os.path.join(self.config["log_dir"], "experiment.json"), "w"), indent=4)
                 self.show_prediction(self.model)
         elif self.execution_mode == "test":
             self.load_model(self.model_name)
