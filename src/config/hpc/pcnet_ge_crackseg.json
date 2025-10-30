@@ -5,8 +5,8 @@
     "device": "cpu",
     "n_cpus": 30,
 
-    "data_path": "data/GAPS384/train",
-    "test_path": "data/GAPS384/test",
+    "data_path": "data/CrackSeg9k/train",
+    "test_path": "data/CrackSeg9k/test",
     "save_path": "models/",
     "validation_split": 0.2,
 

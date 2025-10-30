@@ -340,3 +340,6 @@ def reorganize_dataset(datasetpath, datasetname):
     print(f"[DONE] Dataset reorganized:")
     print(f"  → Train images: {len(os.listdir(train_img_out))}")
     print(f"  → Test images:  {len(os.listdir(test_img_out))}")
+
+if __name__ == "__main__":
+    reorganize_dataset("data/AIGLE_RN", "")
