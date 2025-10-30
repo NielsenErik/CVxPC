@@ -14,7 +14,7 @@ Dataset sizes: {'train': 50, 'val': 10, 'test': 237}
   • ProductNode    : 5
   • ClassifierNode : 1
 ─────────────────────────────────────────────
-🧩 Trainable parameters: 118
+🧩 Trainable parameters: 116
   • SumNode        : 14
   • InputNode      : 21
 ─────────────────────────────────────────────
@@ -212,7 +212,7 @@ Test Accuracy: 0.8757, Precision: 0.3287, Recall: 0.8687, F1-Score: 0.4401
   • ProductNode    : 5
   • ClassifierNode : 1
 ─────────────────────────────────────────────
-🧩 Trainable parameters: 118
+🧩 Trainable parameters: 116
   • SumNode        : 14
   • InputNode      : 21
 ─────────────────────────────────────────────

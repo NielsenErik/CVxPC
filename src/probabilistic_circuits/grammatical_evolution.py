@@ -257,7 +257,7 @@ class GEOptimizer:
         self.evolution_report = os.path.join(log_path, "evolution_report.txt") if log_path else None
         if self.evolution_report:
             with open(self.evolution_report, "w") as f:
-                f.write("Generation,Avg_Fitness,Best_Fitness,Avg_Complexity,Best_Complexity\n")
+                f.write("Generation,Avg_Fitness,Best_Fitness,Avg_Complexity,Best_Complexity,All_Time_Best_Fitness\n")
 
     # -----------------------------------------------------
     # GA primitives
@@ -412,9 +412,6 @@ class GEOptimizer:
             avg_complexity = sum(complexities) / len(complexities)
 
             best_loss, best_complexity, best = scored[0]
-            with open(self.evolution_report, "a") as f:
-                f.write(f"[{str(time.strftime('%H:%M:%S'))}]{gen+1},{avg_loss:.4f},{best_loss:.4f},{avg_complexity},{best_complexity}\n")
-            f.close()
             history.append(best_loss)
             complexity_hist.append(best_complexity)
 
@@ -448,7 +445,9 @@ class GEOptimizer:
 
             population = new_pop
             print(f"✅ Gen {gen+1}: best loss={best_score:.4f}, complexity={best_complexity}")
-
+            with open(self.evolution_report, "a") as f:
+                f.write(f"[{str(time.strftime('%H:%M:%S'))}]{gen+1},{avg_loss:.4f},{best_loss:.4f},{avg_complexity},{best_complexity},{best_score:.4f}\n")
+            f.close()
         # --- Final refinement of best genome ---
         trees = self.mapper.map_model(best_genome, inputs.shape[1], self.max_depth, self.max_branching)
         final_pc = PCNet(input_size=inputs.shape[1:], n_classes=n_classes,
