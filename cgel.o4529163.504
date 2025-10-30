@@ -1,0 +1,146 @@
+22:05:33 [[1m[94mCONFIGS[0m] Experiment Configurations: {'mlflow': None, 'experiment': 'crack_segmentation', 'algorithm': 'pcnet_ge', 'device': 'cpu', 'n_cpus': 30, 'data_path': 'data/CrackSeg9k/train', 'test_path': 'data/CrackSeg9k/test', 'save_path': 'models/', 'validation_split': 0.2, 'feature_extractor': 'cv_modules', 'epochs': 40, 'batch_size': 96, 'sample_size': 11000, 'test_size': 3500, 'resize_size': [256, 256], 'input_channels': 3, 'n_classes': 1, 'max_depth': 5, 'max_branching': 3, 'seed': 504, 'filter_sizes': [15, 21], 'n_cv_modules': 20, 'n_filters': 100, 'ge': {'generations': 10, 'pop_size': 20, 'genome_len': 96, 'crossover_rate': 0.9, 'mutation_rate': 0.05, 'elite_k': 2, 'train_split': 0.01}, 'execution_mode': 'train', 'log_dir': 'logs/pcnet_ge/CrackSeg9k/504'}
+
+⚙️ Using 30 CPU cores (torch threads)
+[INFO] CrackDataset paired: 7332 image–mask pairs found (from 7332 images, 7332 masks)
+22:05:33 [[1m[92mINFO[0m] Training samples: 5865, Validation samples: 1467
+
+[INFO] CrackDataset paired: 1827 image–mask pairs found (from 1827 images, 1827 masks)
+22:05:33 [[1m[92mINFO[0m] Test samples: 1827
+
+22:05:33 [[1m[92mINFO[0m] Dataset size: 7332
+
+22:05:33 [[1m[92mINFO[0m] GE Training size: 58
+
+22:05:33 [[1m[92mINFO[0m] 5865
+
+🧬 Generation 1/10
+✅ Gen 1: best loss=0.8057, complexity=73
+🧬 Generation 2/10
+⚠️ Reuse failed: The size of tensor a (4) must match the size of tensor b (2) at non-singleton dimension 0
+⚠️ Reuse failed: The size of tensor a (2) must match the size of tensor b (3) at non-singleton dimension 0
+✅ Gen 2: best loss=0.7926, complexity=98
+🧬 Generation 3/10
+⚠️ Reuse failed: The size of tensor a (4) must match the size of tensor b (2) at non-singleton dimension 0
+⚠️ Reuse failed: The size of tensor a (2) must match the size of tensor b (3) at non-singleton dimension 0
+✅ Gen 3: best loss=0.7773, complexity=35
+🧬 Generation 4/10
+23:54:21 [[1m[93mDEBUG[0m] Loaded 27 parameters, 0 missing.
+
+23:54:21 [[1m[93mDEBUG[0m] Loaded 0 parameters, 53 missing.
+
+⚠️ Reuse failed: The size of tensor a (2) must match the size of tensor b (4) at non-singleton dimension 0
+✅ Gen 4: best loss=0.7773, complexity=79
+🧬 Generation 5/10
+00:23:33 [[1m[93mDEBUG[0m] Loaded 0 parameters, 27 missing.
+
+00:23:33 [[1m[93mDEBUG[0m] Loaded 0 parameters, 53 missing.
+
+⚠️ Reuse failed: The size of tensor a (4) must match the size of tensor b (2) at non-singleton dimension 0
+⚠️ Reuse failed: The size of tensor a (3) must match the size of tensor b (2) at non-singleton dimension 0
+✅ Gen 5: best loss=0.7764, complexity=35
+🧬 Generation 6/10
+00:55:49 [[1m[93mDEBUG[0m] Loaded 0 parameters, 27 missing.
+
+00:55:49 [[1m[93mDEBUG[0m] Loaded 27 parameters, 0 missing.
+
+✅ Gen 6: best loss=0.7741, complexity=36
+🧬 Generation 7/10
+01:28:26 [[1m[93mDEBUG[0m] Loaded 27 parameters, 0 missing.
+
+01:28:26 [[1m[93mDEBUG[0m] Loaded 28 parameters, 0 missing.
+
+✅ Gen 7: best loss=0.7670, complexity=36
+🧬 Generation 8/10
+01:56:52 [[1m[93mDEBUG[0m] Loaded 0 parameters, 28 missing.
+
+01:56:52 [[1m[93mDEBUG[0m] Loaded 28 parameters, 0 missing.
+
+⚠️ Reuse failed: The size of tensor a (4) must match the size of tensor b (3) at non-singleton dimension 0
+01:56:52 [[1m[93mDEBUG[0m] Loaded 0 parameters, 36 missing.
+
+⚠️ Reuse failed: The size of tensor a (4) must match the size of tensor b (2) at non-singleton dimension 0
+✅ Gen 8: best loss=0.7670, complexity=36
+🧬 Generation 9/10
+⚠️ Reuse failed: The size of tensor a (3) must match the size of tensor b (4) at non-singleton dimension 0
+02:27:20 [[1m[93mDEBUG[0m] Loaded 28 parameters, 0 missing.
+
+02:27:20 [[1m[93mDEBUG[0m] Loaded 0 parameters, 28 missing.
+
+02:27:20 [[1m[93mDEBUG[0m] Loaded 0 parameters, 36 missing.
+
+✅ Gen 9: best loss=0.7661, complexity=36
+🧬 Generation 10/10
+⚠️ Reuse failed: The size of tensor a (3) must match the size of tensor b (4) at non-singleton dimension 0
+02:55:57 [[1m[93mDEBUG[0m] Loaded 0 parameters, 28 missing.
+
+⚠️ Reuse failed: The size of tensor a (4) must match the size of tensor b (3) at non-singleton dimension 0
+02:55:57 [[1m[93mDEBUG[0m] Loaded 0 parameters, 36 missing.
+
+02:55:57 [[1m[93mDEBUG[0m] Loaded 0 parameters, 54 missing.
+
+⚠️ Reuse failed: The size of tensor a (2) must match the size of tensor b (4) at non-singleton dimension 0
+✅ Gen 10: best loss=0.7661, complexity=36
+03:25:22 [[1m[92mINFO[0m] Best genome: [23, 225, 106, 137, 42, 159, 46, 69, 184, 135, 102, 73, 33, 75, 144, 169, 250, 97, 48, 203, 169, 242, 23, 64, 184, 235, 12, 24, 35, 157, 42, 43, 33, 144, 2, 116, 121, 119, 173, 133, 166, 195, 235, 204, 132, 125, 70, 153, 35, 238, 216, 30, 201, 29, 184, 22, 124, 168, 238, 224, 34, 198, 53, 171, 169, 78, 188, 229, 209, 195, 162, 242, 203, 93, 136, 80, 80, 40, 246, 37, 22, 239, 142, 254, 161, 179, 24, 79, 196, 213, 111, 206, 215, 136, 139, 73]
+
+03:25:22 [[1m[92mINFO[0m] Best PC: ─────────────────────────────────────────────
+🧠  Probabilistic Circuit Network Summary
+─────────────────────────────────────────────
+📦 Classes: 1
+📏 Input size: torch.Size([3, 256, 256])
+⚙️  Depth: 5, Branching: 3
+💻 Device: cpu
+─────────────────────────────────────────────
+📊 Node counts:
+  • InputNode      : 3
+  • SumNode        : 1
+  • ProductNode    : 3
+  • ClassifierNode : 1
+─────────────────────────────────────────────
+🧩 Trainable parameters: 55
+  • SumNode        : 3
+  • InputNode      : 21
+─────────────────────────────────────────────
+📚 Structure:Memory usage: 0.14 KB
+
+└─ ClassifierNode(classes=2)
+   ├─ GateNode
+   │  ├─ InputNode(feat_1)
+   │  └─ ProductNode(children=3)
+   │     ├─ ProductNode(children=2)
+   │     │  ├─ ResidualNode
+   │     │  │  ├─ SumNode(children=3, weights=3)
+   │     │  │  │  ├─ InputNode(feat_0)
+   │     │  │  │  ├─ InputNode(feat_0)
+   │     │  │  │  └─ InputNode(feat_0)
+   │     │  │  └─ ResidualNode
+   │     │  │     ├─ InputNode(feat_1)
+   │     │  │     └─ InputNode(feat_1)
+   │     │  └─ InputNode(feat_0)
+   │     ├─ GateNode
+   │     │  ├─ GateNode
+   │     │  │  ├─ InputNode(feat_0)
+   │     │  │  └─ ResidualNode
+   │     │  │     ├─ InputNode(feat_2)
+   │     │  │     └─ InputNode(feat_2)
+   │     │  └─ InputNode(feat_1)
+   │     └─ GateNode
+   │        ├─ GateNode
+   │        │  ├─ ResidualNode
+   │        │  │  ├─ InputNode(feat_1)
+   │        │  │  └─ InputNode(feat_1)
+   │        │  └─ ProductNode(children=2)
+   │        │     ├─ InputNode(feat_2)
+   │        │     └─ InputNode(feat_2)
+   │        └─ GateNode
+   │           ├─ ResidualNode
+   │           │  ├─ InputNode(feat_1)
+   │           │  └─ InputNode(feat_1)
+   │           └─ ResidualNode
+   │              ├─ InputNode(feat_2)
+   │              └─ InputNode(feat_2)
+   └─ InputNode(feat_0)
+─────────────────────────────────────────────
+
+⚙️ Using 30 CPU cores (torch threads)
+03:26:46 [[1m[92mINFO[0m] Number of trainable parameters: 36
+
