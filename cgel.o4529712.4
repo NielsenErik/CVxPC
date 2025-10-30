@@ -1,0 +1,218 @@
+14:06:51 [[1m[94mCONFIGS[0m] Experiment Configurations: {'mlflow': None, 'experiment': 'crack_segmentation', 'algorithm': 'pcnet_ge', 'device': 'cpu', 'n_cpus': 30, 'data_path': 'data/DeepCrack/train', 'test_path': 'data/DeepCrack/test', 'save_path': 'models/', 'validation_split': 0.2, 'feature_extractor': 'cv_modules', 'epochs': 80, 'batch_size': 32, 'resize_size': [256, 256], 'input_channels': 3, 'n_classes': 1, 'max_depth': 6, 'max_branching': 3, 'seed': 4, 'filter_sizes': [15, 21], 'n_cv_modules': 20, 'n_filters': 100, 'ge': {'generations': 10, 'pop_size': 20, 'genome_len': 96, 'crossover_rate': 0.9, 'mutation_rate': 0.05, 'elite_k': 2, 'train_split': 0.1}, 'execution_mode': 'train', 'log_dir': 'logs/pcnet_ge/DeepCrack/4'}
+
+⚙️ Using 30 CPU cores (torch threads)
+[INFO] CrackDataset paired: 300 image–mask pairs found (from 300 images, 300 masks)
+14:06:51 [[1m[92mINFO[0m] Training samples: 240, Validation samples: 60
+
+[INFO] CrackDataset paired: 237 image–mask pairs found (from 237 images, 237 masks)
+14:06:51 [[1m[92mINFO[0m] Test samples: 237
+
+14:06:51 [[1m[92mINFO[0m] Dataset size: 300
+
+14:06:51 [[1m[92mINFO[0m] GE Training size: 24
+
+14:06:51 [[1m[92mINFO[0m] 240
+
+🧬 Generation 1/10
+✅ Gen 1: best loss=0.5843, complexity=74
+🧬 Generation 2/10
+⚠️ Reuse failed: The size of tensor a (3) must match the size of tensor b (2) at non-singleton dimension 0
+⚠️ Reuse failed: The size of tensor a (3) must match the size of tensor b (2) at non-singleton dimension 0
+✅ Gen 2: best loss=0.5789, complexity=38
+🧬 Generation 3/10
+⚠️ Reuse failed: The size of tensor a (3) must match the size of tensor b (2) at non-singleton dimension 0
+⚠️ Reuse failed: The size of tensor a (2) must match the size of tensor b (3) at non-singleton dimension 0
+✅ Gen 3: best loss=0.5777, complexity=40
+🧬 Generation 4/10
+⚠️ Reuse failed: The size of tensor a (4) must match the size of tensor b (2) at non-singleton dimension 0
+⚠️ Reuse failed: The size of tensor a (2) must match the size of tensor b (3) at non-singleton dimension 0
+✅ Gen 4: best loss=0.5425, complexity=38
+🧬 Generation 5/10
+⚠️ Reuse failed: The size of tensor a (2) must match the size of tensor b (3) at non-singleton dimension 0
+⚠️ Reuse failed: The size of tensor a (2) must match the size of tensor b (3) at non-singleton dimension 0
+✅ Gen 5: best loss=0.5233, complexity=71
+🧬 Generation 6/10
+⚠️ Reuse failed: The size of tensor a (4) must match the size of tensor b (3) at non-singleton dimension 0
+16:31:36 [[1m[93mDEBUG[0m] Loaded 0 parameters, 28 missing.
+
+16:31:36 [[1m[93mDEBUG[0m] Loaded 0 parameters, 37 missing.
+
+⚠️ Reuse failed: The size of tensor a (4) must match the size of tensor b (3) at non-singleton dimension 0
+✅ Gen 6: best loss=0.5233, complexity=40
+🧬 Generation 7/10
+16:47:45 [[1m[93mDEBUG[0m] Loaded 0 parameters, 28 missing.
+
+⚠️ Reuse failed: The size of tensor a (2) must match the size of tensor b (3) at non-singleton dimension 0
+⚠️ Reuse failed: The size of tensor a (2) must match the size of tensor b (3) at non-singleton dimension 0
+16:47:45 [[1m[93mDEBUG[0m] Loaded 0 parameters, 89 missing.
+
+✅ Gen 7: best loss=0.5233, complexity=41
+🧬 Generation 8/10
+17:06:54 [[1m[93mDEBUG[0m] Loaded 0 parameters, 23 missing.
+
+17:06:54 [[1m[93mDEBUG[0m] Loaded 24 parameters, 0 missing.
+
+⚠️ Reuse failed: The size of tensor a (3) must match the size of tensor b (2) at non-singleton dimension 0
+✅ Gen 8: best loss=0.5233, complexity=41
+🧬 Generation 9/10
+17:21:41 [[1m[93mDEBUG[0m] Loaded 0 parameters, 28 missing.
+
+⚠️ Reuse failed: The size of tensor a (2) must match the size of tensor b (3) at non-singleton dimension 0
+⚠️ Reuse failed: The size of tensor a (3) must match the size of tensor b (2) at non-singleton dimension 0
+✅ Gen 9: best loss=0.5233, complexity=40
+🧬 Generation 10/10
+17:34:17 [[1m[93mDEBUG[0m] Loaded 0 parameters, 26 missing.
+
+17:34:17 [[1m[93mDEBUG[0m] Loaded 0 parameters, 28 missing.
+
+⚠️ Reuse failed: The size of tensor a (2) must match the size of tensor b (3) at non-singleton dimension 0
+⚠️ Reuse failed: The size of tensor a (4) must match the size of tensor b (2) at non-singleton dimension 0
+✅ Gen 10: best loss=0.5233, complexity=39
+17:46:32 [[1m[92mINFO[0m] Best genome: [22, 198, 73, 112, 110, 219, 22, 110, 51, 24, 134, 73, 188, 194, 144, 201, 131, 32, 41, 115, 128, 157, 103, 138, 133, 235, 20, 64, 116, 41, 27, 202, 95, 149, 134, 116, 189, 75, 217, 95, 213, 103, 28, 194, 7, 197, 70, 52, 154, 241, 104, 30, 59, 229, 186, 25, 98, 67, 45, 194, 158, 45, 166, 105, 169, 115, 47, 62, 225, 181, 34, 242, 147, 223, 191, 86, 136, 135, 184, 63, 85, 62, 75, 41, 9, 240, 19, 227, 0, 199, 84, 132, 72, 125, 115, 135]
+
+17:46:32 [[1m[92mINFO[0m] Best PC: ─────────────────────────────────────────────
+🧠  Probabilistic Circuit Network Summary
+─────────────────────────────────────────────
+📦 Classes: 1
+📏 Input size: torch.Size([3, 256, 256])
+⚙️  Depth: 6, Branching: 3
+💻 Device: cpu
+─────────────────────────────────────────────
+📊 Node counts:
+  • InputNode      : 3
+  • SumNode        : 8
+  • ProductNode    : 13
+  • ClassifierNode : 1
+─────────────────────────────────────────────
+🧩 Trainable parameters: 222
+  • SumNode        : 24
+  • InputNode      : 21
+─────────────────────────────────────────────
+📚 Structure:Memory usage: 0.28 KB
+
+└─ ClassifierNode(classes=2)
+   ├─ ProductNode(children=2)
+   │  ├─ GateNode
+   │  │  ├─ GateNode
+   │  │  │  ├─ ProductNode(children=2)
+   │  │  │  │  ├─ InputNode(feat_0)
+   │  │  │  │  └─ ProductNode(children=2)
+   │  │  │  │     ├─ InputNode(feat_0)
+   │  │  │  │     └─ ResidualNode
+   │  │  │  │        ├─ InputNode(feat_1)
+   │  │  │  │        └─ InputNode(feat_1)
+   │  │  │  └─ ResidualNode
+   │  │  │     ├─ GateNode
+   │  │  │     │  ├─ GateNode
+   │  │  │     │  │  ├─ InputNode(feat_1)
+   │  │  │     │  │  └─ InputNode(feat_1)
+   │  │  │     │  └─ ResidualNode
+   │  │  │     │     ├─ InputNode(feat_2)
+   │  │  │     │     └─ InputNode(feat_2)
+   │  │  │     └─ ResidualNode
+   │  │  │        ├─ SumNode(children=3, weights=3)
+   │  │  │        │  ├─ InputNode(feat_2)
+   │  │  │        │  ├─ InputNode(feat_2)
+   │  │  │        │  └─ InputNode(feat_2)
+   │  │  │        └─ ProductNode(children=2)
+   │  │  │           ├─ InputNode(feat_0)
+   │  │  │           └─ InputNode(feat_0)
+   │  │  └─ SumNode(children=3, weights=3)
+   │  │     ├─ GateNode
+   │  │     │  ├─ ProductNode(children=3)
+   │  │     │  │  ├─ GateNode
+   │  │     │  │  │  ├─ InputNode(feat_2)
+   │  │     │  │  │  └─ InputNode(feat_2)
+   │  │     │  │  ├─ GateNode
+   │  │     │  │  │  ├─ InputNode(feat_0)
+   │  │     │  │  │  └─ InputNode(feat_0)
+   │  │     │  │  └─ GateNode
+   │  │     │  │     ├─ InputNode(feat_1)
+   │  │     │  │     └─ InputNode(feat_1)
+   │  │     │  └─ InputNode(feat_2)
+   │  │     ├─ ResidualNode
+   │  │     │  ├─ SumNode(children=4, weights=4)
+   │  │     │  │  ├─ ProductNode(children=3)
+   │  │     │  │  │  ├─ InputNode(feat_1)
+   │  │     │  │  │  ├─ InputNode(feat_1)
+   │  │     │  │  │  └─ InputNode(feat_1)
+   │  │     │  │  ├─ InputNode(feat_2)
+   │  │     │  │  ├─ ProductNode(children=2)
+   │  │     │  │  │  ├─ InputNode(feat_2)
+   │  │     │  │  │  └─ InputNode(feat_2)
+   │  │     │  │  └─ InputNode(feat_2)
+   │  │     │  └─ ResidualNode
+   │  │     │     ├─ SumNode(children=3, weights=3)
+   │  │     │     │  ├─ InputNode(feat_1)
+   │  │     │     │  ├─ InputNode(feat_1)
+   │  │     │     │  └─ InputNode(feat_1)
+   │  │     │     └─ InputNode(feat_1)
+   │  │     └─ InputNode(feat_0)
+   │  └─ GateNode
+   │     ├─ GateNode
+   │     │  ├─ ResidualNode
+   │     │  │  ├─ ProductNode(children=3)
+   │     │  │  │  ├─ ProductNode(children=3)
+   │     │  │  │  │  ├─ InputNode(feat_1)
+   │     │  │  │  │  ├─ InputNode(feat_1)
+   │     │  │  │  │  └─ InputNode(feat_1)
+   │     │  │  │  ├─ InputNode(feat_1)
+   │     │  │  │  └─ ResidualNode
+   │     │  │  │     ├─ InputNode(feat_1)
+   │     │  │  │     └─ InputNode(feat_1)
+   │     │  │  └─ SumNode(children=2, weights=2)
+   │     │  │     ├─ InputNode(feat_2)
+   │     │  │     └─ ResidualNode
+   │     │  │        ├─ InputNode(feat_0)
+   │     │  │        └─ InputNode(feat_0)
+   │     │  └─ SumNode(children=4, weights=4)
+   │     │     ├─ GateNode
+   │     │     │  ├─ ProductNode(children=3)
+   │     │     │  │  ├─ InputNode(feat_1)
+   │     │     │  │  ├─ InputNode(feat_1)
+   │     │     │  │  └─ InputNode(feat_1)
+   │     │     │  └─ InputNode(feat_2)
+   │     │     ├─ GateNode
+   │     │     │  ├─ InputNode(feat_1)
+   │     │     │  └─ InputNode(feat_1)
+   │     │     ├─ GateNode
+   │     │     │  ├─ InputNode(feat_1)
+   │     │     │  └─ InputNode(feat_1)
+   │     │     └─ InputNode(feat_2)
+   │     └─ ProductNode(children=2)
+   │        ├─ InputNode(feat_1)
+   │        └─ ResidualNode
+   │           ├─ ProductNode(children=2)
+   │           │  ├─ ProductNode(children=3)
+   │           │  │  ├─ InputNode(feat_1)
+   │           │  │  ├─ InputNode(feat_1)
+   │           │  │  └─ InputNode(feat_1)
+   │           │  └─ GateNode
+   │           │     ├─ InputNode(feat_2)
+   │           │     └─ InputNode(feat_2)
+   │           └─ SumNode(children=2, weights=2)
+   │              ├─ SumNode(children=3, weights=3)
+   │              │  ├─ InputNode(feat_0)
+   │              │  ├─ InputNode(feat_0)
+   │              │  └─ InputNode(feat_0)
+   │              └─ ResidualNode
+   │                 ├─ InputNode(feat_1)
+   │                 └─ InputNode(feat_1)
+   └─ GateNode
+      ├─ InputNode(feat_2)
+      └─ InputNode(feat_2)
+─────────────────────────────────────────────
+
+⚙️ Using 30 CPU cores (torch threads)
+17:46:36 [[1m[92mINFO[0m] Number of trainable parameters: 71
+
+18:18:10 [[1m[92mINFO[0m] ✅ Training complete.
+
+18:18:21 [[1m[92mINFO[0m] ✅ Testing complete.
+
+18:18:21 [[1m[92mINFO[0m] Test Loss: 0.4685, Dice: 0.7551, IoU: 0.6732, CL IoU: 0.6010
+
+18:18:21 [[1m[92mINFO[0m] Test Accuracy: 0.9471, Precision: 0.5770, Recall: 0.8018, F1-Score: 0.6271
+
+18:20:41 [[1m[93mDEBUG[0m] logs/pcnet_ge/DeepCrack/4
+
