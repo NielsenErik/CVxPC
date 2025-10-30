@@ -1,0 +1,635 @@
+Experiment Configurations: {'mlflow': None, 'experiment': 'crack_segmentation', 'algorithm': 'pcnet_ge', 'device': 'cpu', 'n_cpus': 30, 'data_path': 'data/GAPS384/train', 'test_path': 'data/GAPS384/test', 'save_path': 'models/', 'validation_split': 0.2, 'feature_extractor': 'cv_modules', 'epochs': 80, 'batch_size': 32, 'resize_size': [256, 256], 'input_channels': 3, 'n_classes': 1, 'max_depth': 6, 'max_branching': 3, 'seed': 1, 'filter_sizes': [15, 21], 'n_cv_modules': 20, 'n_filters': 100, 'ge': {'generations': 10, 'pop_size': 20, 'genome_len': 96, 'crossover_rate': 0.9, 'mutation_rate': 0.05, 'elite_k': 2, 'train_split': 0.1}, 'execution_mode': 'train', 'log_dir': 'logs/pcnet_ge/GAPS384/1'}
+Dataset sizes: {'train': 357, 'val': 72, 'test': 27}
+─────────────────────────────────────────────
+🧠  Probabilistic Circuit Network Summary
+─────────────────────────────────────────────
+📦 Classes: 1
+📏 Input size: torch.Size([3, 256, 256])
+⚙️  Depth: 6, Branching: 3
+💻 Device: cpu
+─────────────────────────────────────────────
+📊 Node counts:
+  • InputNode      : 3
+  • SumNode        : 47
+  • ProductNode    : 47
+  • ClassifierNode : 1
+─────────────────────────────────────────────
+🧩 Trainable parameters: 701
+  • SumNode        : 145
+  • InputNode      : 21
+─────────────────────────────────────────────
+📚 Structure:Memory usage: 1.10 KB
+
+└─ ClassifierNode(classes=2)
+   ├─ GateNode
+   │  ├─ InputNode(feat_1)
+   │  └─ ProductNode(children=3)
+   │     ├─ ProductNode(children=2)
+   │     │  ├─ ResidualNode
+   │     │  │  ├─ SumNode(children=3, weights=3)
+   │     │  │  │  ├─ ResidualNode
+   │     │  │  │  │  ├─ InputNode(feat_0)
+   │     │  │  │  │  └─ InputNode(feat_0)
+   │     │  │  │  ├─ ProductNode(children=2)
+   │     │  │  │  │  ├─ InputNode(feat_1)
+   │     │  │  │  │  └─ InputNode(feat_1)
+   │     │  │  │  └─ ProductNode(children=2)
+   │     │  │  │     ├─ InputNode(feat_2)
+   │     │  │  │     └─ InputNode(feat_2)
+   │     │  │  └─ GateNode
+   │     │  │     ├─ GateNode
+   │     │  │     │  ├─ InputNode(feat_1)
+   │     │  │     │  └─ InputNode(feat_1)
+   │     │  │     └─ InputNode(feat_0)
+   │     │  └─ ResidualNode
+   │     │     ├─ InputNode(feat_1)
+   │     │     └─ GateNode
+   │     │        ├─ ResidualNode
+   │     │        │  ├─ InputNode(feat_2)
+   │     │        │  └─ InputNode(feat_2)
+   │     │        └─ ResidualNode
+   │     │           ├─ InputNode(feat_0)
+   │     │           └─ InputNode(feat_0)
+   │     ├─ ProductNode(children=2)
+   │     │  ├─ InputNode(feat_2)
+   │     │  └─ SumNode(children=3, weights=3)
+   │     │     ├─ ResidualNode
+   │     │     │  ├─ ResidualNode
+   │     │     │  │  ├─ InputNode(feat_1)
+   │     │     │  │  └─ InputNode(feat_1)
+   │     │     │  └─ InputNode(feat_0)
+   │     │     ├─ ProductNode(children=3)
+   │     │     │  ├─ SumNode(children=2, weights=2)
+   │     │     │  │  ├─ InputNode(feat_0)
+   │     │     │  │  └─ InputNode(feat_0)
+   │     │     │  ├─ SumNode(children=2, weights=2)
+   │     │     │  │  ├─ InputNode(feat_2)
+   │     │     │  │  └─ InputNode(feat_2)
+   │     │     │  └─ GateNode
+   │     │     │     ├─ InputNode(feat_0)
+   │     │     │     └─ InputNode(feat_0)
+   │     │     └─ SumNode(children=4, weights=4)
+   │     │        ├─ InputNode(feat_1)
+   │     │        ├─ GateNode
+   │     │        │  ├─ InputNode(feat_1)
+   │     │        │  └─ InputNode(feat_1)
+   │     │        ├─ SumNode(children=2, weights=2)
+   │     │        │  ├─ InputNode(feat_0)
+   │     │        │  └─ InputNode(feat_0)
+   │     │        └─ GateNode
+   │     │           ├─ InputNode(feat_1)
+   │     │           └─ InputNode(feat_1)
+   │     └─ SumNode(children=2, weights=2)
+   │        ├─ ProductNode(children=3)
+   │        │  ├─ SumNode(children=4, weights=4)
+   │        │  │  ├─ SumNode(children=3, weights=3)
+   │        │  │  │  ├─ InputNode(feat_2)
+   │        │  │  │  ├─ InputNode(feat_2)
+   │        │  │  │  └─ InputNode(feat_2)
+   │        │  │  ├─ ResidualNode
+   │        │  │  │  ├─ InputNode(feat_0)
+   │        │  │  │  └─ InputNode(feat_0)
+   │        │  │  ├─ ResidualNode
+   │        │  │  │  ├─ InputNode(feat_0)
+   │        │  │  │  └─ InputNode(feat_0)
+   │        │  │  └─ GateNode
+   │        │  │     ├─ InputNode(feat_1)
+   │        │  │     └─ InputNode(feat_1)
+   │        │  ├─ SumNode(children=3, weights=3)
+   │        │  │  ├─ ResidualNode
+   │        │  │  │  ├─ InputNode(feat_1)
+   │        │  │  │  └─ InputNode(feat_1)
+   │        │  │  ├─ ResidualNode
+   │        │  │  │  ├─ InputNode(feat_2)
+   │        │  │  │  └─ InputNode(feat_2)
+   │        │  │  └─ InputNode(feat_0)
+   │        │  └─ GateNode
+   │        │     ├─ ResidualNode
+   │        │     │  ├─ InputNode(feat_0)
+   │        │     │  └─ InputNode(feat_0)
+   │        │     └─ ResidualNode
+   │        │        ├─ InputNode(feat_1)
+   │        │        └─ InputNode(feat_1)
+   │        └─ SumNode(children=2, weights=2)
+   │           ├─ ResidualNode
+   │           │  ├─ InputNode(feat_0)
+   │           │  └─ ProductNode(children=2)
+   │           │     ├─ InputNode(feat_1)
+   │           │     └─ InputNode(feat_1)
+   │           └─ SumNode(children=4, weights=4)
+   │              ├─ InputNode(feat_0)
+   │              ├─ ResidualNode
+   │              │  ├─ InputNode(feat_2)
+   │              │  └─ InputNode(feat_2)
+   │              ├─ SumNode(children=3, weights=3)
+   │              │  ├─ InputNode(feat_1)
+   │              │  ├─ InputNode(feat_1)
+   │              │  └─ InputNode(feat_1)
+   │              └─ ResidualNode
+   │                 ├─ InputNode(feat_2)
+   │                 └─ InputNode(feat_2)
+   └─ SumNode(children=4, weights=4)
+      ├─ ProductNode(children=2)
+      │  ├─ ResidualNode
+      │  │  ├─ ProductNode(children=3)
+      │  │  │  ├─ InputNode(feat_0)
+      │  │  │  ├─ ProductNode(children=3)
+      │  │  │  │  ├─ ResidualNode
+      │  │  │  │  │  ├─ InputNode(feat_2)
+      │  │  │  │  │  └─ InputNode(feat_2)
+      │  │  │  │  ├─ GateNode
+      │  │  │  │  │  ├─ InputNode(feat_0)
+      │  │  │  │  │  └─ InputNode(feat_0)
+      │  │  │  │  └─ ResidualNode
+      │  │  │  │     ├─ InputNode(feat_1)
+      │  │  │  │     └─ InputNode(feat_1)
+      │  │  │  └─ ProductNode(children=2)
+      │  │  │     ├─ SumNode(children=3, weights=3)
+      │  │  │     │  ├─ InputNode(feat_1)
+      │  │  │     │  ├─ InputNode(feat_1)
+      │  │  │     │  └─ InputNode(feat_1)
+      │  │  │     └─ InputNode(feat_1)
+      │  │  └─ ProductNode(children=2)
+      │  │     ├─ ProductNode(children=2)
+      │  │     │  ├─ GateNode
+      │  │     │  │  ├─ InputNode(feat_0)
+      │  │     │  │  └─ InputNode(feat_0)
+      │  │     │  └─ GateNode
+      │  │     │     ├─ InputNode(feat_1)
+      │  │     │     └─ InputNode(feat_1)
+      │  │     └─ ResidualNode
+      │  │        ├─ GateNode
+      │  │        │  ├─ InputNode(feat_0)
+      │  │        │  └─ InputNode(feat_0)
+      │  │        └─ GateNode
+      │  │           ├─ InputNode(feat_1)
+      │  │           └─ InputNode(feat_1)
+      │  └─ InputNode(feat_1)
+      ├─ ProductNode(children=3)
+      │  ├─ ProductNode(children=2)
+      │  │  ├─ ResidualNode
+      │  │  │  ├─ SumNode(children=3, weights=3)
+      │  │  │  │  ├─ ResidualNode
+      │  │  │  │  │  ├─ InputNode(feat_0)
+      │  │  │  │  │  └─ InputNode(feat_0)
+      │  │  │  │  ├─ ProductNode(children=2)
+      │  │  │  │  │  ├─ InputNode(feat_1)
+      │  │  │  │  │  └─ InputNode(feat_1)
+      │  │  │  │  └─ ProductNode(children=2)
+      │  │  │  │     ├─ InputNode(feat_2)
+      │  │  │  │     └─ InputNode(feat_2)
+      │  │  │  └─ GateNode
+      │  │  │     ├─ GateNode
+      │  │  │     │  ├─ InputNode(feat_1)
+      │  │  │     │  └─ InputNode(feat_1)
+      │  │  │     └─ InputNode(feat_0)
+      │  │  └─ ResidualNode
+      │  │     ├─ InputNode(feat_1)
+      │  │     └─ GateNode
+      │  │        ├─ ResidualNode
+      │  │        │  ├─ InputNode(feat_2)
+      │  │        │  └─ InputNode(feat_2)
+      │  │        └─ ResidualNode
+      │  │           ├─ InputNode(feat_0)
+      │  │           └─ InputNode(feat_0)
+      │  ├─ ProductNode(children=2)
+      │  │  ├─ InputNode(feat_2)
+      │  │  └─ SumNode(children=4, weights=4)
+      │  │     ├─ ResidualNode
+      │  │     │  ├─ ResidualNode
+      │  │     │  │  ├─ InputNode(feat_1)
+      │  │     │  │  └─ InputNode(feat_1)
+      │  │     │  └─ InputNode(feat_0)
+      │  │     ├─ ResidualNode
+      │  │     │  ├─ ResidualNode
+      │  │     │  │  ├─ InputNode(feat_1)
+      │  │     │  │  └─ InputNode(feat_1)
+      │  │     │  └─ InputNode(feat_0)
+      │  │     ├─ ProductNode(children=3)
+      │  │     │  ├─ SumNode(children=2, weights=2)
+      │  │     │  │  ├─ InputNode(feat_0)
+      │  │     │  │  └─ InputNode(feat_0)
+      │  │     │  ├─ SumNode(children=2, weights=2)
+      │  │     │  │  ├─ InputNode(feat_2)
+      │  │     │  │  └─ InputNode(feat_2)
+      │  │     │  └─ GateNode
+      │  │     │     ├─ InputNode(feat_0)
+      │  │     │     └─ InputNode(feat_0)
+      │  │     └─ SumNode(children=4, weights=4)
+      │  │        ├─ GateNode
+      │  │        │  ├─ InputNode(feat_1)
+      │  │        │  └─ InputNode(feat_1)
+      │  │        ├─ InputNode(feat_1)
+      │  │        ├─ SumNode(children=2, weights=2)
+      │  │        │  ├─ InputNode(feat_0)
+      │  │        │  └─ InputNode(feat_0)
+      │  │        └─ GateNode
+      │  │           ├─ InputNode(feat_1)
+      │  │           └─ InputNode(feat_1)
+      │  └─ SumNode(children=2, weights=2)
+      │     ├─ ProductNode(children=3)
+      │     │  ├─ SumNode(children=4, weights=4)
+      │     │  │  ├─ SumNode(children=4, weights=4)
+      │     │  │  │  ├─ InputNode(feat_2)
+      │     │  │  │  ├─ InputNode(feat_2)
+      │     │  │  │  ├─ InputNode(feat_2)
+      │     │  │  │  └─ InputNode(feat_2)
+      │     │  │  ├─ SumNode(children=4, weights=4)
+      │     │  │  │  ├─ InputNode(feat_2)
+      │     │  │  │  ├─ InputNode(feat_2)
+      │     │  │  │  ├─ InputNode(feat_2)
+      │     │  │  │  └─ InputNode(feat_2)
+      │     │  │  ├─ ResidualNode
+      │     │  │  │  ├─ InputNode(feat_0)
+      │     │  │  │  └─ InputNode(feat_0)
+      │     │  │  └─ GateNode
+      │     │  │     ├─ InputNode(feat_1)
+      │     │  │     └─ InputNode(feat_1)
+      │     │  ├─ SumNode(children=3, weights=3)
+      │     │  │  ├─ ResidualNode
+      │     │  │  │  ├─ InputNode(feat_1)
+      │     │  │  │  └─ InputNode(feat_1)
+      │     │  │  ├─ ResidualNode
+      │     │  │  │  ├─ InputNode(feat_2)
+      │     │  │  │  └─ InputNode(feat_2)
+      │     │  │  └─ InputNode(feat_0)
+      │     │  └─ GateNode
+      │     │     ├─ ResidualNode
+      │     │     │  ├─ InputNode(feat_0)
+      │     │     │  └─ InputNode(feat_0)
+      │     │     └─ ResidualNode
+      │     │        ├─ InputNode(feat_1)
+      │     │        └─ InputNode(feat_1)
+      │     └─ SumNode(children=2, weights=2)
+      │        ├─ ResidualNode
+      │        │  ├─ InputNode(feat_0)
+      │        │  └─ ProductNode(children=2)
+      │        │     ├─ InputNode(feat_1)
+      │        │     └─ InputNode(feat_1)
+      │        └─ SumNode(children=4, weights=4)
+      │           ├─ InputNode(feat_0)
+      │           ├─ SumNode(children=3, weights=3)
+      │           │  ├─ InputNode(feat_1)
+      │           │  ├─ InputNode(feat_1)
+      │           │  └─ InputNode(feat_1)
+      │           ├─ ResidualNode
+      │           │  ├─ InputNode(feat_2)
+      │           │  └─ InputNode(feat_2)
+      │           └─ ResidualNode
+      │              ├─ InputNode(feat_2)
+      │              └─ InputNode(feat_2)
+      ├─ ProductNode(children=3)
+      │  ├─ ProductNode(children=2)
+      │  │  ├─ ResidualNode
+      │  │  │  ├─ SumNode(children=3, weights=3)
+      │  │  │  │  ├─ ResidualNode
+      │  │  │  │  │  ├─ InputNode(feat_0)
+      │  │  │  │  │  └─ InputNode(feat_0)
+      │  │  │  │  ├─ ProductNode(children=2)
+      │  │  │  │  │  ├─ InputNode(feat_1)
+      │  │  │  │  │  └─ InputNode(feat_1)
+      │  │  │  │  └─ ProductNode(children=2)
+      │  │  │  │     ├─ InputNode(feat_2)
+      │  │  │  │     └─ InputNode(feat_2)
+      │  │  │  └─ GateNode
+      │  │  │     ├─ GateNode
+      │  │  │     │  ├─ InputNode(feat_1)
+      │  │  │     │  └─ InputNode(feat_1)
+      │  │  │     └─ InputNode(feat_0)
+      │  │  └─ ResidualNode
+      │  │     ├─ InputNode(feat_1)
+      │  │     └─ GateNode
+      │  │        ├─ ResidualNode
+      │  │        │  ├─ InputNode(feat_2)
+      │  │        │  └─ InputNode(feat_2)
+      │  │        └─ ResidualNode
+      │  │           ├─ InputNode(feat_0)
+      │  │           └─ InputNode(feat_0)
+      │  ├─ ProductNode(children=2)
+      │  │  ├─ InputNode(feat_2)
+      │  │  └─ SumNode(children=4, weights=4)
+      │  │     ├─ ResidualNode
+      │  │     │  ├─ ResidualNode
+      │  │     │  │  ├─ InputNode(feat_1)
+      │  │     │  │  └─ InputNode(feat_1)
+      │  │     │  └─ InputNode(feat_0)
+      │  │     ├─ ResidualNode
+      │  │     │  ├─ ResidualNode
+      │  │     │  │  ├─ InputNode(feat_1)
+      │  │     │  │  └─ InputNode(feat_1)
+      │  │     │  └─ InputNode(feat_0)
+      │  │     ├─ ProductNode(children=3)
+      │  │     │  ├─ SumNode(children=2, weights=2)
+      │  │     │  │  ├─ InputNode(feat_0)
+      │  │     │  │  └─ InputNode(feat_0)
+      │  │     │  ├─ SumNode(children=2, weights=2)
+      │  │     │  │  ├─ InputNode(feat_2)
+      │  │     │  │  └─ InputNode(feat_2)
+      │  │     │  └─ GateNode
+      │  │     │     ├─ InputNode(feat_0)
+      │  │     │     └─ InputNode(feat_0)
+      │  │     └─ SumNode(children=4, weights=4)
+      │  │        ├─ GateNode
+      │  │        │  ├─ InputNode(feat_1)
+      │  │        │  └─ InputNode(feat_1)
+      │  │        ├─ InputNode(feat_1)
+      │  │        ├─ SumNode(children=2, weights=2)
+      │  │        │  ├─ InputNode(feat_0)
+      │  │        │  └─ InputNode(feat_0)
+      │  │        └─ GateNode
+      │  │           ├─ InputNode(feat_1)
+      │  │           └─ InputNode(feat_1)
+      │  └─ SumNode(children=2, weights=2)
+      │     ├─ ProductNode(children=3)
+      │     │  ├─ SumNode(children=4, weights=4)
+      │     │  │  ├─ SumNode(children=4, weights=4)
+      │     │  │  │  ├─ InputNode(feat_2)
+      │     │  │  │  ├─ InputNode(feat_2)
+      │     │  │  │  ├─ InputNode(feat_2)
+      │     │  │  │  └─ InputNode(feat_2)
+      │     │  │  ├─ SumNode(children=4, weights=4)
+      │     │  │  │  ├─ InputNode(feat_2)
+      │     │  │  │  ├─ InputNode(feat_2)
+      │     │  │  │  ├─ InputNode(feat_2)
+      │     │  │  │  └─ InputNode(feat_2)
+      │     │  │  ├─ ResidualNode
+      │     │  │  │  ├─ InputNode(feat_0)
+      │     │  │  │  └─ InputNode(feat_0)
+      │     │  │  └─ GateNode
+      │     │  │     ├─ InputNode(feat_1)
+      │     │  │     └─ InputNode(feat_1)
+      │     │  ├─ SumNode(children=3, weights=3)
+      │     │  │  ├─ ResidualNode
+      │     │  │  │  ├─ InputNode(feat_1)
+      │     │  │  │  └─ InputNode(feat_1)
+      │     │  │  ├─ ResidualNode
+      │     │  │  │  ├─ InputNode(feat_2)
+      │     │  │  │  └─ InputNode(feat_2)
+      │     │  │  └─ InputNode(feat_0)
+      │     │  └─ GateNode
+      │     │     ├─ ResidualNode
+      │     │     │  ├─ InputNode(feat_0)
+      │     │     │  └─ InputNode(feat_0)
+      │     │     └─ ResidualNode
+      │     │        ├─ InputNode(feat_1)
+      │     │        └─ InputNode(feat_1)
+      │     └─ SumNode(children=2, weights=2)
+      │        ├─ ResidualNode
+      │        │  ├─ InputNode(feat_0)
+      │        │  └─ ProductNode(children=2)
+      │        │     ├─ InputNode(feat_1)
+      │        │     └─ InputNode(feat_1)
+      │        └─ SumNode(children=4, weights=4)
+      │           ├─ InputNode(feat_0)
+      │           ├─ SumNode(children=3, weights=3)
+      │           │  ├─ InputNode(feat_1)
+      │           │  ├─ InputNode(feat_1)
+      │           │  └─ InputNode(feat_1)
+      │           ├─ ResidualNode
+      │           │  ├─ InputNode(feat_2)
+      │           │  └─ InputNode(feat_2)
+      │           └─ ResidualNode
+      │              ├─ InputNode(feat_2)
+      │              └─ InputNode(feat_2)
+      └─ SumNode(children=4, weights=4)
+         ├─ ProductNode(children=2)
+         │  ├─ ResidualNode
+         │  │  ├─ ProductNode(children=3)
+         │  │  │  ├─ InputNode(feat_0)
+         │  │  │  ├─ ProductNode(children=3)
+         │  │  │  │  ├─ InputNode(feat_1)
+         │  │  │  │  ├─ InputNode(feat_1)
+         │  │  │  │  └─ InputNode(feat_1)
+         │  │  │  └─ ResidualNode
+         │  │  │     ├─ InputNode(feat_2)
+         │  │  │     └─ InputNode(feat_2)
+         │  │  └─ GateNode
+         │  │     ├─ ResidualNode
+         │  │     │  ├─ InputNode(feat_1)
+         │  │     │  └─ InputNode(feat_1)
+         │  │     └─ ProductNode(children=2)
+         │  │        ├─ InputNode(feat_2)
+         │  │        └─ InputNode(feat_2)
+         │  └─ SumNode(children=4, weights=4)
+         │     ├─ InputNode(feat_1)
+         │     ├─ GateNode
+         │     │  ├─ ResidualNode
+         │     │  │  ├─ InputNode(feat_2)
+         │     │  │  └─ InputNode(feat_2)
+         │     │  └─ GateNode
+         │     │     ├─ InputNode(feat_0)
+         │     │     └─ InputNode(feat_0)
+         │     ├─ ProductNode(children=2)
+         │     │  ├─ ProductNode(children=2)
+         │     │  │  ├─ InputNode(feat_2)
+         │     │  │  └─ InputNode(feat_2)
+         │     │  └─ GateNode
+         │     │     ├─ InputNode(feat_0)
+         │     │     └─ InputNode(feat_0)
+         │     └─ GateNode
+         │        ├─ ResidualNode
+         │        │  ├─ InputNode(feat_2)
+         │        │  └─ InputNode(feat_2)
+         │        └─ GateNode
+         │           ├─ InputNode(feat_0)
+         │           └─ InputNode(feat_0)
+         ├─ ProductNode(children=2)
+         │  ├─ ResidualNode
+         │  │  ├─ ProductNode(children=3)
+         │  │  │  ├─ InputNode(feat_0)
+         │  │  │  ├─ ProductNode(children=3)
+         │  │  │  │  ├─ InputNode(feat_1)
+         │  │  │  │  ├─ InputNode(feat_1)
+         │  │  │  │  └─ InputNode(feat_1)
+         │  │  │  └─ ResidualNode
+         │  │  │     ├─ InputNode(feat_2)
+         │  │  │     └─ InputNode(feat_2)
+         │  │  └─ GateNode
+         │  │     ├─ ResidualNode
+         │  │     │  ├─ InputNode(feat_1)
+         │  │     │  └─ InputNode(feat_1)
+         │  │     └─ ProductNode(children=2)
+         │  │        ├─ InputNode(feat_2)
+         │  │        └─ InputNode(feat_2)
+         │  └─ SumNode(children=4, weights=4)
+         │     ├─ InputNode(feat_1)
+         │     ├─ GateNode
+         │     │  ├─ ResidualNode
+         │     │  │  ├─ InputNode(feat_2)
+         │     │  │  └─ InputNode(feat_2)
+         │     │  └─ GateNode
+         │     │     ├─ InputNode(feat_0)
+         │     │     └─ InputNode(feat_0)
+         │     ├─ ProductNode(children=2)
+         │     │  ├─ ProductNode(children=2)
+         │     │  │  ├─ InputNode(feat_2)
+         │     │  │  └─ InputNode(feat_2)
+         │     │  └─ GateNode
+         │     │     ├─ InputNode(feat_0)
+         │     │     └─ InputNode(feat_0)
+         │     └─ GateNode
+         │        ├─ ResidualNode
+         │        │  ├─ InputNode(feat_2)
+         │        │  └─ InputNode(feat_2)
+         │        └─ GateNode
+         │           ├─ InputNode(feat_0)
+         │           └─ InputNode(feat_0)
+         ├─ GateNode
+         │  ├─ InputNode(feat_1)
+         │  └─ ProductNode(children=3)
+         │     ├─ ProductNode(children=2)
+         │     │  ├─ ResidualNode
+         │     │  │  ├─ InputNode(feat_0)
+         │     │  │  └─ InputNode(feat_0)
+         │     │  └─ SumNode(children=3, weights=3)
+         │     │     ├─ InputNode(feat_2)
+         │     │     ├─ InputNode(feat_2)
+         │     │     └─ InputNode(feat_2)
+         │     ├─ ResidualNode
+         │     │  ├─ ProductNode(children=2)
+         │     │  │  ├─ InputNode(feat_1)
+         │     │  │  └─ InputNode(feat_1)
+         │     │  └─ ProductNode(children=2)
+         │     │     ├─ InputNode(feat_2)
+         │     │     └─ InputNode(feat_2)
+         │     └─ GateNode
+         │        ├─ GateNode
+         │        │  ├─ InputNode(feat_1)
+         │        │  └─ InputNode(feat_1)
+         │        └─ InputNode(feat_0)
+         └─ ResidualNode
+            ├─ InputNode(feat_1)
+            └─ GateNode
+               ├─ ResidualNode
+               │  ├─ ResidualNode
+               │  │  ├─ InputNode(feat_0)
+               │  │  └─ InputNode(feat_0)
+               │  └─ ProductNode(children=2)
+               │     ├─ InputNode(feat_1)
+               │     └─ InputNode(feat_1)
+               └─ InputNode(feat_2)
+─────────────────────────────────────────────
+History: {'loss': [0.9474213123321533, 0.9367155432701111, 0.9296032786369324, 0.9412872791290283, 0.9410943388938904, 0.9394742846488953, 0.9380489587783813, 0.93919438123703, 0.9347275495529175, 0.9350723028182983], 'complexity': [48, 109, 283, 281, 52, 59, 53, 57, 51, 51]}
+Best genome: [23, 225, 106, 137, 42, 159, 46, 69, 184, 12, 102, 73, 33, 75, 87, 169, 250, 97, 48, 4, 169, 152, 40, 59, 216, 223, 214, 64, 35, 156, 47, 141, 134, 101, 192, 173, 136, 185, 195, 145, 166, 194, 183, 251, 38, 107, 236, 131, 241, 3, 9, 203, 91, 133, 109, 104, 240, 24, 238, 224, 34, 101, 40, 174, 120, 78, 92, 246, 67, 45, 174, 51, 235, 219, 251, 233, 62, 54, 87, 120, 225, 187, 164, 38, 154, 12, 81, 35, 5, 235, 22, 2, 238, 48, 209, 8]
+0	train	0.9748871458901299	0.013955722562968731
+ 	val	0.9672864278157552	0.016605280650158722
+1	train	0.9717709819475809	0.015303551943765746
+ 	val	0.9631957610448202	0.01855703815817833
+2	train	0.9681669341193305	0.018375626247790124
+ 	val	0.9593907992045084	0.02064075879752636
+3	train	0.9656401607725356	0.01947679515514109
+ 	val	0.9556808670361837	0.01896876096725464
+4	train	0.9629673825369941	0.019811842280129593
+ 	val	0.9523923794428507	0.018505801136295002
+5	train	0.9604038265016344	0.019861296233203676
+ 	val	0.9494168162345886	0.018342315529783566
+6	train	0.9579467111163669	0.019714208112822637
+ 	val	0.9470648765563965	0.018283941472570103
+7	train	0.9562556544939677	0.01995476997560925
+ 	val	0.9450849692026774	0.018278819198409717
+8	train	0.9552400377061632	0.019997127147184476
+ 	val	0.9436000386873881	0.018224832291404407
+9	train	0.953961067729526	0.020052446466353204
+ 	val	0.9426721533139547	0.018172628556688625
+10	train	0.9530308842658997	0.020110545059045155
+ 	val	0.9418572386105856	0.018007464706897736
+11	train	0.9526139365302192	0.02006694157090452
+ 	val	0.941334863503774	0.01794857035080592
+12	train	0.9517363839679294	0.02014121992720498
+ 	val	0.9408421913782755	0.017869687949617703
+13	train	0.9506580101119148	0.02002248416344325
+ 	val	0.9405216972033182	0.017930857837200165
+14	train	0.9502312342325846	0.020074032557507355
+ 	val	0.9401229619979858	0.017941078171133995
+15	train	0.9496202137735155	0.019923317867020767
+ 	val	0.9400115609169006	0.017815231966475647
+16	train	0.9488333728578355	0.019793585356738832
+ 	val	0.9398982922236124	0.017619286042948563
+17	train	0.9482644399007162	0.019723648205399513
+ 	val	0.9396888415018717	0.017559220703939598
+18	train	0.9478243986765543	0.019700565685828526
+ 	val	0.939533551534017	0.017559220703939598
+19	train	0.9471988942888048	0.019682702297965687
+ 	val	0.9396833578745524	0.01744293762991826
+20	train	0.9472266435623169	0.01965599051780171
+ 	val	0.9396378596623739	0.01744293762991826
+21	train	0.9468712343109978	0.019643967143363424
+ 	val	0.9397420485814413	0.01746578545620044
+22	train	0.9463027384546068	0.01953979850643211
+ 	val	0.9398801922798157	0.01746578545620044
+23	train	0.9462346831957499	0.01958913438849979
+ 	val	0.9398320317268372	0.017454106981555622
+24	train	0.9459841251373291	0.019556633507212002
+ 	val	0.9399553537368774	0.017454106981555622
+25	train	0.9450823598437839	0.01939691510051489
+ 	val	0.9400485754013062	0.017250806093215942
+26	train	0.9454927179548476	0.019404139783647325
+ 	val	0.9399596452713013	0.017250806093215942
+27	train	0.9454699754714966	0.019442848964697786
+ 	val	0.9401863614718119	0.017250806093215942
+28	train	0.9448128673765395	0.019427362001604505
+ 	val	0.9402002294858297	0.01722726598381996
+29	train	0.9452446897824606	0.019417970958683226
+ 	val	0.940281351407369	0.01722726598381996
+30	train	0.9448404444588555	0.019436272895998426
+ 	val	0.9403154651323954	0.01722726598381996
+31	train	0.9453839461008707	0.019425414502620697
+ 	val	0.9403207103411356	0.01722726598381996
+32	train	0.9448746045430502	0.01947556042836772
+ 	val	0.9402971665064493	0.017233976473410923
+33	train	0.9446247816085815	0.019425830700331263
+ 	val	0.9404946168263754	0.017233976473410923
+34	train	0.9448518554369608	0.019299019335044756
+ 	val	0.9403761823972067	0.017233976473410923
+35	train	0.9445926149686178	0.019276254086030856
+ 	val	0.9405439496040344	0.01712619699537754
+36	train	0.9450530873404609	0.01938729691836569
+ 	val	0.9404323498407999	0.017245359097917873
+37	train	0.9444486631287469	0.019480465393927362
+ 	val	0.9402978817621866	0.017245359097917873
+38	train	0.9445192217826843	0.01945313335292869
+ 	val	0.9403263727823893	0.017245359097917873
+39	train	0.9450105958514743	0.01947842227915923
+ 	val	0.9403407772382101	0.017245359097917873
+40	train	0.9448769953515794	0.019471548083755705
+ 	val	0.9403663674990336	0.017210133684178192
+41	train	0.9447920123736063	0.019556583008832402
+ 	val	0.9403442144393921	0.017210133684178192
+42	train	0.94438146882587	0.019408987628089056
+ 	val	0.9403812487920126	0.017049401998519897
+43	train	0.9447035988171896	0.019376418242851894
+ 	val	0.9402943253517151	0.017210133684178192
+44	train	0.944510989718967	0.019515679735276435
+ 	val	0.9401873151461283	0.017210133684178192
+45	train	0.9441791044341193	0.019393705452481907
+ 	val	0.9403545061747233	0.017077804853518803
+46	train	0.9443268047438728	0.01926626968714926
+ 	val	0.9403840700785319	0.017077804853518803
+47	train	0.9444919957054986	0.019405323805080518
+ 	val	0.9401204188664755	0.017239738255739212
+48	train	0.944399979379442	0.01949161311818494
+ 	val	0.9402790268262228	0.017239738255739212
+49	train	0.9444539282057021	0.019357225133313075
+ 	val	0.9402788082758585	0.017077804853518803
+50	train	0.9442827237976922	0.019438285380601883
+ 	val	0.9402406215667725	0.017239738255739212
+51	train	0.9443766474723816	0.019533080359299976
+ 	val	0.9401129682858785	0.017239738255739212
+52	train	0.944424033164978	0.019501905267437298
+ 	val	0.9400545756022135	0.017224454320967197
+53	train	0.9445967276891073	0.019438830721709464
+ 	val	0.9401898781458536	0.017062009622653324
+54	train	0.9437584810786777	0.019253698384596243
+ 	val	0.9402094880739847	0.017062009622653324
+55	train	0.9444254636764526	0.019372048580812082
+ 	val	0.9401185909907023	0.017224454320967197
+56	train	0.9440926578309801	0.0196347636067205
+ 	val	0.9399920701980591	0.017469724950691063
+57	train	0.9439150624805026	0.019613442425098684
+ 	val	0.9401109019915262	0.017224454320967197
+58	train	0.9443015853563944	0.019542519003152847
+ 	val	0.9400462110837301	0.017224454320967197
+59	train	0.944286757045322	0.019507247333725292
+ 	val	0.939993143081665	0.017224454320967197
+60	train	0.9442266755633884	0.019546915570067033
+ 	val	0.9399669766426086	0.017224454320967197
