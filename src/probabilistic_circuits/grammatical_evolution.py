@@ -284,10 +284,6 @@ class GEOptimizer:
         np.random.seed(seed_offset)
         torch.manual_seed(seed_offset)
 
-        if self.report:
-            with open(self.report, "a") as f:
-                f.write(f"[{time.strftime('%H:%M:%S')}] Genome {global_index} started.\n")
-
         # Map → DAG grammar
         trees = self.mapper.map_model(genome, inputs.shape[1], self.max_depth, self.max_branching)
 
@@ -439,6 +435,9 @@ class GEOptimizer:
 
             population = new_pop
             print(f"✅ Gen {gen+1}: best loss={best_score:.4f}, complexity={best_complexity}")
+            if self.report is not None:
+                with open(self.report, "a") as f:
+                    f.write(f"[{time.strftime('%H:%M:%S')}] Gen {gen+1}: best loss={best_score:.4f}, complexity={best_complexity}\n")
 
         # --- Final refinement of best genome ---
         trees = self.mapper.map_model(best_genome, inputs.shape[1], self.max_depth, self.max_branching)
