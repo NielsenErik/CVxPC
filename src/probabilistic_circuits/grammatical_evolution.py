@@ -70,9 +70,11 @@ class GEMapper:
         if idx >= len(codons):
             wraps += 1
             if wraps > self.max_wraps:
-                return None, idx, wraps, True
+                # Instead of returning None, fallback to pseudo-random codon
+                return random.randint(0, 255), idx, wraps, True
             idx = 0
         return codons[idx], idx + 1, wraps, False
+
 
     def _fallback_feature(self, idx, depth, n_features):
         if n_features <= 0: return 0

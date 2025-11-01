@@ -629,6 +629,7 @@ class ExperimentDL(Experiment):
         test_loader = DataLoader(test_data, batch_size=self.batch_size, shuffle=False)
         model.eval()
         test_loss, test_dice, test_iou, test_cliou = 0,0,0,0
+        accuracy, precision, recall, f1_score = 0,0,0,0
         with torch.no_grad():
             for images, masks in test_loader:
                 images, masks = images.to(self.device), masks.to(self.device)
@@ -638,6 +639,10 @@ class ExperimentDL(Experiment):
                 test_dice += self.dice_coef(outputs, masks).item()
                 test_iou  += self.iou_score(outputs, masks).item()
                 test_cliou += self.cl_iou_score(outputs, masks)
+                accuracy += ((outputs == masks).float().sum()) / torch.numel(masks)
+                precision += ( ( (outputs == 1) & (masks == 1) ).float().sum() ) / ( (outputs == 1).float().sum() + 1e-8 )
+                recall += ( ( (outputs == 1) & (masks == 1) ).float().sum() ) / ( (masks == 1).float().sum() + 1e-8 )
+                f1_score += 2 * (precision * recall) / (precision + recall + 1e-8)
         print(f"Test Loss: {test_loss/len(test_loader)}")
         mlflow.log_metric("test_loss", test_loss/len(test_loader))
         print(f"Test Dice: {test_dice/len(test_loader)}")
@@ -646,12 +651,35 @@ class ExperimentDL(Experiment):
         mlflow.log_metric("test_iou", test_iou/len(test_loader))
         print(f"Test CL IoU: {test_cliou/len(test_loader)}")
         mlflow.log_metric("test_cliou", test_cliou/len(test_loader))
+        mlflow.log_metric("test_accuracy", accuracy/len(test_loader))
+        mlflow.log_metric("test_precision", precision/len(test_loader))
+        mlflow.log_metric("test_recall", recall/len(test_loader))
+        mlflow.log_metric("test_f1_score", f1_score/len(test_loader))
+        print(f"Test Accuracy: {accuracy/len(test_loader)}")
+        print(f"Test Precision: {precision/len(test_loader)}")
+        print(f"Test Recall: {recall/len(test_loader)}")
+        print(f"Test F1 Score: {f1_score/len(test_loader)}")
+
         with open(self.experiment_report, "a") as f:
             f.write(f"Test Loss: {test_loss/len(test_loader)}\n")
             f.write(f"Test dice: {test_dice/len(test_loader)}\n")
             f.write(f"Test iou: {test_iou/len(test_loader)}\n")
             f.write(f"Test cliou: {test_cliou/len(test_loader)}\n")
+            f.write(f"Test accuracy: {accuracy/len(test_loader)}\n")
+            f.write(f"Test precision: {precision/len(test_loader)}\n")
+            f.write(f"Test recall: {recall/len(test_loader)}\n")
+            f.write(f"Test f1 score: {f1_score/len(test_loader)}\n")
         f.close()
+        self.experiment_dict["test_metrics"] = {
+            "test_loss": test_loss/len(test_loader),
+            "test_dice": test_dice/len(test_loader),
+            "test_iou": test_iou/len(test_loader),
+            "test_cliou": test_cliou/len(test_loader),
+            "test_accuracy": accuracy/len(test_loader),
+            "test_precision": precision/len(test_loader),
+            "test_recall": recall/len(test_loader),
+            "test_f1_score": f1_score/len(test_loader)
+        }
         return test_loss/len(test_loader)        
 
     def log_results(self):
@@ -744,6 +772,7 @@ class ExperimentDL(Experiment):
             self.save_model(self.model_name)
             if self.test_path is not None:
                 self.evaluate(self.model, self.test_data, loss_function=self.loss)
+                json.dump(self.experiment_dict, open(os.path.join(self.log_path, "experiment_results.json"), "w"), indent=4)
                 self.show_predictions(self.model, self.test_data, self.device, num_samples=2, threshold=self.threshold)
         elif self.execution_mode == "finetune":
             self.set_dataset(self.data_path, self.test_path)
@@ -763,6 +792,7 @@ class ExperimentDL(Experiment):
             self.model.to(self.device)
             print(self.model.info())
             self.evaluate(self.model, self.test_data, loss_function=self.loss)
+            json.dump(self.experiment_dict, open(os.path.join(self.log_path, "experiment_results.json"), "w"), indent=4)
             self.show_predictions(self.model, self.test_data, self.device, num_samples=2, threshold=self.threshold)
 
 class UNetExperiment(ExperimentDL):
@@ -776,7 +806,7 @@ class UNetExperiment(ExperimentDL):
     
     def save_model(self, model_name="unet"):
         torch.save(self.model.state_dict(), os.path.join(self.save_path, f"{model_name}.pth"))
-        mlflow.pytorch.log_model(self.model, artifact_path=model_name)
+        mlflow.pytorch.log_model(self.model, name=model_name)
 
     def load_model(self, model_name="unet"):
         self.model.load_state_dict(torch.load(os.path.join(self.save_path, f"{model_name}.pth")))
