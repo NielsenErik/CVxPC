@@ -68,7 +68,7 @@ class DoubleConv(nn.Module):
 class UNet(nn.Module):
     def __init__(self, n_classes=1):
         super(UNet, self).__init__()
-
+        self.n_classes = n_classes
         self.dconv_down1 = DoubleConv(3, 64)
         self.dconv_down2 = DoubleConv(64, 128)
         self.dconv_down3 = DoubleConv(128, 256)
@@ -81,7 +81,7 @@ class UNet(nn.Module):
         self.dconv_up2 = DoubleConv(128 + 256, 128)
         self.dconv_up1 = DoubleConv(128 + 64, 64)
 
-        self.conv_last = nn.Conv2d(64, n_classes, 1)
+        self.conv_last = nn.Conv2d(64, self.n_classes, 1)
 
     def forward(self, x):
         conv1 = self.dconv_down1(x)
@@ -276,7 +276,7 @@ class UNetPlusPlus(nn.Module):
     """
     def __init__(self, in_channels=3, n_classes=1, deep_supervision: bool=False, filters=(64,128,256,512,1024)):
         super().__init__()
-
+        self.n_classes = n_classes
         self.deep_supervision = deep_supervision
 
         # Encoder blocks (downsampling)
@@ -326,12 +326,12 @@ class UNetPlusPlus(nn.Module):
 
         # Final classifiers
         if deep_supervision:
-            self.final1 = nn.Conv2d(filters[0], n_classes, kernel_size=1)
-            self.final2 = nn.Conv2d(filters[0], n_classes, kernel_size=1)
-            self.final3 = nn.Conv2d(filters[0], n_classes, kernel_size=1)
-            self.final4 = nn.Conv2d(filters[0], n_classes, kernel_size=1)
+            self.final1 = nn.Conv2d(filters[0], self.n_classes, kernel_size=1)
+            self.final2 = nn.Conv2d(filters[0], self.n_classes, kernel_size=1)
+            self.final3 = nn.Conv2d(filters[0], self.n_classes, kernel_size=1)
+            self.final4 = nn.Conv2d(filters[0], self.n_classes, kernel_size=1)
         else:
-            self.final = nn.Conv2d(filters[0], n_classes, kernel_size=1)
+            self.final = nn.Conv2d(filters[0], self.n_classes, kernel_size=1)
 
     def forward(self, x):
         # Encoder

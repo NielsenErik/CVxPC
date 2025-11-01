@@ -1,0 +1,4 @@
+Experiment Configurations: {'mlflow': 'aida', 'experiment': 'crack_segmentation', 'algorithm': 'unet', 'data_path': 'data/kaggle/crack_segmentation_dataset/train', 'test_path': 'data/kaggle/crack_segmentation_dataset/test', 'save_path': 'models/', 'model_name': 'unet-wbce', 'validation_split': 0.2, 'epochs': 2, 'batch_size': 16, 'sample_size': 100, 'resize_size': [256, 256], 'learning_rate': 0.001, 'threshold': 0.2, 'input_channels': 3, 'n_classes': 1, 'seed': 5, 'execution_mode': 'train', 'log_dir': 'logs/unet/kaggle/5'}
+Dataset sizes: {'train': 100, 'val': 20, 'test': 1695}
+Final Training Loss: 0.7722197055816651, Dice: 0.0020550906891003253, IoU: 0.002009498709230684, CL IoU: 0.0
+Final Validation Loss: 0.751082181930542, Dice: 0.0019794044783338904, IoU: 0.0019514831365086138, CL IoU: 0.0
