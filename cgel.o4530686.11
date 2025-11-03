@@ -1,0 +1,26 @@
+15:49:36 [[1m[94mCONFIGS[0m] Experiment Configurations: {'mlflow': None, 'experiment': 'crack_segmentation', 'algorithm': 'pcnet_ge', 'device': 'cpu', 'n_cpus': 40, 'data_path': 'data/CrackSeg9k/train', 'test_path': 'data/CrackSeg9k/test', 'save_path': 'models/', 'validation_split': 0.2, 'feature_extractor': 'cv_modules', 'epochs': 80, 'batch_size': 32, 'resize_size': [256, 256], 'input_channels': 3, 'n_classes': 1, 'max_depth': 6, 'max_branching': 3, 'seed': 11, 'filter_sizes': [15, 21], 'n_cv_modules': 20, 'n_filters': 100, 'ge': {'generations': 10, 'pop_size': 40, 'genome_len': 96, 'crossover_rate': 0.9, 'mutation_rate': 0.05, 'elite_k': 2, 'train_split': 0.1}, 'execution_mode': 'train', 'log_dir': 'logs/pcnet_ge/CrackSeg9k/11'}
+
+⚙️ Using 40 CPU cores (torch threads)
+[INFO] CrackDataset paired: 7332 image–mask pairs found (from 7332 images, 7332 masks)
+15:49:37 [[1m[92mINFO[0m] Training samples: 5865, Validation samples: 1467
+
+[INFO] CrackDataset paired: 1827 image–mask pairs found (from 1827 images, 1827 masks)
+15:49:38 [[1m[92mINFO[0m] Test samples: 1827
+
+15:49:38 [[1m[92mINFO[0m] Dataset size: 7332
+
+15:49:38 [[1m[92mINFO[0m] GE Training size: 586
+
+15:49:38 [[1m[92mINFO[0m] 5865
+
+🧬 Generation 1/10
+✅ Gen 1: best loss=0.7587, complexity=63
+🧬 Generation 2/10
+⚠️ Reuse failed: The size of tensor a (3) must match the size of tensor b (2) at non-singleton dimension 0
+✅ Gen 2: best loss=0.7540, complexity=40
+🧬 Generation 3/10
+08:08:02 [[1m[93mDEBUG[0m] Loaded 10 parameters, 0 missing.
+
+⚠️ Reuse failed: The size of tensor a (3) must match the size of tensor b (2) at non-singleton dimension 0
+✅ Gen 3: best loss=0.7486, complexity=50
+🧬 Generation 4/10
