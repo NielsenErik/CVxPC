@@ -17,8 +17,8 @@
     ],
     "input_channels": 3,
     "n_classes": 1,
-    "max_depth": 10,
-    "max_branching": 3,
+    "max_depth": 8,
+    "max_branching": 4,
     "seed": 100,
     "filter_sizes": [
         15,
@@ -29,7 +29,7 @@
     "ge": {
         "generations": 10,
         "pop_size": 20,
-        "genome_len": 96,
+        "genome_len": 128,
         "crossover_rate": 0.9,
         "mutation_rate": 0.05,
         "elite_k": 2,
