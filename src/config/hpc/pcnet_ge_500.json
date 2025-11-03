@@ -3,7 +3,7 @@
     "experiment": "crack_segmentation",
     "algorithm": "pcnet_ge",
     "device": "cpu",
-    "n_cpus": 40,
+    "n_cpus": 20,
 
     "data_path": "data/crackseg9k_split/CRACK500/train",
     "test_path": "data/crackseg9k_split/CRACK500/test",
@@ -20,7 +20,7 @@
     ],
     "input_channels": 3,
     "n_classes": 1,
-    "max_depth": 6,
+    "max_depth": 5,
     "max_branching": 3,
     "seed": 90,
     "filter_sizes": [15, 21],
@@ -29,12 +29,12 @@
 
     "ge":{
         "generations": 10,
-        "pop_size": 40,
+        "pop_size": 20,
         "genome_len": 96,
         "crossover_rate": 0.9,
         "mutation_rate": 0.05,
         "elite_k": 2,
-        "train_split": 0.1
+        "train_split": 0.2
     },
 
     "execution_mode": "train"

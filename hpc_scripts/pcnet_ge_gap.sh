@@ -1,5 +1,5 @@
 #!/bin/bash
-#PBS -l select=4:ncpus=10:mem=70gb
+#PBS -l select=2:ncpus=10:mem=80gb
 #PBS -l walltime=24:00:00
 #PBS -q common_cpuQ
 #PBS -N cgel
