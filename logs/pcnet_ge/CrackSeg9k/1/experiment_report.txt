@@ -1,2 +1,116 @@
-Experiment Configurations: {'mlflow': None, 'experiment': 'crack_segmentation', 'algorithm': 'pcnet_ge', 'device': 'cpu', 'n_cpus': 30, 'data_path': 'data/CrackSeg9k/train', 'test_path': 'data/CrackSeg9k/test', 'save_path': 'models/', 'validation_split': 0.2, 'feature_extractor': 'cv_modules', 'epochs': 80, 'batch_size': 32, 'resize_size': [256, 256], 'input_channels': 3, 'n_classes': 1, 'max_depth': 6, 'max_branching': 3, 'seed': 1, 'filter_sizes': [15, 21], 'n_cv_modules': 20, 'n_filters': 100, 'ge': {'generations': 10, 'pop_size': 20, 'genome_len': 96, 'crossover_rate': 0.9, 'mutation_rate': 0.05, 'elite_k': 2, 'train_split': 0.1}, 'execution_mode': 'train', 'log_dir': 'logs/pcnet_ge/CrackSeg9k/1'}
+Experiment Configurations: {'mlflow': None, 'experiment': 'crack_segmentation', 'algorithm': 'pcnet_ge', 'device': 'cpu', 'n_cpus': 20, 'data_path': 'data/CrackSeg9k/train', 'test_path': 'data/CrackSeg9k/test', 'save_path': 'models/', 'validation_split': 0.2, 'feature_extractor': 'cv_modules', 'epochs': 80, 'batch_size': 32, 'resize_size': [256, 256], 'input_channels': 3, 'n_classes': 1, 'max_depth': 5, 'max_branching': 3, 'seed': 1, 'filter_sizes': [15, 21], 'n_cv_modules': 20, 'n_filters': 100, 'ge': {'generations': 15, 'pop_size': 20, 'genome_len': 96, 'crossover_rate': 0.9, 'mutation_rate': 0.05, 'elite_k': 2, 'train_split': 0.05}, 'execution_mode': 'train', 'log_dir': 'logs/pcnet_ge/CrackSeg9k/1'}
 Dataset sizes: {'train': 7332, 'val': 1467, 'test': 1827}
+─────────────────────────────────────────────
+🧠  Probabilistic Circuit Network Summary
+─────────────────────────────────────────────
+📦 Classes: 1
+📏 Input size: torch.Size([3, 256, 256])
+⚙️  Depth: 5, Branching: 3
+💻 Device: cpu
+─────────────────────────────────────────────
+📊 Node counts:
+  • InputNode      : 3
+  • SumNode        : 4
+  • ProductNode    : 3
+  • ClassifierNode : 1
+─────────────────────────────────────────────
+🧩 Trainable parameters: 91
+  • SumNode        : 9
+  • InputNode      : 21
+─────────────────────────────────────────────
+📚 Structure:Memory usage: 0.14 KB
+
+└─ ClassifierNode(classes=2)
+   ├─ InputNode(feat_2)
+   └─ GateNode
+      ├─ ResidualNode
+      │  ├─ ProductNode(children=3)
+      │  │  ├─ SumNode(children=2, weights=2)
+      │  │  │  ├─ InputNode(feat_0)
+      │  │  │  └─ ResidualNode
+      │  │  │     ├─ InputNode(feat_2)
+      │  │  │     └─ InputNode(feat_2)
+      │  │  ├─ SumNode(children=2, weights=2)
+      │  │  │  ├─ InputNode(feat_2)
+      │  │  │  └─ GateNode
+      │  │  │     ├─ InputNode(feat_1)
+      │  │  │     └─ InputNode(feat_1)
+      │  │  └─ GateNode
+      │  │     ├─ GateNode
+      │  │     │  ├─ InputNode(feat_0)
+      │  │     │  └─ InputNode(feat_0)
+      │  │     └─ ResidualNode
+      │  │        ├─ InputNode(feat_1)
+      │  │        └─ InputNode(feat_1)
+      │  └─ SumNode(children=3, weights=3)
+      │     ├─ ProductNode(children=2)
+      │     │  ├─ ProductNode(children=2)
+      │     │  │  ├─ InputNode(feat_2)
+      │     │  │  └─ InputNode(feat_2)
+      │     │  └─ SumNode(children=2, weights=2)
+      │     │     ├─ InputNode(feat_1)
+      │     │     └─ InputNode(feat_1)
+      │     ├─ InputNode(feat_1)
+      │     └─ InputNode(feat_1)
+      └─ InputNode(feat_1)
+─────────────────────────────────────────────
+History: {'loss': [0.7760031819343567, 0.7815107703208923, 0.7793360948562622, 0.779047429561615, 0.779047429561615, 0.7714851498603821, 0.7735190093517303, 0.7750032246112823, 0.7671685814857483, 0.773769199848175, 0.776151180267334, 0.7772998213768005, 0.7750450372695923, 0.776151180267334, 0.7767475843429565], 'complexity': [36, 31, 37, 38, 38, 36, 37, 39, 37, 38, 39, 44, 44, 39, 44]}
+Best genome: [115, 197, 108, 79, 197, 176, 134, 180, 192, 99, 236, 164, 85, 2, 188, 53, 193, 134, 41, 41, 182, 42, 106, 214, 235, 253, 245, 142, 35, 214, 205, 202, 166, 36, 128, 114, 215, 100, 84, 27, 166, 193, 10, 111, 122, 120, 235, 38, 78, 46, 241, 232, 117, 11, 30, 40, 110, 74, 238, 125, 254, 150, 153, 126, 214, 21, 68, 62, 189, 215, 218, 163, 142, 166, 104, 180, 203, 195, 157, 14, 185, 170, 190, 254, 225, 60, 58, 63, 38, 146, 242, 34, 189, 136, 139, 95]
+0	train	0.985315341340459	0.020707018420343167
+ 	val	0.8780561309793721	0.039670564882133316
+1	train	0.8162304091712703	0.07883207651320845
+ 	val	0.8000076607517574	0.10727610066533089
+2	train	0.790871764006822	0.1137064057301082
+ 	val	0.7942608257998591	0.11631377373376618
+3	train	0.788796786704789	0.11550790179298139
+ 	val	0.7916041366432024	0.11858184360291647
+4	train	0.7859663704167241	0.11755345140219382
+ 	val	0.7901924382085386	0.11364957593057466
+5	train	0.7837940227726231	0.1158802719057902
+ 	val	0.7887918495613596	0.11369890484796918
+6	train	0.7841420896027399	0.11517316817670413
+ 	val	0.7873692434767018	0.11664219913275345
+7	train	0.7827957774633947	0.11512212511961875
+ 	val	0.78661099464997	0.11560167858134145
+8	train	0.7825038109136664	0.11614801200187724
+ 	val	0.7862685037695843	0.11324564723864845
+9	train	0.7824385687708855	0.11493032771851057
+ 	val	0.7854434342487998	0.116191942082799
+10	train	0.7811153987827508	0.11704197519904246
+ 	val	0.7859115950439287	0.11043226548834988
+11	train	0.7813156263335891	0.1146798901381376
+ 	val	0.7848729102507882	0.11501059219565081
+12	train	0.7810707001582436	0.11587337954172297
+ 	val	0.7844590829766315	0.1166138524270576
+13	train	0.7813024423692537	0.11513449360980936
+ 	val	0.7853035382602526	0.1100384260163359
+14	train	0.7797851351940114	0.11504271122343514
+ 	val	0.7849126224932463	0.11052982654908429
+15	train	0.7793930655588275	0.11568077804480234
+ 	val	0.7844123516393744	0.11182112959416016
+16	train	0.7803534518765367	0.11500446526738613
+ 	val	0.7843749445417653	0.11122769206438375
+17	train	0.7791342369240263	0.11412762490141651
+ 	val	0.7835196476915608	0.11753362376728783
+18	train	0.780914931193642	0.11481480810629285
+ 	val	0.783921893524087	0.11164693680146466
+19	train	0.7793343659976254	0.1140813788642054
+ 	val	0.7832917260087054	0.11570875945946445
+20	train	0.779035115695518	0.1148988354910651
+ 	val	0.7831730713015017	0.11500847785045272
+21	train	0.7790530787213988	0.11387698830145856
+ 	val	0.7835718626561372	0.11099686125374358
+22	train	0.7783934804408447	0.11343729639749812
+ 	val	0.7829726014448248	0.11383944652650667
+23	train	0.7788128013844076	0.11422345901171313
+ 	val	0.7830880867398303	0.11186335130554179
+24	train	0.7777188744234003	0.11284793365706244
+ 	val	0.7828522505967513	0.11248543583180594
+25	train	0.7786012256275052	0.11279173627617242
+ 	val	0.7826376285241998	0.11304819251856078
+26	train	0.7780283145282579	0.11367801720600414
+ 	val	0.7826441902181377	0.1117744366435901
+27	train	0.7773006166452947	0.11149177647641172
+ 	val	0.7821634709835052	0.11518674837830274
+28	train	0.7775064447651738	0.1134848432291461
+ 	val	0.7828470170497894	0.10907519454865353
