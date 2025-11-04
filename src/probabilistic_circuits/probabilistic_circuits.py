@@ -35,12 +35,6 @@ class Node(ABC):
         pass
 
 
-import torch
-import torch.nn as nn
-import numpy as np
-from math import pi
-
-
 # ======================================================
 # Input Node: returns log-probability
 # ======================================================
@@ -437,32 +431,31 @@ class PCNet(ProbabilisticCircuit):
         return next_nodes
 
     def branchwise(self, nodes):
-        """
-        Randomly group nodes for SumNode connections, allowing overlap so
-        that outgoing edges can connect across multiple groups.
-        - Each node can appear in multiple groups (no strict partition).
-        - The number and size of groups are randomized but bounded by max_branching.
-        """
         n = len(nodes)
+        if n <= 1:
+            return [(nodes[0],)]  # just one singleton branch
+
         groups = []
         max_b = self.max_branching
-
-        # Estimate how many groups we might want
         n_groups = max(1, n // random.randint(2, max_b) + random.randint(0, 2))
-        
+
         for _ in range(n_groups):
-            gsize = random.randint(2, min(max_b, n))
+            upper = min(max_b, n)
+            if upper < 2:  # avoid invalid randint range
+                groups.append(tuple(nodes))
+                continue
+            gsize = random.randint(2, upper)
             group = tuple(random.sample(nodes, gsize))
             groups.append(group)
 
-        # Optional: ensure every node is represented in at least one group
+        # ensure all nodes appear at least once
         covered = {x for g in groups for x in g}
         missing = [x for x in nodes if x not in covered]
         for m in missing:
-            # Randomly inject missing node into some existing group
             groups[random.randrange(len(groups))] += (m,)
 
         return groups
+
 
     def sum_layer(self, current_nodes):
         """Build a SumNode layer"""
@@ -536,7 +529,6 @@ class PCNet(ProbabilisticCircuit):
                 self.params += n.get_learnable_params()
         print_configs(f"Initialized PCNet with {len(self.get_nodes())} nodes, "
                       f"{sum(p.numel() for p in self.params)} trainable parameters")
-        print_info(self.info())
 
     # --------------------------------------------------------
     # Training & Prediction
@@ -852,5 +844,450 @@ class PCNet(ProbabilisticCircuit):
             "branching": self.max_branching,
         }
 
+# ============================================================
+# MultiPCNet: multiple subnetworks (experts) + learned selector
+# Plug-and-play for your existing PCNet / Node classes
+# ------------------------------------------------------------
+# What you need already defined elsewhere in your codebase:
+#   - Node, InputNode, SumNode, ProductNode, ClassifierNode
+#   - ProbabilisticCircuit, PCNet (with init_network/evaluate/predict, etc.)
+#   - print_configs, print_debugging, print_info utilities (optional)
+# This file adds:
+#   - SelectorNode (soft and hard variants)
+#   - SubPCNet (thin wrapper around PCNet)
+#   - MultiPCNet (K experts + selector as the new root)
+# ============================================================
+from typing import List, Literal, Optional, Tuple
+import numpy as np
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
+
+# If your project puts these in a package/module, import from there instead
+# from your_project.pcnet import PCNet, ProbabilisticCircuit, Node, ClassifierNode
+
+
+# ================================
+# Selector nodes
+# ================================
+class SelectorNode(nn.Module, Node):
+    """
+    Soft mixture selector over sub-circuits (experts).
+    Each child must return (B, C, H, W) *log-probabilities* (ClassifierNode output).
+
+    evaluate(x) returns the log-mixture: log sum_i w_i * p_i(x)
+
+    Notes
+    -----
+    - Fully differentiable; recommended for training.
+    - The mixing weights (logits) are input-agnostic (global). If you want
+      input-conditional gating, see InputGatedSelectorNode below.
+    """
+    def __init__(self, children: List[Node], device: str = "cpu"):
+        nn.Module.__init__(self)
+        Node.__init__(self, children=children)
+        self.device = device
+        self.logits = nn.Parameter(torch.zeros(len(children), device=device))
+
+    def get_learnable_params(self):
+        return [self.logits]
+
+    @property
+    def n_experts(self):
+        return len(self.children)
+
+    def evaluate(self, x):
+        # children[i].evaluate(x): (B, C, H, W) in log-space
+        expert_logs = torch.stack([c.evaluate(x) for c in self.children], dim=0)  # (K, B, C, H, W)
+        log_w = torch.log_softmax(self.logits, dim=0).view(-1, 1, 1, 1, 1)        # (K,1,1,1,1)
+        return torch.logsumexp(log_w + expert_logs, dim=0)  # (B,C,H,W)
+
+
+class HardBestSelectorNode(Node):
+    """
+    Non-differentiable selector: picks the expert with the highest average
+    log-likelihood for the current batch. Use for evaluation/inference.
+
+    Warning: Not suitable for gradient-based training.
+    """
+    def __init__(self, children: List[Node]):
+        super().__init__(children=children)
+
+    def evaluate(self, x):
+        # Stack expert outputs and pick the best expert per batch
+        # Strategy: average log-prob across classes and spatial dims
+        expert_logs = [c.evaluate(x) for c in self.children]  # list of (B,C,H,W)
+        stacked = torch.stack(expert_logs, dim=0)             # (K,B,C,H,W)
+        # Compute a score per (K,B)
+        scores = stacked.mean(dim=(2, 3, 4))                  # (K,B)
+        best_k = scores.argmax(dim=0)                         # (B,)
+        # Gather the chosen expert output per batch item
+        B = stacked.size(1)
+        out = []
+        for b in range(B):
+            out.append(stacked[best_k[b], b])                 # (C,H,W)
+        return torch.stack(out, dim=0)                        # (B,C,H,W)
+
+
+class InputGatedSelectorNode(nn.Module, Node):
+    """
+    Optional: input-dependent gating (tiny MLP over global-pooled inputs).
+    - Provide x_features(x): (B, F) descriptor of the input (you can plug CV module outputs).
+    - Learns p(expert | x) and mixes experts in log-space.
+    """
+    def __init__(self, children: List[Node], feat_dim: int, hidden: int = 64, device: str = "cpu"):
+        nn.Module.__init__(self)
+        Node.__init__(self, children=children)
+        self.device = device
+        self.mlp = nn.Sequential(
+            nn.Linear(feat_dim, hidden), nn.ReLU(),
+            nn.Linear(hidden, len(children))
+        ).to(device)
+
+    def get_learnable_params(self):
+        return list(self.mlp.parameters())
+
+    def evaluate_with_features(self, x, x_feat: torch.Tensor):
+        # x_feat: (B, F)
+        expert_logs = torch.stack([c.evaluate(x) for c in self.children], dim=0)  # (K,B,C,H,W)
+        B = expert_logs.size(1)
+        logits = self.mlp(x_feat)                         # (B, K)
+        log_w = torch.log_softmax(logits, dim=1).transpose(0,1).view(-1,B,1,1,1)  # (K,B,1,1,1)
+        return torch.logsumexp(log_w + expert_logs, dim=0)
+
+
+# ================================
+# SubPCNet: thin wrapper around your PCNet
+# ================================
+class SubPCNet:
+    """
+    Minimal wrapper to reuse your existing PCNet as an expert.
+    Each sub-net owns its own graph, parameters, etc.
+    """
+    def __init__(self, base_pcnet_cls, *,
+                 input_size=(256,256), n_classes=2, device="cpu",
+                 max_depth=3, max_branching=3, seed=42, cv_module=None,
+                 name: Optional[str] = None):
+        self.model = base_pcnet_cls(
+            input_size=input_size, n_classes=n_classes, device=device,
+            max_depth=max_depth, max_branching=max_branching, seed=seed,
+            cv_module=cv_module
+        )
+        self.name = name or f"SubPCNet_{id(self)}"
+        self.device = device
+        self.n_classes = n_classes
+
+    # Proxy the Node API expected by selector
+    def evaluate(self, x):
+        return self.model.evaluate(x)  # (B,C,H,W) in log-space
+
+    # Lifecycle helpers
+    def init_network(self, inputs, labels):
+        self.model.init_network(inputs, labels)
+
+    def parameters(self):
+        # Return generator over model params (as stored in self.model.params or via named_parameters)
+        # Prefer the explicit param list your PCNet builds
+        if hasattr(self.model, "params") and len(getattr(self.model, "params", [])):
+            for p in self.model.params:
+                yield p
+        else:
+            for _, p in self.model.named_parameters():
+                yield p
+
+    def save_dict(self):
+        info = self.model.save_dict()
+        info["subnet_name"] = self.name
+        return info
+
+
+# ================================
+# MultiPCNet: K experts + selector root
+# ================================
+class MultiPCNet:
+    """
+    Build K sub-PCNets (experts) and a selector on top.
+
+    selector_mode:
+        - "soft":    SelectorNode with global learned mixture weights (default)
+        - "hard":    HardBestSelectorNode (non-differentiable; use for eval only)
+        - "gated":   InputGatedSelectorNode (needs x_features function)
+
+    Bootstrapping:
+        - Optionally initialize each expert on a bootstrapped subset of the training batch
+          to encourage specialization (set bootstrap=True).
+    """
+    def __init__(self,
+                 base_pcnet_cls,
+                 *,
+                 n_experts: int = 3,
+                 input_size: Tuple[int,int] = (256,256),
+                 n_classes: int = 2,
+                 device: str = "cpu",
+                 max_depth: int = 3,
+                 max_branching: int = 3,
+                 cv_module=None,
+                 selector_mode: Literal["soft","hard","gated"] = "soft",
+                 x_feature_fn=None,   # callable: tensor(B,C,H,W)-> tensor(B,F)
+                 x_feature_dim: Optional[int] = None,
+                 seed: int = 42,
+                 bootstrap: bool = False,
+                 name: str = "MultiPCNet"):
+        self.name = name
+        self.device = device
+        self.n_classes = n_classes
+        self.selector_mode = selector_mode
+        self.x_feature_fn = x_feature_fn
+        self.bootstrap = bootstrap
+
+        # Build experts
+        self.experts: List[SubPCNet] = []
+        for k in range(n_experts):
+            self.experts.append(
+                SubPCNet(
+                    base_pcnet_cls,
+                    input_size=input_size,
+                    n_classes=n_classes,
+                    device=device,
+                    max_depth=max_depth,
+                    max_branching=max_branching,
+                    seed=seed + k,
+                    cv_module=cv_module,
+                    name=f"Expert_{k}"
+                )
+            )
+
+        # Build selector
+        if selector_mode == "soft":
+            self.selector = SelectorNode([e for e in self.experts], device=device)
+        elif selector_mode == "hard":
+            self.selector = HardBestSelectorNode([e for e in self.experts])
+        elif selector_mode == "gated":
+            assert x_feature_fn is not None and x_feature_dim is not None, "gated selector requires x_feature_fn and x_feature_dim"
+            self.selector = InputGatedSelectorNode([e for e in self.experts], feat_dim=x_feature_dim, device=device)
+        else:
+            raise ValueError(f"Unknown selector_mode: {selector_mode}")
+
+        # Collect trainable parameters
+        self.params: List[torch.nn.Parameter] = []
+
+    # -----------------------------
+    # Initialization
+    # -----------------------------
+    def init_network(self, inputs: torch.Tensor, labels: torch.Tensor):
+        """
+        Initialize each expert PCNet. You can optionally bootstrap the inputs
+        so each expert sees a slightly different subset.
+
+        inputs: (B, C, H, W)
+        labels: whatever your PCNet.init_network expects (kept for API symmetry)
+        """
+        B = inputs.shape[0]
+
+        for k, expert in enumerate(self.experts):
+            if self.bootstrap and B >= 4:
+                # Sample with replacement ~80% of batch
+                idx = torch.randint(0, B, (max(1, int(0.8*B)),), device=inputs.device)
+                sub_in = inputs[idx]
+                sub_lb = labels[idx] if isinstance(labels, torch.Tensor) and labels.shape[0] == B else labels
+            else:
+                sub_in, sub_lb = inputs, labels
+            expert.init_network(sub_in, sub_lb)
+
+        # Pack params from experts and selector
+        self.params = []
+        for e in self.experts:
+            for p in e.parameters():
+                self.params.append(p)
+        if isinstance(self.selector, nn.Module):
+            self.params += list(self.selector.get_learnable_params()) if hasattr(self.selector, 'get_learnable_params') else list(self.selector.parameters())
+
+        try:
+            n_params = sum(p.numel() for p in self.params if p.requires_grad)
+            print_configs(f"Initialized MultiPCNet with {len(self.experts)} experts; trainable params: {n_params}")
+        except Exception:
+            pass
+
+    # -----------------------------
+    # Forward / evaluate / predict
+    # -----------------------------
+    def evaluate(self, x: torch.Tensor) -> torch.Tensor:
+        """Return (B, n_classes, H, W) in log-space."""
+        if self.selector_mode == "gated":
+            # Compute features for gating
+            with torch.no_grad():
+                x_feat = self.x_feature_fn(x)                    # (B,F)
+            return self.selector.evaluate_with_features(x, x_feat)
+        else:
+            return self.selector.evaluate(x)
+
+    def predict(self, inputs: torch.Tensor) -> np.ndarray:
+        with torch.no_grad():
+            logits = self.evaluate(inputs)
+            preds = torch.argmax(logits, dim=1, keepdim=True)
+            return preds.cpu().numpy()
+
+    # -----------------------------
+    # Training helpers
+    # -----------------------------
+    def named_parameters(self):
+        # Yield names that reflect expert indices and selector
+        for k, e in enumerate(self.experts):
+            # Prefer the explicit params list to keep consistency with PCNet
+            if hasattr(e.model, "params") and len(getattr(e.model, "params", [])):
+                for i, p in enumerate(e.model.params):
+                    yield f"experts.{k}.param_{i}", p
+            else:
+                for name, p in e.model.named_parameters():
+                    yield f"experts.{k}.{name}", p
+        if isinstance(self.selector, nn.Module):
+            # Named parameters for selector
+            for name, p in self.selector.named_parameters():
+                yield f"selector.{name}", p
+
+    def state_dict(self):
+        state = {}
+        # Experts
+        for k, e in enumerate(self.experts):
+            # Snapshot all parameters from each node/module via PCNet.state_dict()
+            sd = e.model.state_dict()
+            for key, tensor in sd.items():
+                state[f"experts.{k}.{key}"] = tensor
+        # Selector
+        if isinstance(self.selector, nn.Module):
+            for name, p in self.selector.named_parameters():
+                state[f"selector.{name}"] = p.detach().clone()
+        return state
+
+    def load_state_dict(self, state_dict: dict, strict: bool = False):
+        loaded, missing = 0, 0
+        # Experts
+        for k, e in enumerate(self.experts):
+            # Extract subset for this expert
+            prefix = f"experts.{k}."
+            sub = {k2[len(prefix):]: v for k2, v in state_dict.items() if k2.startswith(prefix)}
+            stats = e.model.load_state_dict(sub, strict=strict)
+            loaded += stats.get("loaded", 0)
+            missing += stats.get("missing", 0)
+        # Selector
+        if isinstance(self.selector, nn.Module):
+            for name, p in self.selector.named_parameters():
+                key = f"selector.{name}"
+                if key in state_dict:
+                    with torch.no_grad():
+                        src = state_dict[key].to(p.device)
+                        if src.shape == p.shape:
+                            p.copy_(src)
+                            loaded += 1
+                        else:
+                            # partial copy fallback
+                            n = min(src.numel(), p.numel())
+                            p.view(-1)[:n].copy_(src.view(-1)[:n])
+                            loaded += 1
+                else:
+                    missing += 1
+        try:
+            print_debugging(f"MultiPCNet load_state: loaded={loaded}, missing={missing}")
+        except Exception:
+            pass
+        return {"loaded": loaded, "missing": missing}
+
+    # -----------------------------
+    # Reporting
+    # -----------------------------
+    def save_dict(self):
+        info = {
+            "model_type": "MultiPCNet",
+            "name": self.name,
+            "device": self.device,
+            "n_classes": self.n_classes,
+            "n_experts": len(self.experts),
+            "selector_mode": self.selector_mode,
+        }
+        info["experts"] = [e.save_dict() for e in self.experts]
+        if isinstance(self.selector, SelectorNode):
+            with torch.no_grad():
+                w = torch.softmax(self.selector.logits, dim=0).detach().cpu().numpy().tolist()
+            info["selector_weights"] = w
+        return info
+
+
+# ================================
+# Convenience trainer (optional)
+# ================================
+class MultiPCNetTrainer:
+    """
+    Minimal training loop hook. Plug in your own loss & dataloaders.
+    Assumes outputs are *logits* over classes per pixel (B,C,H,W) and uses
+    pixel-wise cross-entropy by default.
+    """
+    def __init__(self, model: MultiPCNet, lr: float = 1e-3, weight_decay: float = 0.0):
+        self.model = model
+        # Build optimizer over collected parameters
+        params = [p for _, p in model.named_parameters() if p.requires_grad]
+        self.opt = torch.optim.Adam(params, lr=lr, weight_decay=weight_decay)
+
+    def loss_fn(self, logits: torch.Tensor, targets: torch.Tensor):
+        # logits in log-space; convert to prob via log_softmax? they should already be log-probs.
+        # Targets expected (B,1,H,W) or (B,H,W) with class indices.
+        if targets.ndim == 4 and targets.size(1) == 1:
+            targets = targets.squeeze(1)
+        return F.nll_loss(F.log_softmax(logits, dim=1), targets)
+
+    def step(self, x: torch.Tensor, y: torch.Tensor):
+        self.opt.zero_grad()
+        logits = self.model.evaluate(x)
+        loss = self.loss_fn(logits, y)
+        loss.backward()
+        self.opt.step()
+        return float(loss.item())
+
+    @torch.no_grad()
+    def eval_batch(self, x: torch.Tensor, y: torch.Tensor):
+        logits = self.model.evaluate(x)
+        if y.ndim == 4 and y.size(1) == 1:
+            y_ = y.squeeze(1)
+        else:
+            y_ = y
+        pred = logits.argmax(dim=1)
+        acc = (pred == y_).float().mean().item()
+        return acc
+
+
+# ================================
+# Example wiring (usage)
+# ================================
+"""
+from your_pcnet_impl import PCNet
+
+# Build
+mnet = MultiPCNet(
+    base_pcnet_cls=PCNet,
+    n_experts=3,
+    input_size=(256,256),
+    n_classes=2,
+    device="cpu",
+    max_depth=4,
+    max_branching=3,
+    selector_mode="soft",  # or "hard" / "gated"
+    bootstrap=True,
+)
+
+# Initialize (pass a representative batch for InputNode fitting)
+mnet.init_network(train_inputs, train_labels)
+
+# Train with your loop or the convenience trainer
+trainer = MultiPCNetTrainer(mnet, lr=1e-3)
+for x, y in train_loader:
+    loss = trainer.step(x, y)
+
+# Inference
+with torch.no_grad():
+    out = mnet.evaluate(x)      # (B,C,H,W) log-probs
+    pred = mnet.predict(x)      # numpy labels
+
+# Introspection
+print(mnet.save_dict())
+"""
 
 

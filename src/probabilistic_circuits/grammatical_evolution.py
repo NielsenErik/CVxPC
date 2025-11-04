@@ -41,7 +41,8 @@ class ResidualSpec:
     kind: str
     children: List["TreeSpec"]
 
-TreeSpec = Union[LeafSpec, SumSpec, ProdSpec]
+# ======= replace your TreeSpec line with this =======
+TreeSpec = Union[LeafSpec, SumSpec, ProdSpec, GateSpec, ResidualSpec]
 
 
 # ============================================================
@@ -90,18 +91,18 @@ class GEMapper:
             f = self._fallback_feature(idx, depth, n_features)
             return LeafSpec("input", f), idx, wraps
 
-        node_type = c % 5  # 0 = leaf, 1 = sum, 2 = prod
+        node_type = c % 5  # 0=leaf, 1=sum, 2=prod, 3=gate, 4=residual
 
-        # Leaf node
+        # Leaf
         if node_type == 0:
             f, idx, wraps, exhausted2 = self._next(codons, idx, wraps)
             if exhausted2:
                 f = self._fallback_feature(idx, depth, n_features)
             else:
-                f = f % n_features
+                f = f % max(1, n_features)
             return LeafSpec("input", f), idx, wraps
 
-        # Sum node (branching + overlapping possible)
+        # Sum (allow overlapping children)
         elif node_type == 1:
             kcod, idx, wraps, _ = self._next(codons, idx, wraps)
             k = 2 + (kcod % max(1, max_branching - 1))
@@ -109,21 +110,35 @@ class GEMapper:
             for _ in range(k):
                 ch, idx, wraps = self._expand(codons, idx, wraps, n_features, max_depth, max_branching, depth + 1)
                 children.append(ch)
-            # Randomly duplicate a few children to simulate overlapping connections
+            # overlap (duplicate a few children)
             if len(children) > 2 and random.random() < 0.4:
                 dup = random.choice(children)
-                children.insert(random.randint(0, len(children) - 1), dup)
-            return SumSpec("sum", k, children), idx, wraps
+                children.insert(random.randint(0, len(children)), dup)
+            return SumSpec("sum", len(children), children), idx, wraps
 
-        # Product node (can have multiple children now, not just binary)
-        elif node_type == 3:  # Gate node (2 children)
+        # Product (now with overlapping children too)
+        elif node_type == 2:
+            n_child = 2 + (c % max(1, max_branching - 1))
+            children = []
+            for _ in range(n_child):
+                ch, idx, wraps = self._expand(codons, idx, wraps, n_features, max_depth, max_branching, depth + 1)
+                children.append(ch)
+            # allow fan-out by duplicating references
+            if len(children) > 2 and random.random() < 0.4:
+                dup = random.choice(children)
+                children.insert(random.randint(0, len(children)), dup)
+            return ProdSpec("prod", children), idx, wraps
+
+        # Gate (2 children)
+        elif node_type == 3:
             a, idx, wraps = self._expand(codons, idx, wraps, n_features, max_depth, max_branching, depth + 1)
             b, idx, wraps = self._expand(codons, idx, wraps, n_features, max_depth, max_branching, depth + 1)
             return GateSpec("gate", [a, b]), idx, wraps
 
-        elif node_type == 4:  # Residual node (2 children)
+        # Residual (2 children)
+        elif node_type == 4:
             base, idx, wraps = self._expand(codons, idx, wraps, n_features, max_depth, max_branching, depth + 1)
-            sub, idx, wraps = self._expand(codons, idx, wraps, n_features, max_depth, max_branching, depth + 1)
+            sub,  idx, wraps = self._expand(codons, idx, wraps, n_features, max_depth, max_branching, depth + 1)
             return ResidualSpec("res", [base, sub]), idx, wraps
         else:
             n_child = 2 + (c % max(1, max_branching - 1))
@@ -143,7 +158,21 @@ class PCBuilder:
     def __init__(self, pcnet):
         self.pc = pcnet
         self.input_cache = {}
+        self._memo = {}  # NEW: spec-id -> built PC node
 
+    def _collect_features(self, t):
+        """Recursively collect feature indices from a TreeSpec."""
+        out = []
+
+        def walk(x):
+            if isinstance(x, LeafSpec):
+                out.append(x.feature_idx)
+            elif hasattr(x, "children"):
+                for c in x.children:
+                    walk(c)
+
+        walk(t)
+        return out
     def build_classifier(self, trees, inputs):
         feats = sorted(set(f for t in trees for f in self._collect_features(t)))
         for f in feats:
@@ -153,67 +182,75 @@ class PCBuilder:
                 self.input_cache[f] = node
                 self.pc.add_node(node)
 
+        # Build once per unique subtree thanks to memoization
         subcircuits = [self._build_subtree(t) for t in trees]
+
         root = ClassifierNode(subcircuits)
         self.pc.add_node(root)
         for c in subcircuits:
             self.pc.add_edge(root, c)
         self.pc.set_root(root)
 
-        # collect params
+        # collect params (unchanged)
         self.pc.params = []
         for n in self.pc.get_nodes():
             if isinstance(n, nn.Module):
                 if hasattr(n, "get_learnable_params"):
                     self.pc.params += list(n.get_learnable_params())
                 else:
-                    # Fallback: include all module parameters
                     for _, p in n.named_parameters(recurse=False):
                         if p.requires_grad:
                             self.pc.params.append(p)
         return root
 
-    def _collect_features(self, t):
-        out = []
-        def walk(x):
-            if isinstance(x, LeafSpec): out.append(x.feature_idx)
-            elif hasattr(x, "children"):
-                for c in x.children:
-                    walk(c)
-        walk(t)
-        return out
-
     def _build_subtree(self, t):
+        # --- memoization: reuse node instances for shared specs ---
+        key = id(t)
+        if key in self._memo:
+            return self._memo[key]
+
         if isinstance(t, LeafSpec):
-            return self.input_cache[t.feature_idx]
+            node = self.input_cache[t.feature_idx]
+            # Leaves are already shared via input_cache; still return early
+            self._memo[key] = node
+            return node
+
         elif isinstance(t, SumSpec):
             kids = [self._build_subtree(c) for c in t.children]
-            weights = torch.rand(len(kids), device=self.pc.device)
-            node = SumNode(kids, weights=weights, device=self.pc.device)
+            node = SumNode(kids, weights=torch.rand(len(kids), device=self.pc.device), device=self.pc.device)
             self.pc.add_node(node)
             for c in kids:
                 self.pc.add_edge(node, c)
+            self._memo[key] = node
             return node
+
         elif isinstance(t, ProdSpec):
             kids = [self._build_subtree(c) for c in t.children]
             node = ProductNode(kids)
             self.pc.add_node(node)
             for c in kids:
                 self.pc.add_edge(node, c)
+            self._memo[key] = node
             return node
+
         elif isinstance(t, GateSpec):
-            kids = [self._build_subtree(c) for c in t.children]
-            node = GateNode(kids[0], kids[1], device=self.pc.device)
+            left, right = [self._build_subtree(c) for c in t.children]
+            node = GateNode(left, right, device=self.pc.device)
             self.pc.add_node(node)
-            for c in kids: self.pc.add_edge(node, c)
+            self.pc.add_edge(node, left)
+            self.pc.add_edge(node, right)
+            self._memo[key] = node
             return node
 
         elif isinstance(t, ResidualSpec):
-            kids = [self._build_subtree(c) for c in t.children]
-            node = ResidualNode(kids[0], kids[1], device=self.pc.device)
+            base, sub = [self._build_subtree(c) for c in t.children]
+            node = ResidualNode(base, sub, device=self.pc.device)
             self.pc.add_node(node)
-            for c in kids: self.pc.add_edge(node, c)
+            self.pc.add_edge(node, base)
+            self.pc.add_edge(node, sub)
+            self._memo[key] = node
             return node
+
         else:
             raise ValueError(f"Unknown spec type: {type(t)}")
 
@@ -240,7 +277,10 @@ class GEOptimizer:
         seed=42,
         n_jobs=None,
         report=None,
-        log_path=None
+        log_path=None,
+        model_type="multi_pcnet",   # "pcnet" or "multi_pcnet"
+        n_experts=5,
+        selector_mode="soft", # "soft" or "hard"
     ):
         self.pop_size = pop_size
         self.genome_len = genome_len
@@ -260,7 +300,9 @@ class GEOptimizer:
         if self.evolution_report:
             with open(self.evolution_report, "w") as f:
                 f.write("Generation,Avg_Fitness,Best_Fitness,Avg_Complexity,Best_Complexity,All_Time_Best_Fitness\n")
-
+        self.model_type = model_type
+        self.n_experts = n_experts
+        self.selector_mode = selector_mode
     # -----------------------------------------------------
     # GA primitives
     # -----------------------------------------------------
@@ -295,10 +337,30 @@ class GEOptimizer:
         # Map → DAG grammar
         trees = self.mapper.map_model(genome, inputs.shape[1], self.max_depth, self.max_branching)
 
-        pc = PCNet(input_size=inputs.shape[1:], n_classes=n_classes, device=self.device,
-                   max_depth=self.max_depth, max_branching=self.max_branching)
-        builder = PCBuilder(pc)
-        builder.build_classifier(trees, inputs)
+        if self.model_type == "multi_pcnet":
+            # ---- MULTI-PCNET VARIANT ----
+            base_pc_cls = PCNet  # or pass in from config
+            pc = MultiPCNet(
+                base_pcnet_cls=base_pc_cls,
+                n_experts=self.n_experts,
+                input_size=inputs.shape[1:],
+                n_classes=n_classes,
+                device=self.device,
+                max_depth=self.max_depth,
+                max_branching=self.max_branching,
+                selector_mode=self.selector_mode,
+                bootstrap=True,  # encourages diversity
+            )
+            # Initialize all experts using the same input distribution
+            pc.init_network(inputs, labels)
+        else:
+            # ---- CLASSIC PCNET ----
+            pc = PCNet(
+                input_size=inputs.shape[1:], n_classes=n_classes, device=self.device,
+                max_depth=self.max_depth, max_branching=self.max_branching
+            )
+            builder = PCBuilder(pc)
+            builder.build_classifier(trees, inputs)
 
         if param_bank is not None and sig in param_bank:
             try:
@@ -334,7 +396,7 @@ class GEOptimizer:
         if param_bank is not None:
             param_bank[sig] = deepcopy(pc.state_dict())
 
-        del pc, builder, opt, train_loader, val_loader
+        del pc, train_loader, val_loader
         if torch.cuda.is_available():
             torch.cuda.empty_cache()
         gc.collect()

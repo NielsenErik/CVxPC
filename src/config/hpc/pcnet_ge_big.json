@@ -15,8 +15,8 @@
     "epochs": 80,
     "batch_size": 32,
     "resize_size": [
-        256,
-        256
+        400,
+        400
     ],
     "input_channels": 3,
     "n_classes": 1,
@@ -34,7 +34,7 @@
         "crossover_rate": 0.9,
         "mutation_rate": 0.05,
         "elite_k": 2,
-        "train_split": 0.05
+        "train_split": 0.1
     },
 
     "execution_mode": "train"
