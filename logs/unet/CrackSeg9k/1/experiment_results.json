@@ -1,0 +1,12 @@
+{
+    "dataset_size": {
+        "train": 500,
+        "val": 100,
+        "test": 1827
+    },
+    "test_metrics": {
+        "test_loss": 0.7662992249364439,
+        "test_dice": 0.027325017999923464,
+        "test_iou": 0.027166964253473966,
+        "test_cliou": 0.1644600478152785,
+        "test_accuracy": 
