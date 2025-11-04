@@ -1,0 +1,2 @@
+terminate called without an active exception
+Training PCNet:   0%|          | 0/80 [00:00<?, ?it/s]Training PCNet:   0%|          | 0/80 [17:27:43<?, ?it/s, train_loss=0.8067, val_loss=0.7791]Training PCNet:   1%|▏         | 1/80 [17:27:43<1379:30:20, 62863.55s/it, train_loss=0.8067, val_loss=0.7791]=>> PBS: job killed: walltime 216107 exceeded limit 216000
