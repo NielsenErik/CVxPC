@@ -8,8 +8,7 @@
     "test_path": "data/CrackSeg9k/test",
     "save_path": "models/",
     "validation_split": 0.2,
-    "feature_extractor": "cv_modules",
-    "epochs": 80,
+    "epochs": 40,
     "batch_size": 16,
     "sample_size": 500,
     "resize_size": [
@@ -21,15 +20,9 @@
     "max_depth": 5,
     "max_branching": 3,
     "seed": 1001,
-    "filter_sizes": [
-        15,
-        21
-    ],
-    "n_cv_modules": 20,
-    "n_filters": 100,
     "ge": {
-        "generations": 5,
-        "pop_size": 4,
+        "generations": 2,
+        "pop_size": 2,
         "genome_len": 96,
         "crossover_rate": 0.9,
         "mutation_rate": 0.05,

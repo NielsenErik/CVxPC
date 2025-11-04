@@ -4,15 +4,15 @@
     "algorithm": "unet",
     
 
-    "data_path": "data/kaggle/crack_segmentation_dataset/train",
-    "test_path": "data/kaggle/crack_segmentation_dataset/test",
+    "data_path": "data/CrackSeg9k/train",
+    "test_path": "data/CrackSeg9k/test",
     "save_path": "models/",
     "model_name": "unet-wbce",
     "validation_split": 0.2,
 
-    "epochs": 2,
+    "epochs": 4,
     "batch_size": 16,
-    "sample_size": 100,
+    "sample_size": 500,
     "resize_size": [256, 256],
     "learning_rate": 0.001,
     "threshold": 0.2,
