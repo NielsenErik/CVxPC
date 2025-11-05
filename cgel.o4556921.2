@@ -1,0 +1,448 @@
+08:50:15 [[1m[94mCONFIGS[0m] Experiment Configurations: {'mlflow': None, 'experiment': 'crack_segmentation', 'algorithm': 'pcnet_ge', 'device': 'cpu', 'n_cpus': 20, 'data_path': 'data/crackseg9k_split/Rissbilder/train', 'test_path': 'data/crackseg9k_split/Rissbilder/test', 'save_path': 'models/', 'validation_split': 0.2, 'feature_extractor': 'cv_modules', 'epochs': 80, 'batch_size': 32, 'resize_size': [256, 256], 'input_channels': 3, 'n_classes': 1, 'max_depth': 5, 'max_branching': 3, 'seed': 2, 'filter_sizes': [15, 21], 'n_cv_modules': 20, 'n_filters': 100, 'ge': {'generations': 10, 'pop_size': 40, 'genome_len': 96, 'crossover_rate': 0.9, 'mutation_rate': 0.05, 'elite_k': 2, 'train_split': 0.2}, 'execution_mode': 'train', 'log_dir': 'logs/pcnet_ge/Rissbilder/2'}
+
+⚙️ Using 20 CPU cores (torch threads)
+[INFO] CrackDataset paired: 2189 image–mask pairs found (from 2189 images, 2189 masks)
+08:50:15 [[1m[92mINFO[0m] Training samples: 1751, Validation samples: 438
+
+[INFO] CrackDataset paired: 547 image–mask pairs found (from 547 images, 547 masks)
+08:50:16 [[1m[92mINFO[0m] Test samples: 547
+
+08:50:16 [[1m[92mINFO[0m] Dataset size: 2189
+
+08:50:16 [[1m[92mINFO[0m] GE Training size: 350
+
+08:50:16 [[1m[92mINFO[0m] 1751
+
+🧬 Generation 1/10
+✅ Gen 1: best loss=0.9353, complexity=14
+🧬 Generation 2/10
+16:32:58 [[1m[93mDEBUG[0m] Loaded 10 parameters, 0 missing.
+
+⚠️ Reuse failed: The size of tensor a (4) must match the size of tensor b (3) at non-singleton dimension 0
+✅ Gen 2: best loss=0.9326, complexity=60
+🧬 Generation 3/10
+⚠️ Reuse failed: The size of tensor a (2) must match the size of tensor b (4) at non-singleton dimension 0
+⚠️ Reuse failed: The size of tensor a (3) must match the size of tensor b (2) at non-singleton dimension 0
+[Worker 27] Error: 'GEOptimizer' object has no attribute 'model_type'
+[Worker 30] Error: 'GEOptimizer' object has no attribute 'model_type'
+[Worker 34] Error: 'GEOptimizer' object has no attribute 'model_type'
+[Worker 33] Error: 'GEOptimizer' object has no attribute 'model_type'
+[Worker 25] Error: 'GEOptimizer' object has no attribute 'model_type'
+[Worker 24] Error: 'GEOptimizer' object has no attribute 'model_type'
+[Worker 28] Error: 'GEOptimizer' object has no attribute 'model_type'
+[Worker 20] Error: 'GEOptimizer' object has no attribute 'model_type'
+[Worker 37] Error: 'GEOptimizer' object has no attribute 'model_type'
+[Worker 32] Error: 'GEOptimizer' object has no attribute 'model_type'
+[Worker 22] Error: 'GEOptimizer' object has no attribute 'model_type'
+[Worker 31] Error: 'GEOptimizer' object has no attribute 'model_type'
+[Worker 38] Error: 'GEOptimizer' object has no attribute 'model_type'
+[Worker 21] Error: 'GEOptimizer' object has no attribute 'model_type'
+[Worker 35] Error: 'GEOptimizer' object has no attribute 'model_type'
+[Worker 39] Error: 'GEOptimizer' object has no attribute 'model_type'
+[Worker 36] Error: 'GEOptimizer' object has no attribute 'model_type'
+[Worker 26] Error: 'GEOptimizer' object has no attribute 'model_type'
+[Worker 23] Error: 'GEOptimizer' object has no attribute 'model_type'
+[Worker 29] Error: 'GEOptimizer' object has no attribute 'model_type'
+✅ Gen 3: best loss=0.9326, complexity=52
+🧬 Generation 4/10
+[Worker 14] Error: 'GEOptimizer' object has no attribute 'model_type'
+[Worker 16] Error: 'GEOptimizer' object has no attribute 'model_type'
+[Worker 8] Error: 'GEOptimizer' object has no attribute 'model_type'
+[Worker 6] Error: 'GEOptimizer' object has no attribute 'model_type'
+[Worker 17] Error: 'GEOptimizer' object has no attribute 'model_type'
+[Worker 19] Error: 'GEOptimizer' object has no attribute 'model_type'
+[Worker 7] Error: 'GEOptimizer' object has no attribute 'model_type'
+[Worker 12] Error: 'GEOptimizer' object has no attribute 'model_type'
+[Worker 9] Error: 'GEOptimizer' object has no attribute 'model_type'
+[Worker 5] Error: 'GEOptimizer' object has no attribute 'model_type'
+[Worker 3] Error: 'GEOptimizer' object has no attribute 'model_type'
+[Worker 0] Error: 'GEOptimizer' object has no attribute 'model_type'
+[Worker 15] Error: 'GEOptimizer' object has no attribute 'model_type'
+[Worker 18] Error: 'GEOptimizer' object has no attribute 'model_type'
+[Worker 1] Error: 'GEOptimizer' object has no attribute 'model_type'
+[Worker 10] Error: 'GEOptimizer' object has no attribute 'model_type'
+[Worker 13] Error: 'GEOptimizer' object has no attribute 'model_type'
+[Worker 11] Error: 'GEOptimizer' object has no attribute 'model_type'
+[Worker 4] Error: 'GEOptimizer' object has no attribute 'model_type'
+[Worker 2] Error: 'GEOptimizer' object has no attribute 'model_type'
+[Worker 36] Error: 'GEOptimizer' object has no attribute 'model_type'
+[Worker 38] Error: 'GEOptimizer' object has no attribute 'model_type'
+[Worker 25] Error: 'GEOptimizer' object has no attribute 'model_type'
+[Worker 35] Error: 'GEOptimizer' object has no attribute 'model_type'
+[Worker 39] Error: 'GEOptimizer' object has no attribute 'model_type'
+[Worker 37] Error: 'GEOptimizer' object has no attribute 'model_type'
+[Worker 32] Error: 'GEOptimizer' object has no attribute 'model_type'
+[Worker 21] Error: 'GEOptimizer' object has no attribute 'model_type'
+[Worker 33] Error: 'GEOptimizer' object has no attribute 'model_type'
+[Worker 23] Error: 'GEOptimizer' object has no attribute 'model_type'
+[Worker 29] Error: 'GEOptimizer' object has no attribute 'model_type'
+[Worker 27] Error: 'GEOptimizer' object has no attribute 'model_type'
+[Worker 20] Error: 'GEOptimizer' object has no attribute 'model_type'
+[Worker 30] Error: 'GEOptimizer' object has no attribute 'model_type'
+[Worker 24] Error: 'GEOptimizer' object has no attribute 'model_type'
+[Worker 22] Error: 'GEOptimizer' object has no attribute 'model_type'
+[Worker 31] Error: 'GEOptimizer' object has no attribute 'model_type'
+[Worker 34] Error: 'GEOptimizer' object has no attribute 'model_type'
+[Worker 28] Error: 'GEOptimizer' object has no attribute 'model_type'
+[Worker 26] Error: 'GEOptimizer' object has no attribute 'model_type'
+✅ Gen 4: best loss=0.9326, complexity=14
+🧬 Generation 5/10
+[Worker 18] Error: 'GEOptimizer' object has no attribute 'model_type'
+[Worker 7] Error: 'GEOptimizer' object has no attribute 'model_type'
+[Worker 10] Error: 'GEOptimizer' object has no attribute 'model_type'
+[Worker 1] Error: 'GEOptimizer' object has no attribute 'model_type'
+[Worker 0] Error: 'GEOptimizer' object has no attribute 'model_type'
+[Worker 16] Error: 'GEOptimizer' object has no attribute 'model_type'
+[Worker 15] Error: 'GEOptimizer' object has no attribute 'model_type'
+[Worker 2] Error: 'GEOptimizer' object has no attribute 'model_type'
+[Worker 17] Error: 'GEOptimizer' object has no attribute 'model_type'
+[Worker 8] Error: 'GEOptimizer' object has no attribute 'model_type'
+[Worker 4] Error: 'GEOptimizer' object has no attribute 'model_type'
+[Worker 13] Error: 'GEOptimizer' object has no attribute 'model_type'
+[Worker 19] Error: 'GEOptimizer' object has no attribute 'model_type'
+[Worker 12] Error: 'GEOptimizer' object has no attribute 'model_type'
+[Worker 5] Error: 'GEOptimizer' object has no attribute 'model_type'
+[Worker 6] Error: 'GEOptimizer' object has no attribute 'model_type'
+[Worker 11] Error: 'GEOptimizer' object has no attribute 'model_type'
+[Worker 3] Error: 'GEOptimizer' object has no attribute 'model_type'
+[Worker 9] Error: 'GEOptimizer' object has no attribute 'model_type'
+[Worker 14] Error: 'GEOptimizer' object has no attribute 'model_type'
+[Worker 30] Error: 'GEOptimizer' object has no attribute 'model_type'
+[Worker 22] Error: 'GEOptimizer' object has no attribute 'model_type'
+[Worker 26] Error: 'GEOptimizer' object has no attribute 'model_type'
+[Worker 33] Error: 'GEOptimizer' object has no attribute 'model_type'
+[Worker 35] Error: 'GEOptimizer' object has no attribute 'model_type'
+[Worker 38] Error: 'GEOptimizer' object has no attribute 'model_type'
+[Worker 37] Error: 'GEOptimizer' object has no attribute 'model_type'
+[Worker 24] Error: 'GEOptimizer' object has no attribute 'model_type'
+[Worker 27] Error: 'GEOptimizer' object has no attribute 'model_type'
+[Worker 21] Error: 'GEOptimizer' object has no attribute 'model_type'
+[Worker 23] Error: 'GEOptimizer' object has no attribute 'model_type'
+[Worker 20] Error: 'GEOptimizer' object has no attribute 'model_type'
+[Worker 36] Error: 'GEOptimizer' object has no attribute 'model_type'
+[Worker 31] Error: 'GEOptimizer' object has no attribute 'model_type'
+[Worker 39] Error: 'GEOptimizer' object has no attribute 'model_type'
+[Worker 32] Error: 'GEOptimizer' object has no attribute 'model_type'
+[Worker 25] Error: 'GEOptimizer' object has no attribute 'model_type'
+[Worker 28] Error: 'GEOptimizer' object has no attribute 'model_type'
+[Worker 29] Error: 'GEOptimizer' object has no attribute 'model_type'
+[Worker 34] Error: 'GEOptimizer' object has no attribute 'model_type'
+✅ Gen 5: best loss=0.9326, complexity=7
+🧬 Generation 6/10
+[Worker 19] Error: 'GEOptimizer' object has no attribute 'model_type'
+[Worker 8] Error: 'GEOptimizer' object has no attribute 'model_type'
+[Worker 2] Error: 'GEOptimizer' object has no attribute 'model_type'
+[Worker 13] Error: 'GEOptimizer' object has no attribute 'model_type'
+[Worker 9] Error: 'GEOptimizer' object has no attribute 'model_type'
+[Worker 10] Error: 'GEOptimizer' object has no attribute 'model_type'
+[Worker 17] Error: 'GEOptimizer' object has no attribute 'model_type'
+[Worker 5] Error: 'GEOptimizer' object has no attribute 'model_type'
+[Worker 15] Error: 'GEOptimizer' object has no attribute 'model_type'
+[Worker 3] Error: 'GEOptimizer' object has no attribute 'model_type'
+[Worker 7] Error: 'GEOptimizer' object has no attribute 'model_type'
+[Worker 6] Error: 'GEOptimizer' object has no attribute 'model_type'
+[Worker 0] Error: 'GEOptimizer' object has no attribute 'model_type'
+[Worker 16] Error: 'GEOptimizer' object has no attribute 'model_type'
+[Worker 14] Error: 'GEOptimizer' object has no attribute 'model_type'
+[Worker 18] Error: 'GEOptimizer' object has no attribute 'model_type'
+[Worker 1] Error: 'GEOptimizer' object has no attribute 'model_type'
+[Worker 12] Error: 'GEOptimizer' object has no attribute 'model_type'
+[Worker 4] Error: 'GEOptimizer' object has no attribute 'model_type'
+[Worker 11] Error: 'GEOptimizer' object has no attribute 'model_type'
+[Worker 29] Error: 'GEOptimizer' object has no attribute 'model_type'
+[Worker 36] Error: 'GEOptimizer' object has no attribute 'model_type'
+[Worker 34] Error: 'GEOptimizer' object has no attribute 'model_type'
+[Worker 31] Error: 'GEOptimizer' object has no attribute 'model_type'
+[Worker 21] Error: 'GEOptimizer' object has no attribute 'model_type'
+[Worker 38] Error: 'GEOptimizer' object has no attribute 'model_type'
+[Worker 39] Error: 'GEOptimizer' object has no attribute 'model_type'
+[Worker 27] Error: 'GEOptimizer' object has no attribute 'model_type'
+[Worker 23] Error: 'GEOptimizer' object has no attribute 'model_type'
+[Worker 33] Error: 'GEOptimizer' object has no attribute 'model_type'
+[Worker 37] Error: 'GEOptimizer' object has no attribute 'model_type'
+[Worker 20] Error: 'GEOptimizer' object has no attribute 'model_type'
+[Worker 26] Error: 'GEOptimizer' object has no attribute 'model_type'
+[Worker 22] Error: 'GEOptimizer' object has no attribute 'model_type'
+[Worker 32] Error: 'GEOptimizer' object has no attribute 'model_type'
+[Worker 28] Error: 'GEOptimizer' object has no attribute 'model_type'
+[Worker 30] Error: 'GEOptimizer' object has no attribute 'model_type'
+[Worker 35] Error: 'GEOptimizer' object has no attribute 'model_type'
+[Worker 25] Error: 'GEOptimizer' object has no attribute 'model_type'
+[Worker 24] Error: 'GEOptimizer' object has no attribute 'model_type'
+✅ Gen 6: best loss=0.9326, complexity=7
+🧬 Generation 7/10
+[Worker 17] Error: 'GEOptimizer' object has no attribute 'model_type'
+[Worker 18] Error: 'GEOptimizer' object has no attribute 'model_type'
+[Worker 19] Error: 'GEOptimizer' object has no attribute 'model_type'
+[Worker 14] Error: 'GEOptimizer' object has no attribute 'model_type'
+[Worker 16] Error: 'GEOptimizer' object has no attribute 'model_type'
+[Worker 1] Error: 'GEOptimizer' object has no attribute 'model_type'
+[Worker 3] Error: 'GEOptimizer' object has no attribute 'model_type'
+[Worker 13] Error: 'GEOptimizer' object has no attribute 'model_type'
+[Worker 4] Error: 'GEOptimizer' object has no attribute 'model_type'
+[Worker 5] Error: 'GEOptimizer' object has no attribute 'model_type'
+[Worker 7] Error: 'GEOptimizer' object has no attribute 'model_type'
+[Worker 12] Error: 'GEOptimizer' object has no attribute 'model_type'
+[Worker 15] Error: 'GEOptimizer' object has no attribute 'model_type'
+[Worker 0] Error: 'GEOptimizer' object has no attribute 'model_type'
+[Worker 11] Error: 'GEOptimizer' object has no attribute 'model_type'
+[Worker 8] Error: 'GEOptimizer' object has no attribute 'model_type'
+[Worker 10] Error: 'GEOptimizer' object has no attribute 'model_type'
+[Worker 6] Error: 'GEOptimizer' object has no attribute 'model_type'
+[Worker 2] Error: 'GEOptimizer' object has no attribute 'model_type'
+[Worker 9] Error: 'GEOptimizer' object has no attribute 'model_type'
+[Worker 29] Error: 'GEOptimizer' object has no attribute 'model_type'
+[Worker 20] Error: 'GEOptimizer' object has no attribute 'model_type'
+[Worker 26] Error: 'GEOptimizer' object has no attribute 'model_type'
+[Worker 30] Error: 'GEOptimizer' object has no attribute 'model_type'
+[Worker 33] Error: 'GEOptimizer' object has no attribute 'model_type'
+[Worker 34] Error: 'GEOptimizer' object has no attribute 'model_type'
+[Worker 36] Error: 'GEOptimizer' object has no attribute 'model_type'
+[Worker 32] Error: 'GEOptimizer' object has no attribute 'model_type'
+[Worker 27] Error: 'GEOptimizer' object has no attribute 'model_type'
+[Worker 24] Error: 'GEOptimizer' object has no attribute 'model_type'
+[Worker 35] Error: 'GEOptimizer' object has no attribute 'model_type'
+[Worker 38] Error: 'GEOptimizer' object has no attribute 'model_type'
+[Worker 22] Error: 'GEOptimizer' object has no attribute 'model_type'
+[Worker 21] Error: 'GEOptimizer' object has no attribute 'model_type'
+[Worker 37] Error: 'GEOptimizer' object has no attribute 'model_type'
+[Worker 25] Error: 'GEOptimizer' object has no attribute 'model_type'
+[Worker 23] Error: 'GEOptimizer' object has no attribute 'model_type'
+[Worker 28] Error: 'GEOptimizer' object has no attribute 'model_type'
+[Worker 39] Error: 'GEOptimizer' object has no attribute 'model_type'
+[Worker 31] Error: 'GEOptimizer' object has no attribute 'model_type'
+✅ Gen 7: best loss=0.9326, complexity=7
+🧬 Generation 8/10
+[Worker 1] Error: 'GEOptimizer' object has no attribute 'model_type'
+[Worker 16] Error: 'GEOptimizer' object has no attribute 'model_type'
+[Worker 19] Error: 'GEOptimizer' object has no attribute 'model_type'
+[Worker 8] Error: 'GEOptimizer' object has no attribute 'model_type'
+[Worker 7] Error: 'GEOptimizer' object has no attribute 'model_type'
+[Worker 6] Error: 'GEOptimizer' object has no attribute 'model_type'
+[Worker 9] Error: 'GEOptimizer' object has no attribute 'model_type'
+[Worker 10] Error: 'GEOptimizer' object has no attribute 'model_type'
+[Worker 3] Error: 'GEOptimizer' object has no attribute 'model_type'
+[Worker 17] Error: 'GEOptimizer' object has no attribute 'model_type'
+[Worker 5] Error: 'GEOptimizer' object has no attribute 'model_type'
+[Worker 0] Error: 'GEOptimizer' object has no attribute 'model_type'
+[Worker 14] Error: 'GEOptimizer' object has no attribute 'model_type'
+[Worker 18] Error: 'GEOptimizer' object has no attribute 'model_type'
+[Worker 12] Error: 'GEOptimizer' object has no attribute 'model_type'
+[Worker 13] Error: 'GEOptimizer' object has no attribute 'model_type'
+[Worker 4] Error: 'GEOptimizer' object has no attribute 'model_type'
+[Worker 11] Error: 'GEOptimizer' object has no attribute 'model_type'
+[Worker 2] Error: 'GEOptimizer' object has no attribute 'model_type'
+[Worker 15] Error: 'GEOptimizer' object has no attribute 'model_type'
+[Worker 28] Error: 'GEOptimizer' object has no attribute 'model_type'
+[Worker 39] Error: 'GEOptimizer' object has no attribute 'model_type'
+[Worker 34] Error: 'GEOptimizer' object has no attribute 'model_type'
+[Worker 32] Error: 'GEOptimizer' object has no attribute 'model_type'
+[Worker 31] Error: 'GEOptimizer' object has no attribute 'model_type'
+[Worker 22] Error: 'GEOptimizer' object has no attribute 'model_type'
+[Worker 27] Error: 'GEOptimizer' object has no attribute 'model_type'
+[Worker 33] Error: 'GEOptimizer' object has no attribute 'model_type'
+[Worker 37] Error: 'GEOptimizer' object has no attribute 'model_type'
+[Worker 23] Error: 'GEOptimizer' object has no attribute 'model_type'
+[Worker 38] Error: 'GEOptimizer' object has no attribute 'model_type'
+[Worker 29] Error: 'GEOptimizer' object has no attribute 'model_type'
+[Worker 26] Error: 'GEOptimizer' object has no attribute 'model_type'
+[Worker 30] Error: 'GEOptimizer' object has no attribute 'model_type'
+[Worker 24] Error: 'GEOptimizer' object has no attribute 'model_type'
+[Worker 36] Error: 'GEOptimizer' object has no attribute 'model_type'
+[Worker 20] Error: 'GEOptimizer' object has no attribute 'model_type'
+[Worker 21] Error: 'GEOptimizer' object has no attribute 'model_type'
+[Worker 35] Error: 'GEOptimizer' object has no attribute 'model_type'
+[Worker 25] Error: 'GEOptimizer' object has no attribute 'model_type'
+✅ Gen 8: best loss=0.9326, complexity=7
+🧬 Generation 9/10
+[Worker 3] Error: 'GEOptimizer' object has no attribute 'model_type'
+[Worker 1] Error: 'GEOptimizer' object has no attribute 'model_type'
+[Worker 18] Error: 'GEOptimizer' object has no attribute 'model_type'
+[Worker 14] Error: 'GEOptimizer' object has no attribute 'model_type'
+[Worker 8] Error: 'GEOptimizer' object has no attribute 'model_type'
+[Worker 17] Error: 'GEOptimizer' object has no attribute 'model_type'
+[Worker 16] Error: 'GEOptimizer' object has no attribute 'model_type'
+[Worker 10] Error: 'GEOptimizer' object has no attribute 'model_type'
+[Worker 11] Error: 'GEOptimizer' object has no attribute 'model_type'
+[Worker 0] Error: 'GEOptimizer' object has no attribute 'model_type'
+[Worker 13] Error: 'GEOptimizer' object has no attribute 'model_type'
+[Worker 7] Error: 'GEOptimizer' object has no attribute 'model_type'
+[Worker 5] Error: 'GEOptimizer' object has no attribute 'model_type'
+[Worker 12] Error: 'GEOptimizer' object has no attribute 'model_type'
+[Worker 15] Error: 'GEOptimizer' object has no attribute 'model_type'
+[Worker 4] Error: 'GEOptimizer' object has no attribute 'model_type'
+[Worker 19] Error: 'GEOptimizer' object has no attribute 'model_type'
+[Worker 6] Error: 'GEOptimizer' object has no attribute 'model_type'
+[Worker 2] Error: 'GEOptimizer' object has no attribute 'model_type'
+[Worker 9] Error: 'GEOptimizer' object has no attribute 'model_type'
+[Worker 28] Error: 'GEOptimizer' object has no attribute 'model_type'
+[Worker 35] Error: 'GEOptimizer' object has no attribute 'model_type'
+[Worker 30] Error: 'GEOptimizer' object has no attribute 'model_type'
+[Worker 37] Error: 'GEOptimizer' object has no attribute 'model_type'
+[Worker 23] Error: 'GEOptimizer' object has no attribute 'model_type'
+[Worker 32] Error: 'GEOptimizer' object has no attribute 'model_type'
+[Worker 38] Error: 'GEOptimizer' object has no attribute 'model_type'
+[Worker 25] Error: 'GEOptimizer' object has no attribute 'model_type'
+[Worker 29] Error: 'GEOptimizer' object has no attribute 'model_type'
+[Worker 34] Error: 'GEOptimizer' object has no attribute 'model_type'
+[Worker 31] Error: 'GEOptimizer' object has no attribute 'model_type'
+[Worker 21] Error: 'GEOptimizer' object has no attribute 'model_type'
+[Worker 20] Error: 'GEOptimizer' object has no attribute 'model_type'
+[Worker 24] Error: 'GEOptimizer' object has no attribute 'model_type'
+[Worker 22] Error: 'GEOptimizer' object has no attribute 'model_type'
+[Worker 27] Error: 'GEOptimizer' object has no attribute 'model_type'
+[Worker 26] Error: 'GEOptimizer' object has no attribute 'model_type'
+[Worker 36] Error: 'GEOptimizer' object has no attribute 'model_type'
+[Worker 39] Error: 'GEOptimizer' object has no attribute 'model_type'
+[Worker 33] Error: 'GEOptimizer' object has no attribute 'model_type'
+✅ Gen 9: best loss=0.9326, complexity=7
+🧬 Generation 10/10
+[Worker 14] Error: 'GEOptimizer' object has no attribute 'model_type'
+[Worker 0] Error: 'GEOptimizer' object has no attribute 'model_type'
+[Worker 6] Error: 'GEOptimizer' object has no attribute 'model_type'
+[Worker 12] Error: 'GEOptimizer' object has no attribute 'model_type'
+[Worker 15] Error: 'GEOptimizer' object has no attribute 'model_type'
+[Worker 16] Error: 'GEOptimizer' object has no attribute 'model_type'
+[Worker 18] Error: 'GEOptimizer' object has no attribute 'model_type'
+[Worker 2] Error: 'GEOptimizer' object has no attribute 'model_type'
+[Worker 19] Error: 'GEOptimizer' object has no attribute 'model_type'
+[Worker 1] Error: 'GEOptimizer' object has no attribute 'model_type'
+[Worker 13] Error: 'GEOptimizer' object has no attribute 'model_type'
+[Worker 10] Error: 'GEOptimizer' object has no attribute 'model_type'
+[Worker 17] Error: 'GEOptimizer' object has no attribute 'model_type'
+[Worker 7] Error: 'GEOptimizer' object has no attribute 'model_type'
+[Worker 3] Error: 'GEOptimizer' object has no attribute 'model_type'
+[Worker 8] Error: 'GEOptimizer' object has no attribute 'model_type'
+[Worker 11] Error: 'GEOptimizer' object has no attribute 'model_type'
+[Worker 5] Error: 'GEOptimizer' object has no attribute 'model_type'
+[Worker 4] Error: 'GEOptimizer' object has no attribute 'model_type'
+[Worker 9] Error: 'GEOptimizer' object has no attribute 'model_type'
+[Worker 33] Error: 'GEOptimizer' object has no attribute 'model_type'
+[Worker 31] Error: 'GEOptimizer' object has no attribute 'model_type'
+[Worker 35] Error: 'GEOptimizer' object has no attribute 'model_type'
+[Worker 30] Error: 'GEOptimizer' object has no attribute 'model_type'
+[Worker 24] Error: 'GEOptimizer' object has no attribute 'model_type'
+[Worker 36] Error: 'GEOptimizer' object has no attribute 'model_type'
+[Worker 32] Error: 'GEOptimizer' object has no attribute 'model_type'
+[Worker 34] Error: 'GEOptimizer' object has no attribute 'model_type'
+[Worker 27] Error: 'GEOptimizer' object has no attribute 'model_type'
+[Worker 38] Error: 'GEOptimizer' object has no attribute 'model_type'
+[Worker 28] Error: 'GEOptimizer' object has no attribute 'model_type'
+[Worker 20] Error: 'GEOptimizer' object has no attribute 'model_type'
+[Worker 22] Error: 'GEOptimizer' object has no attribute 'model_type'
+[Worker 23] Error: 'GEOptimizer' object has no attribute 'model_type'
+[Worker 37] Error: 'GEOptimizer' object has no attribute 'model_type'
+[Worker 26] Error: 'GEOptimizer' object has no attribute 'model_type'
+[Worker 25] Error: 'GEOptimizer' object has no attribute 'model_type'
+[Worker 39] Error: 'GEOptimizer' object has no attribute 'model_type'
+[Worker 21] Error: 'GEOptimizer' object has no attribute 'model_type'
+[Worker 29] Error: 'GEOptimizer' object has no attribute 'model_type'
+✅ Gen 10: best loss=0.9326, complexity=7
+23:41:04 [[1m[92mINFO[0m] Best genome: [252, 190, 11, 210, 41, 191, 158, 73, 108, 30, 252, 61, 79, 128, 172, 129, 129, 149, 219, 101, 213, 201, 246, 233, 204, 63, 198, 188, 74, 173, 64, 133, 203, 48, 86, 203, 116, 245, 2, 184, 208, 234, 40, 251, 100, 90, 91, 163, 168, 121, 18, 252, 56, 24, 152, 105, 157, 47, 24, 72, 132, 201, 153, 97, 156, 250, 122, 226, 199, 77, 63, 197, 53, 86, 60, 50, 75, 168, 80, 212, 219, 6, 116, 56, 187, 151, 61, 58, 184, 163, 156, 13, 153, 251, 4, 120]
+
+23:41:04 [[1m[92mINFO[0m] Best PC: ─────────────────────────────────────────────
+🧠  Probabilistic Circuit Network Summary
+─────────────────────────────────────────────
+📦 Classes: 1
+📏 Input size: torch.Size([3, 256, 256])
+⚙️  Depth: 5, Branching: 3
+💻 Device: cpu
+─────────────────────────────────────────────
+📊 Node counts:
+  • InputNode      : 3
+  • SumNode        : 6
+  • ProductNode    : 3
+  • ClassifierNode : 1
+─────────────────────────────────────────────
+🧩 Trainable parameters: 145
+  • InputNode      : 21
+  • SumNode        : 18
+─────────────────────────────────────────────
+📚 Structure:Memory usage: 0.24 KB
+
+└─ ClassifierNode(classes=2)
+   ├─ ProductNode(children=2)
+   │  ├─ InputNode(feat_2)
+   │  └─ InputNode(feat_2)
+   └─ SumNode(children=2, weights=2)
+      ├─ GateNode
+      │  ├─ GateNode
+      │  │  ├─ InputNode(feat_0)
+      │  │  └─ SumNode(children=3, weights=3)
+      │  │     ├─ GateNode
+      │  │     │  ├─ InputNode(feat_0)
+      │  │     │  └─ InputNode(feat_0)
+      │  │     ├─ ProductNode(children=2)
+      │  │     │  ├─ InputNode(feat_1)
+      │  │     │  └─ InputNode(feat_1)
+      │  │     └─ ResidualNode
+      │  │        ├─ InputNode(feat_2)
+      │  │        └─ InputNode(feat_2)
+      │  └─ ResidualNode
+      │     ├─ ResidualNode
+      │     │  ├─ ResidualNode
+      │     │  │  ├─ InputNode(feat_2)
+      │     │  │  └─ InputNode(feat_2)
+      │     │  └─ SumNode(children=3, weights=3)
+      │     │     ├─ InputNode(feat_1)
+      │     │     ├─ InputNode(feat_1)
+      │     │     └─ InputNode(feat_1)
+      │     └─ SumNode(children=2, weights=2)
+      │        ├─ GateNode
+      │        │  ├─ InputNode(feat_1)
+      │        │  └─ InputNode(feat_1)
+      │        └─ ResidualNode
+      │           ├─ InputNode(feat_2)
+      │           └─ InputNode(feat_2)
+      └─ GateNode
+         ├─ GateNode
+         │  ├─ GateNode
+         │  │  ├─ ResidualNode
+         │  │  │  ├─ InputNode(feat_0)
+         │  │  │  └─ InputNode(feat_0)
+         │  │  └─ GateNode
+         │  │     ├─ InputNode(feat_1)
+         │  │     └─ InputNode(feat_1)
+         │  └─ ResidualNode
+         │     ├─ GateNode
+         │     │  ├─ InputNode(feat_0)
+         │     │  └─ InputNode(feat_0)
+         │     └─ GateNode
+         │        ├─ InputNode(feat_1)
+         │        └─ InputNode(feat_1)
+         └─ GateNode
+            ├─ SumNode(children=4, weights=4)
+            │  ├─ SumNode(children=4, weights=4)
+            │  │  ├─ InputNode(feat_0)
+            │  │  ├─ InputNode(feat_0)
+            │  │  ├─ InputNode(feat_0)
+            │  │  └─ InputNode(feat_0)
+            │  ├─ ResidualNode
+            │  │  ├─ InputNode(feat_2)
+            │  │  └─ InputNode(feat_2)
+            │  ├─ ProductNode(children=2)
+            │  │  ├─ InputNode(feat_1)
+            │  │  └─ InputNode(feat_1)
+            │  └─ ResidualNode
+            │     ├─ InputNode(feat_2)
+            │     └─ InputNode(feat_2)
+            └─ GateNode
+               ├─ ResidualNode
+               │  ├─ InputNode(feat_1)
+               │  └─ InputNode(feat_1)
+               └─ InputNode(feat_2)
+─────────────────────────────────────────────
+
+⚙️ Using 20 CPU cores (torch threads)
+23:43:33 [[1m[92mINFO[0m] Number of trainable parameters: 61
+
+02:05:47 [[1m[92mINFO[0m] ✅ Training complete.
+
+02:06:10 [[1m[92mINFO[0m] ✅ Testing complete.
+
+02:06:10 [[1m[92mINFO[0m] Test Loss: 0.9837, Dice: 0.3382, IoU: 0.2650, CL IoU: 0.0045
+
+02:06:10 [[1m[92mINFO[0m] Test Accuracy: 0.6629, Precision: 0.0005, Recall: 0.5482, F1-Score: 0.0010
+
+02:10:19 [[1m[93mDEBUG[0m] logs/pcnet_ge/Rissbilder/2
+
