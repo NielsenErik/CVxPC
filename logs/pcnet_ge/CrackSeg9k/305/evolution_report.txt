@@ -1,3 +1,4 @@
 Generation,Avg_Fitness,Best_Fitness,Avg_Complexity,Best_Complexity,All_Time_Best_Fitness
 [03:58:28]1,0.7271,0.7238,65.25,36,0.7238
 [08:37:38]2,0.7271,0.7238,63.95,69,0.7238
+[13:13:26]3,0.7271,0.7238,62.55,54,0.7238
