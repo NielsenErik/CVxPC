@@ -12,8 +12,8 @@
     "batch_size": 16,
     "sample_size": 500,
     "resize_size": [
-        256,
-        256
+        400,
+        400
     ],
     "input_channels": 3,
     "n_classes": 1,

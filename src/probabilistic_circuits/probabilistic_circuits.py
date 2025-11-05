@@ -591,13 +591,18 @@ class PCNet(ProbabilisticCircuit):
                         try:
                             with torch.no_grad():
                                 src = state_dict[key].to(param.device)
-                                if src.shape == param.shape:
-                                    param.copy_(src)
-                                else:
-                                    # partial reuse if possible
-                                    min_len = min(param.numel(), src.numel())
-                                    param.view(-1)[:min_len].copy_(src.view(-1)[:min_len])
-                                    print_debugging(f"⚠️ Resized param {key}: old {tuple(src.shape)} → new {tuple(param.shape)}")
+                                try:
+                                    if src.shape == param.shape:
+                                        param.copy_(src)
+                                    else:
+                                        # partial reuse: match along the first dimension only
+                                        min_dim = min(param.shape[0], src.shape[0])
+                                        slices = [slice(0, min_dim)] + [slice(None)] * (param.ndim - 1)
+                                        param[slices].copy_(src[slices])
+                                        print_debugging(f"⚠️ Partially reused {key}: old {tuple(src.shape)} → new {tuple(param.shape)}")
+                                except Exception as e:
+                                    print_debugging(f"⚠️ Reuse failed for {key}: {e}")
+
                             loaded += 1
                         except Exception:
                             missing += 1
