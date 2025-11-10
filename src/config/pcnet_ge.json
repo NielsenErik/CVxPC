@@ -10,9 +10,9 @@
     "save_path": "models/",
     "validation_split": 0.2,
 
-    "epochs": 40,
+    "epochs": 60,
     "batch_size": 16,
-    "sample_size": 500,
+    "sample_size": 1500,
     "resize_size": [
         256,
         256
@@ -30,7 +30,7 @@
         "crossover_rate": 0.9,
         "mutation_rate": 0.05,
         "elite_k": 2,
-        "train_split": 0.1
+        "train_split": 0.05
     },
 
     "execution_mode": "train"
