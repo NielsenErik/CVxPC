@@ -1,39 +1,31 @@
 {
     "mlflow": null,
-    "experiment": "crack_segmentation",
+    "experiment": "pcnet_ge",
     "algorithm": "pcnet_ge",
     "device": "cpu",
-    "n_cpus": 4,
-
-    "data_path": "data/CrackSeg9k/train",
-    "test_path": "data/CrackSeg9k/test",
+    "n_cpus": 30,
+    "data_path": "data/crackseg9k_split/AEL/train",
+    "test_path": "data/crackseg9k_split/AEL/test",
     "save_path": "models/",
     "validation_split": 0.2,
-
     "epochs": 60,
-    "batch_size": 16,
-    "sample_size": 1500,
+    "batch_size": 32,
     "resize_size": [
-        256,
-        256
+        400,
+        400
     ],
-    "input_channels": 3,
     "n_classes": 1,
     "max_depth": 5,
     "max_branching": 3,
     "seed": 90,
-
-    "ge":{
-        "generations": 2,
-        "pop_size": 2,
+    "ge": {
+        "generations": 10,
+        "pop_size": 20,
         "genome_len": 96,
         "crossover_rate": 0.9,
         "mutation_rate": 0.05,
         "elite_k": 2,
-        "train_split": 0.05
+        "train_split": 0.01
     },
-
     "execution_mode": "train"
-    
-
 }

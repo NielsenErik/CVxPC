@@ -1,0 +1,18 @@
+#!/bin/bash
+#PBS -l select=2:ncpus=10:mem=100gb
+#PBS -l walltime=60:00:00
+#PBS -q common_cpuQ
+#PBS -N _unet
+#PBS -M erik.nielsen@unitn.it
+#PBS -m abe
+#PBS -o logs/hpc//unet/out.txt
+#PBS -e logs/hpc//unet/err.txt
+
+cd ${PBS_O_WORKDIR}
+
+module load python-3.10.14
+module load cuda-11.3
+source $PWD/.venv/bin/activate
+
+echo "Running /unet on node $(hostname)"
+python3 $PWD/src/main.py $PWD/src/config/hpc/unet.json $PBS_ARRAY_INDEX

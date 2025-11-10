@@ -225,7 +225,7 @@ class DiceCELoss(nn.Module):
             tgt_prob = (target==1).unsqueeze(1).float()
             cl = soft_clDice(pred_prob, tgt_prob)
         dl = self.dice_loss(pred, target)
-        return self.gamma*(1 - cl)
+        return 0.2*ce + 0.1*dl + self.gamma*(1 - cl)
 
     
 class Experiment:
@@ -358,7 +358,7 @@ class Experiment:
         iou = (intersection + smooth) / (union + smooth)
         return iou.mean()
 
-    def cl_iou_score(self,pred_mask, true_mask, tau=2):
+    def cl_iou_score(self,pred_mask, true_mask, tau=4):
         """
         pred_mask, true_mask: (B,1,H,W)
         """
