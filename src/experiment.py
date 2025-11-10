@@ -225,7 +225,7 @@ class DiceCELoss(nn.Module):
             tgt_prob = (target==1).unsqueeze(1).float()
             cl = soft_clDice(pred_prob, tgt_prob)
         dl = self.dice_loss(pred, target)
-        return 0.6*ce + 0.4*dl + self.gamma*(1 - cl)
+        return self.gamma*(1 - cl)
 
     
 class Experiment:
