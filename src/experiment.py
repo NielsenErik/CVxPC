@@ -705,7 +705,8 @@ class ExperimentDL(Experiment):
         # We’ll create up to num_samples * 3 total images per grid
         total_samples = len(dataset)
         num_groups = total_samples // num_samples
-
+        max_pred = 15
+        count
         for j in range(num_groups):
             fig, axes = plt.subplots(3, num_samples, figsize=(4 * num_samples, 9))  # 3 rows × num_samples columns
 
@@ -748,6 +749,9 @@ class ExperimentDL(Experiment):
             plt.tight_layout()
             plt.savefig(os.path.join(predictions_dir, f"predictions_grid_{j}.png"))
             plt.close(fig)
+            count += 1
+            if count >= max_pred:
+                break
 
     @abc.abstractmethod
     def save_model(self, model_name="model"):
