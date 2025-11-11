@@ -2,7 +2,7 @@
 #PBS -l select=2:ncpus=10:mem=100gb
 #PBS -l walltime=60:00:00
 #PBS -q common_cpuQ
-#PBS -N AEL_pcnet_ge
+#PBS -N 9k_pcnet_ge
 #PBS -M erik.nielsen@unitn.it
 #PBS -m abe
 #PBS -o logs/hpc/AEL/pcnet_ge/out.txt
