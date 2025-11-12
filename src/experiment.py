@@ -706,8 +706,10 @@ class ExperimentDL(Experiment):
         total_samples = len(dataset)
         num_groups = total_samples // num_samples
         max_pred = 15
-        count
         for j in range(num_groups):
+            if j > max_pred:
+                print(f"Saved {max_pred} prediction grids.")
+                break
             fig, axes = plt.subplots(3, num_samples, figsize=(4 * num_samples, 9))  # 3 rows × num_samples columns
 
             for i in range(num_samples):
@@ -745,13 +747,9 @@ class ExperimentDL(Experiment):
                 axes[2, i].imshow(pred_mask, cmap="cool")
                 axes[2, i].set_title(f"Prediction {idx}")
                 axes[2, i].axis("off")
-
-            plt.tight_layout()
-            plt.savefig(os.path.join(predictions_dir, f"predictions_grid_{j}.png"))
+            plt.savefig(os.path.join(predictions_dir, f"predictions_grid_{j}.png"), bbox_inches="tight")
             plt.close(fig)
-            count += 1
-            if count >= max_pred:
-                break
+            
 
     @abc.abstractmethod
     def save_model(self, model_name="model"):
@@ -1576,15 +1574,16 @@ class ExperimentPC(Experiment):
         imgs = [self.test_data[i][0] for i in range(len(self.test_data))]
 
         # Process images in groups of 3
+        max_pred = 15
         group_size = 3
-        for start_idx in range(0, len(self.test_inputs), group_size):
+        for j in range(0, max_pred):
+            start_idx = random.randint(0, len(self.test_inputs) - group_size)
             end_idx = min(start_idx + group_size, len(self.test_inputs))
             group = list(zip(
                 imgs[start_idx:end_idx],
                 self.test_inputs[start_idx:end_idx],
                 self.test_ground_truth[start_idx:end_idx]
             ))
-
             fig, axes = plt.subplots(3, group_size, figsize=(4 * group_size, 9))
 
             for col, (img, inputs, gt) in enumerate(group):
@@ -1614,8 +1613,7 @@ class ExperimentPC(Experiment):
                 axes[1, col].axis("off")
                 axes[2, col].axis("off")
 
-            plt.tight_layout()
-            plt.savefig(os.path.join(predictions_path, f"predictions_{start_idx//group_size}.png"))
+            plt.savefig(os.path.join(predictions_path, f"predictions_{start_idx//group_size}.png"), bbox_inches="tight")
             plt.close(fig)
 
         print_debugging(self.log_path)
