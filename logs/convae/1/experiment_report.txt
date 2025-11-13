@@ -1,7 +1,0 @@
-Experiment Configurations: {'mlflow': None, 'experiment': 'crack_segmentation', 'algorithm': 'convae', 'device': 'cuda', 'data_path': 'data/kaggle/crack_segmentation_dataset/train', 'test_path': 'data/kaggle/crack_segmentation_dataset/test', 'save_path': 'models/', 'validation_split': 0.2, 'epochs': 50, 'batch_size': 16, 'sample_size': 3000, 'test_size': 500, 'resize_size': [128, 128], 'input_channels': 3, 'n_classes': 1, 'hidden_channels': [128, 64], 'learning_rate': 0.001, 'threshold': 0.4, 'seed': 1, 'execution_mode': 'train', 'log_dir': 'logs/convae/1'}
-Dataset sizes: {'train': 3000, 'val': 600, 'test': 500}
-Final Training Loss: 1.1174404819806416, Dice: 0.001011248001207908, IoU: 0.0005681087185318271, CL IoU: 0.0004895108938217163
-Final Validation Loss: 1.1440068922544782, Dice: 0.001146614491804748, IoU: 0.0006340174081024566, CL IoU: 0.060924486306152846
-Test Loss: 1.1308014206588268
-Model info: logs/convae/1/model_info.json
-Model size: 591.25390625 KB
