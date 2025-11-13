@@ -1,4 +1,0 @@
-Experiment Configurations: {'mlflow': 'aida', 'experiment': 'crack_segmentation', 'algorithm': 'unetplus', 'data_path': 'data/kaggle/crack_segmentation_dataset/train', 'test_path': 'data/kaggle/crack_segmentation_dataset/test', 'save_path': 'models/', 'model_name': 'unetplus', 'validation_split': 0.2, 'epochs': 50, 'batch_size': 16, 'sample_size': 7000, 'test_size': 2000, 'resize_size': [256, 256], 'learning_rate': 0.001, 'threshold': 0.2, 'input_channels': 3, 'n_classes': 1, 'seed': 4, 'execution_mode': 'train', 'log_dir': 'logs/unetplus/4'}
-Dataset sizes: {'train': 7000, 'val': 1400, 'test': 1695}
-Final Training Loss: 0.5905529275962285, Dice: 0.0011069027447540845, IoU: 0.0008440800275587078, CL IoU: 0.5442006517308099
-Final Validation Loss: 0.5930426120758057, Dice: 0.001160729559408289, IoU: 0.0008948006818007508, CL IoU: 0.5349114537239075

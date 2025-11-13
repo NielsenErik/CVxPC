@@ -1,6 +1,6 @@
-artifact_location: file:///Users/eriknielsen/Documents/UNITN/PHD/AIDA/A22/crack-detection/mlruns/0
-creation_time: 1757342143097
+artifact_location: file:///home/erik.nielsen/PCNet/crack-detection/mlruns/0
+creation_time: 1762954567169
 experiment_id: '0'
-last_update_time: 1757342143097
+last_update_time: 1762954567169
 lifecycle_stage: active
 name: Default
