@@ -53,3 +53,34 @@ Best genome: [155, 92, 245, 22, 111, 30, 86, 246, 93, 232, 126, 179, 117, 68, 18
 	val	0.4315	0.1452
 70	train	0.4315	0.1368
 	val	0.4314	0.1473
+75	train	0.4315	0.1351
+	val	0.4315	0.1437
+80	train	0.4315	0.1353
+	val	0.4314	0.1458
+Final Training — Loss: 0.4315, Dice: 0.4528, IoU: 0.3871, CL-IoU: 0.1353
+Final Validation — Loss: 0.4314, Dice: 0.4555, IoU: 0.3915, CL-IoU: 0.1458
+Test Loss: 0.4294, Dice: 0.4442, IoU: 0.3791, CL IoU: 0.1384
+Test Accuracy: 0.8559, Precision: 0.0842, Recall: 0.4588, F1-Score: 0.1272
+─────────────────────────────────────────────
+🧠  Probabilistic Circuit Network Summary
+─────────────────────────────────────────────
+📦 Classes: 1
+📏 Input size: torch.Size([3, 400, 400])
+⚙️  Depth: 3, Branching: 3
+💻 Device: cpu
+─────────────────────────────────────────────
+📊 Node counts:
+  • InputNode      : 2
+  • SumNode        : 0
+  • ProductNode    : 0
+  • ClassifierNode : 1
+─────────────────────────────────────────────
+🧩 Trainable parameters: 21
+  • InputNode      : 14
+─────────────────────────────────────────────
+📚 Structure:Memory usage: 0.05 KB
+
+└─ ClassifierNode(classes=2)
+   ├─ InputNode(feat_2)
+   └─ InputNode(feat_1)
+─────────────────────────────────────────────
