@@ -517,13 +517,6 @@ class GEOptimizer:
         final_pc = PCNet(input_size=inputs.shape[1:], n_classes=n_classes,
                         device=self.device, max_depth=self.max_depth, max_branching=self.max_branching)
         PCBuilder(final_pc).build_classifier(trees, inputs)
-
-        # short fine-tune of the best model
-        opt = torch.optim.Adam(final_pc.params, lr=lr)
-        for _ in range(10):
-            logits = final_pc.evaluate(inputs)
-            loss = criterion(logits, labels)
-            opt.zero_grad(); loss.backward(); opt.step()
         
         return final_pc, best_genome, {"loss": history, "complexity": complexity_hist}
 

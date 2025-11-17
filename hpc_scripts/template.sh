@@ -5,8 +5,6 @@
 #PBS -N {dataset}_{experiment}
 #PBS -M erik.nielsen@unitn.it
 #PBS -m abe
-#PBS -o logs/hpc/{dataset}/{experiment}/out.txt
-#PBS -e logs/hpc/{dataset}/{experiment}/err.txt
 
 cd ${PBS_O_WORKDIR}
 
