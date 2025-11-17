@@ -5,17 +5,17 @@
     "device": "cpu",
     "n_cpus": 4,
 
-    "data_path": "data/CrackSeg9k/train",
-    "test_path": "data/CrackSeg9k/test",
+    "data_path": "data/crackseg9k_split/cracktree200/train",
+    "test_path": "data/crackseg9k_split/cracktree200/test",
     "save_path": "models/",
     "validation_split": 0.2,
 
-    "epochs": 2,
+    "epochs": 20,
     "batch_size": 16,
     "sample_size": 100,
     "resize_size": [
-        256,
-        256
+        400,
+        400
     ],
     "input_channels": 3,
     "n_classes": 1,

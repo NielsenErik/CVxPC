@@ -5,8 +5,6 @@
 #PBS -N _template
 #PBS -M erik.nielsen@unitn.it
 #PBS -m abe
-#PBS -o logs/hpc//template/out.txt
-#PBS -e logs/hpc//template/err.txt
 
 cd ${PBS_O_WORKDIR}
 
@@ -14,5 +12,4 @@ module load python-3.10.14
 module load cuda-11.3
 source $PWD/.venv/bin/activate
 
-echo "Running /template on node $(hostname)"
 python3 $PWD/src/main.py $PWD/src/config/hpc/template.json $PBS_ARRAY_INDEX
