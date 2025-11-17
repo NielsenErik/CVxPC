@@ -5,8 +5,6 @@
 #PBS -N cracktree200_pcnet_ge
 #PBS -M erik.nielsen@unitn.it
 #PBS -m abe
-#PBS -o logs/hpc/cracktree200/pcnet_ge/out.txt
-#PBS -e logs/hpc/cracktree200/pcnet_ge/err.txt
 
 cd ${PBS_O_WORKDIR}
 
@@ -14,5 +12,4 @@ module load python-3.10.14
 module load cuda-11.3
 source $PWD/.venv/bin/activate
 
-echo "Running cracktree200/pcnet_ge on node $(hostname)"
 python3 $PWD/src/main.py $PWD/src/config/hpc/cracktree200/pcnet_ge.json $PBS_ARRAY_INDEX

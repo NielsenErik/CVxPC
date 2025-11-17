@@ -12,5 +12,4 @@ module load python-3.10.14
 module load cuda-11.3
 source $PWD/.venv/bin/activate
 
-echo "Running {dataset}/{experiment} on node $(hostname)"
 python3 $PWD/src/main.py $PWD/{config_path} $PBS_ARRAY_INDEX
