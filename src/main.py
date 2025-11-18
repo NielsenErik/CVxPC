@@ -21,9 +21,7 @@ def main():
     config["log_dir"] = os.path.join("logs", config["algorithm"], dataset_name, str(config["seed"]))
     os.makedirs(config["log_dir"], exist_ok=True)
     json.dump(config, open(os.path.join(config["log_dir"], "config.json"), "w"), indent=4)
-    set_up_mlflow(**config)
-    with mlflow.start_run():
-        run_experiment(config)
+    run_experiment(config)
 
 if __name__ == "__main__":
     import multiprocessing as mp
