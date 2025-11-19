@@ -10,40 +10,48 @@ Dataset sizes: {'train': 354, 'val': 71, 'test': 89}
 ─────────────────────────────────────────────
 📊 Node counts:
   • InputNode      : 3
-  • SumNode        : 3
-  • ProductNode    : 0
+  • SumNode        : 1
+  • ProductNode    : 3
   • ClassifierNode : 1
 ─────────────────────────────────────────────
-🧩 Trainable parameters: 52
+🧩 Trainable parameters: 58
   • InputNode      : 21
-  • SumNode        : 9
+  • SumNode        : 2
 ─────────────────────────────────────────────
-📚 Structure:Memory usage: 0.14 KB
+📚 Structure:Memory usage: 0.10 KB
 
 └─ ClassifierNode(classes=2)
-   ├─ GateNode
-   │  ├─ InputNode(feat_1)
-   │  └─ InputNode(feat_0)
-   └─ GateNode
-      ├─ SumNode(children=3, weights=3)
-      │  ├─ SumNode(children=2, weights=2)
-      │  │  ├─ InputNode(feat_1)
-      │  │  └─ InputNode(feat_1)
-      │  ├─ GateNode
-      │  │  ├─ InputNode(feat_2)
-      │  │  └─ InputNode(feat_2)
-      │  └─ InputNode(feat_2)
-      └─ SumNode(children=4, weights=4)
-         ├─ InputNode(feat_1)
-         ├─ ResidualNode
-         │  ├─ InputNode(feat_0)
-         │  └─ InputNode(feat_0)
-         ├─ ResidualNode
-         │  ├─ InputNode(feat_1)
-         │  └─ InputNode(feat_1)
-         └─ ResidualNode
-            ├─ InputNode(feat_1)
-            └─ InputNode(feat_1)
+   ├─ ProductNode(children=4)
+   │  ├─ InputNode(feat_2)
+   │  ├─ ProductNode(children=2)
+   │  │  ├─ ProductNode(children=3)
+   │  │  │  ├─ InputNode(feat_2)
+   │  │  │  ├─ InputNode(feat_2)
+   │  │  │  └─ InputNode(feat_2)
+   │  │  └─ SumNode(children=2, weights=2)
+   │  │     ├─ InputNode(feat_1)
+   │  │     └─ InputNode(feat_1)
+   │  ├─ GateNode
+   │  │  ├─ InputNode(feat_0)
+   │  │  └─ ResidualNode
+   │  │     ├─ InputNode(feat_2)
+   │  │     └─ InputNode(feat_2)
+   │  └─ GateNode
+   │     ├─ InputNode(feat_0)
+   │     └─ ResidualNode
+   │        ├─ InputNode(feat_2)
+   │        └─ InputNode(feat_2)
+   └─ InputNode(feat_0)
 ─────────────────────────────────────────────
-History: {'loss': [0.7102088928222656, 0.7089628577232361, 0.7046253085136414, 0.7044332027435303, 0.7053688764572144, 0.6978679895401001, 0.7083600759506226, 0.7102088928222656, 0.7083783745765686, 0.7039656639099121], 'complexity': [25, 29, 29, 29, 35, 35, 30, 28, 30, 30]}
-Best genome: [83, 250, 61, 105, 18, 203, 166, 21, 56, 142, 138, 205, 68, 236, 113, 210, 61, 9, 14, 95, 244, 94, 46, 237, 200, 164, 103, 210, 139, 113, 115, 58, 23, 141, 227, 16, 219, 211, 40, 161, 42, 194, 179, 90, 17, 248, 114, 228, 173, 199, 194, 49, 93, 119, 127, 11, 139, 39, 190, 80, 236, 190, 93, 247, 105, 83, 231, 94, 19, 120, 203, 48, 118, 33, 175, 121, 84, 58, 144, 171, 240, 111, 41, 213, 161, 179, 54, 79, 196, 213, 111, 206, 215, 99, 229, 73]
+History: {'loss': [0.7102088928222656, 0.7061768770217896, 0.704157829284668, 0.7029372453689575, 0.6978000998497009, 0.7004643678665161, 0.7089477181434631, 0.7030068635940552, 0.7063761949539185, 0.7034958600997925], 'complexity': [25, 25, 25, 25, 25, 35, 32, 32, 32, 32]}
+Best genome: [197, 230, 26, 252, 157, 251, 90, 243, 150, 18, 104, 35, 240, 77, 56, 141, 108, 24, 209, 216, 190, 157, 103, 138, 133, 42, 20, 64, 116, 41, 27, 218, 95, 149, 134, 188, 189, 75, 217, 95, 213, 103, 28, 194, 7, 197, 11, 52, 154, 241, 104, 30, 59, 229, 186, 25, 98, 67, 45, 216, 158, 45, 166, 105, 15, 115, 47, 62, 225, 181, 34, 217, 147, 223, 191, 86, 136, 135, 184, 63, 85, 62, 75, 41, 9, 240, 19, 227, 0, 199, 84, 132, 72, 125, 115, 135]
+5	train	0.4412	0.2358
+	val	0.4124	0.2181
+10	train	0.4253	0.2515
+	val	0.3988	0.2309
+15	train	0.4052	0.2807
+	val	0.3821	0.2559
+20	train	0.3865	0.3181
+	val	0.3683	0.2950
+25	train	0.3746	0.3495
+	val	0.3585	0.3313
