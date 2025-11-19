@@ -10,9 +10,9 @@
     "save_path": "models/",
     "validation_split": 0.2,
 
-    "epochs": 20,
+    "epochs": 2,
     "batch_size": 16,
-    "sample_size": 100,
+    "sample_size": 50,
     "resize_size": [
         400,
         400

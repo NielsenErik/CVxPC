@@ -564,16 +564,6 @@ class ExperimentDL(Experiment):
             print(f"Epoch {epoch+1}/{epochs} | "
                 f"Train Loss: {train_loss:.4f}, Dice: {train_dice:.4f}, IoU: {train_iou:.4f}, CL IoU: {train_cl_iou:.4f} | "
                 f"Val Loss: {val_loss:.4f} Dice: {val_dice:.4f} IoU: {val_iou:.4f}, CL IoU: {val_cl_iou:.4f}" if val_loader else "")
-
-            mlflow.log_metric("train_loss", train_loss, step=epoch)
-            mlflow.log_metric("train_dice", train_dice, step=epoch)
-            mlflow.log_metric("train_iou", train_iou, step=epoch)
-            mlflow.log_metric("train_cl_iou", train_cl_iou, step=epoch)
-            if val_loader:
-                mlflow.log_metric("val_loss", val_loss, step=epoch)
-                mlflow.log_metric("val_dice", val_dice, step=epoch)
-                mlflow.log_metric("val_iou", val_iou, step=epoch)
-                mlflow.log_metric("val_cl_iou", val_cl_iou, step=epoch)
             
         train_df = pd.DataFrame({"train_loss": train_losses, "train_dice": train_dices, "train_iou": train_ious, "train_cl_iou": train_clious})
         train_df.to_csv(os.path.join(self.log_path, "training.csv"), index=False)
@@ -647,17 +637,9 @@ class ExperimentDL(Experiment):
                 recall += ( ( (outputs == 1) & (masks == 1) ).float().sum() ) / ( (masks == 1).float().sum() + 1e-8 )
                 f1_score += 2 * (precision * recall) / (precision + recall + 1e-8)
         print(f"Test Loss: {test_loss/len(test_loader)}")
-        mlflow.log_metric("test_loss", test_loss/len(test_loader))
         print(f"Test Dice: {test_dice/len(test_loader)}")
-        mlflow.log_metric("test_dice", test_dice/len(test_loader))
         print(f"Test IoU: {test_iou/len(test_loader)}")
-        mlflow.log_metric("test_iou", test_iou/len(test_loader))
         print(f"Test CL IoU: {test_cliou/len(test_loader)}")
-        mlflow.log_metric("test_cliou", test_cliou/len(test_loader))
-        mlflow.log_metric("test_accuracy", accuracy/len(test_loader))
-        mlflow.log_metric("test_precision", precision/len(test_loader))
-        mlflow.log_metric("test_recall", recall/len(test_loader))
-        mlflow.log_metric("test_f1_score", f1_score/len(test_loader))
         print(f"Test Accuracy: {accuracy/len(test_loader)}")
         print(f"Test Precision: {precision/len(test_loader)}")
         print(f"Test Recall: {recall/len(test_loader)}")
@@ -811,7 +793,6 @@ class UNetExperiment(ExperimentDL):
     
     def save_model(self, model_name="unet"):
         torch.save(self.model.state_dict(), os.path.join(self.save_path, f"{model_name}.pth"))
-        # mlflow.pytorch.log_model(self.model, name=model_name)
 
     def load_model(self, model_name="unet"):
         self.model.load_state_dict(torch.load(os.path.join(self.save_path, f"{model_name}.pth")))
@@ -835,7 +816,6 @@ class ConvAEExperiment(ExperimentDL):
 
     def save_model(self, model_name="convae"):
         torch.save(self.model.state_dict(), os.path.join(self.save_path, f"{model_name}.pth"))
-        mlflow.pytorch.log_model(self.model, artifact_path=model_name)
 
     def load_model(self, model_name="convae"):
         self.model.load_state_dict(torch.load(os.path.join(self.save_path, f"{model_name}.pth")))
@@ -851,7 +831,6 @@ class ExperimentUnetPlus(ExperimentDL):
 
     def save_model(self, model_name="unetplus"):
         torch.save(self.model.state_dict(), os.path.join(self.save_path, f"{model_name}.pth"))
-        mlflow.pytorch.log_model(self.model, artifact_path=model_name)
 
     def load_model(self, model_name="unetplus"):
         self.model.load_state_dict(torch.load(os.path.join(self.save_path, f"{model_name}.pth")))
@@ -1393,24 +1372,6 @@ class ExperimentPC(Experiment):
                 val_clious.append(val_cl_iou)
 
                 print_info(f"Validation — Loss: {val_loss:.4f}, Dice: {val_dice:.4f}, IoU: {val_iou:.4f}, CL-IoU: {val_cl_iou:.4f}")
-
-                mlflow.log_metrics({
-                    "train_loss": epoch_loss,
-                    "train_dice": epoch_dice,
-                    "train_iou": epoch_iou,
-                    "train_cl_iou": epoch_cl_iou,
-                    "val_loss": val_loss,
-                    "val_dice": val_dice,
-                    "val_iou": val_iou,
-                    "val_cl_iou": val_cl_iou
-                }, step=epoch)
-            else:
-                mlflow.log_metrics({
-                    "train_loss": epoch_loss,
-                    "train_dice": epoch_dice,
-                    "train_iou": epoch_iou,
-                    "train_cl_iou": epoch_cl_iou
-                }, step=epoch)
 
             # Progress bar
             pbar.set_postfix({
