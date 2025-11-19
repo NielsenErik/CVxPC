@@ -1,0 +1,47 @@
+Experiment Configurations: {'mlflow': None, 'experiment': 'pcnet_ge', 'algorithm': 'pcnet_ge', 'device': 'cpu', 'n_cpus': 30, 'data_path': 'data/crackseg9k_split/Rissbilder/train', 'test_path': 'data/crackseg9k_split/Rissbilder/test', 'save_path': 'models/', 'validation_split': 0.2, 'epochs': 80, 'batch_size': 32, 'resize_size': [400, 400], 'n_classes': 1, 'max_depth': 3, 'max_branching': 3, 'seed': 1, 'ge': {'generations': 10, 'pop_size': 20, 'genome_len': 96, 'crossover_rate': 0.9, 'mutation_rate': 0.05, 'elite_k': 2, 'train_split': 0.01}, 'execution_mode': 'train', 'log_dir': 'logs/pcnet_ge/Rissbilder/1'}
+Dataset sizes: {'train': 2189, 'val': 438, 'test': 547}
+─────────────────────────────────────────────
+🧠  Probabilistic Circuit Network Summary
+─────────────────────────────────────────────
+📦 Classes: 1
+📏 Input size: torch.Size([3, 400, 400])
+⚙️  Depth: 3, Branching: 3
+💻 Device: cpu
+─────────────────────────────────────────────
+📊 Node counts:
+  • InputNode      : 3
+  • SumNode        : 3
+  • ProductNode    : 1
+  • ClassifierNode : 1
+─────────────────────────────────────────────
+🧩 Trainable parameters: 47
+  • InputNode      : 21
+  • SumNode        : 9
+─────────────────────────────────────────────
+📚 Structure:Memory usage: 0.13 KB
+
+└─ ClassifierNode(classes=2)
+   ├─ GateNode
+   │  ├─ SumNode(children=4, weights=4)
+   │  │  ├─ SumNode(children=3, weights=3)
+   │  │  │  ├─ InputNode(feat_2)
+   │  │  │  ├─ InputNode(feat_2)
+   │  │  │  └─ InputNode(feat_2)
+   │  │  ├─ SumNode(children=2, weights=2)
+   │  │  │  ├─ InputNode(feat_1)
+   │  │  │  └─ InputNode(feat_1)
+   │  │  ├─ ResidualNode
+   │  │  │  ├─ InputNode(feat_2)
+   │  │  │  └─ InputNode(feat_2)
+   │  │  └─ ResidualNode
+   │  │     ├─ InputNode(feat_2)
+   │  │     └─ InputNode(feat_2)
+   │  └─ GateNode
+   │     ├─ InputNode(feat_0)
+   │     └─ ProductNode(children=2)
+   │        ├─ InputNode(feat_0)
+   │        └─ InputNode(feat_0)
+   └─ InputNode(feat_1)
+─────────────────────────────────────────────
+History: {'loss': [0.7333482503890991, 0.7333482503890991, 0.7233517169952393, 0.7251845598220825, 0.7201193571090698, 0.7333482503890991, 0.7198745608329773, 0.7170976400375366, 0.7201193571090698, 0.7201193571090698], 'complexity': [33, 30, 33, 33, 33, 33, 33, 33, 33, 33]}
+Best genome: [113, 26, 199, 231, 179, 221, 220, 204, 128, 25, 0, 52, 110, 190, 144, 5, 53, 250, 252, 96, 206, 199, 160, 164, 157, 235, 189, 34, 211, 137, 180, 51, 184, 78, 207, 116, 140, 45, 118, 219, 4, 194, 126, 184, 169, 110, 70, 160, 35, 149, 24, 166, 160, 21, 193, 106, 201, 10, 45, 126, 48, 84, 169, 36, 169, 26, 44, 150, 203, 43, 76, 242, 253, 148, 114, 88, 156, 151, 75, 5, 38, 245, 107, 123, 119, 200, 16, 21, 70, 124, 171, 125, 112, 240, 41, 146]
