@@ -13,12 +13,11 @@
     "feature_extractor": "cv_modules",
 
     "epochs": 20,
-    "batch_size": 64,
-    "sample_size": 8000,
-    "test_size": 100,
+    "batch_size": 16,
+    "sample_size": 500,
     "resize_size": [
-        128,
-        128
+        256,
+        256
     ],
     "input_channels": 3,
     "n_classes": 2,
@@ -36,7 +35,7 @@
         "crossover_rate": 0.9,
         "mutation_rate": 0.05,
         "elite_k": 2,
-        "train_split": 0.05
+        "train_split": 0.1
     },
 
     "execution_mode": "train"
