@@ -479,7 +479,7 @@ class GEOptimizer:
             history.append(best_loss)
             complexity_hist.append(best_complexity)
 
-            if best_loss < best_score:
+            if best_score is None or best_loss <= best_score:
                 best_score, best_genome = best_loss, deepcopy(best)
 
             elites = [deepcopy(g) for _, _, g in scored[:self.elite_k]]
