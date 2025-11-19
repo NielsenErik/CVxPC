@@ -1,2 +1,31 @@
 Experiment Configurations: {'mlflow': None, 'experiment': 'pcnet_ge', 'algorithm': 'pcnet_ge', 'device': 'cpu', 'n_cpus': 30, 'data_path': 'data/crackseg9k_split/cracktree200/train', 'test_path': 'data/crackseg9k_split/cracktree200/test', 'save_path': 'models/', 'validation_split': 0.2, 'epochs': 80, 'batch_size': 32, 'resize_size': [400, 400], 'n_classes': 1, 'max_depth': 3, 'max_branching': 3, 'seed': 1, 'ge': {'generations': 10, 'pop_size': 20, 'genome_len': 96, 'crossover_rate': 0.9, 'mutation_rate': 0.05, 'elite_k': 2, 'train_split': 0.01}, 'execution_mode': 'train', 'log_dir': 'logs/pcnet_ge/cracktree200/1'}
 Dataset sizes: {'train': 140, 'val': 28, 'test': 35}
+─────────────────────────────────────────────
+🧠  Probabilistic Circuit Network Summary
+─────────────────────────────────────────────
+📦 Classes: 1
+📏 Input size: torch.Size([3, 400, 400])
+⚙️  Depth: 3, Branching: 3
+💻 Device: cpu
+─────────────────────────────────────────────
+📊 Node counts:
+  • InputNode      : 2
+  • SumNode        : 0
+  • ProductNode    : 0
+  • ClassifierNode : 1
+─────────────────────────────────────────────
+🧩 Trainable parameters: 21
+  • InputNode      : 14
+─────────────────────────────────────────────
+📚 Structure:Memory usage: 0.05 KB
+
+└─ ClassifierNode(classes=2)
+   ├─ InputNode(feat_2)
+   └─ InputNode(feat_1)
+─────────────────────────────────────────────
+History: {'loss': [inf, inf, inf, inf, inf, inf, inf, inf, inf, inf], 'complexity': [14, 14, 14, 14, 14, 14, 14, 14, 14, 14]}
+Best genome: [155, 92, 245, 22, 87, 30, 86, 246, 93, 232, 126, 179, 117, 68, 195, 248, 67, 199, 66, 183, 201, 115, 188, 69, 20, 24, 114, 231, 32, 116, 180, 51, 184, 78, 207, 148, 140, 45, 118, 219, 4, 194, 126, 184, 169, 110, 79, 160, 35, 149, 24, 166, 160, 21, 193, 106, 201, 10, 45, 126, 48, 84, 169, 36, 173, 26, 44, 150, 203, 43, 76, 236, 253, 148, 114, 88, 156, 151, 75, 5, 38, 245, 107, 123, 119, 200, 16, 21, 70, 124, 171, 125, 112, 240, 41, 146]
+5	train	0.4974	0.0000
+	val	0.4976	0.0000
+10	train	0.4919	0.0000
+	val	0.4904	0.0000
