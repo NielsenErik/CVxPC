@@ -1,0 +1,49 @@
+Experiment Configurations: {'mlflow': None, 'experiment': 'pcnet_ge', 'algorithm': 'pcnet_ge', 'device': 'cpu', 'n_cpus': 30, 'data_path': 'data/CrackSeg9k/train', 'test_path': 'data/CrackSeg9k/test', 'save_path': 'models/', 'validation_split': 0.2, 'epochs': 80, 'batch_size': 32, 'resize_size': [400, 400], 'n_classes': 1, 'max_depth': 3, 'max_branching': 3, 'seed': 1, 'ge': {'generations': 10, 'pop_size': 20, 'genome_len': 96, 'crossover_rate': 0.9, 'mutation_rate': 0.05, 'elite_k': 2, 'train_split': 0.01}, 'execution_mode': 'train', 'log_dir': 'logs/pcnet_ge/CrackSeg9k/1'}
+Dataset sizes: {'train': 7332, 'val': 1467, 'test': 1827}
+─────────────────────────────────────────────
+🧠  Probabilistic Circuit Network Summary
+─────────────────────────────────────────────
+📦 Classes: 1
+📏 Input size: torch.Size([3, 400, 400])
+⚙️  Depth: 3, Branching: 3
+💻 Device: cpu
+─────────────────────────────────────────────
+📊 Node counts:
+  • InputNode      : 3
+  • SumNode        : 4
+  • ProductNode    : 1
+  • ClassifierNode : 1
+─────────────────────────────────────────────
+🧩 Trainable parameters: 63
+  • InputNode      : 21
+  • SumNode        : 12
+─────────────────────────────────────────────
+📚 Structure:Memory usage: 0.14 KB
+
+└─ ClassifierNode(classes=2)
+   ├─ InputNode(feat_0)
+   └─ SumNode(children=2, weights=2)
+      ├─ SumNode(children=4, weights=4)
+      │  ├─ SumNode(children=3, weights=3)
+      │  │  ├─ InputNode(feat_2)
+      │  │  ├─ InputNode(feat_2)
+      │  │  └─ InputNode(feat_2)
+      │  ├─ GateNode
+      │  │  ├─ InputNode(feat_0)
+      │  │  └─ InputNode(feat_0)
+      │  ├─ InputNode(feat_0)
+      │  └─ InputNode(feat_0)
+      └─ ProductNode(children=3)
+         ├─ ResidualNode
+         │  ├─ InputNode(feat_1)
+         │  └─ InputNode(feat_1)
+         ├─ GateNode
+         │  ├─ InputNode(feat_2)
+         │  └─ InputNode(feat_2)
+         └─ SumNode(children=3, weights=3)
+            ├─ InputNode(feat_1)
+            ├─ InputNode(feat_1)
+            └─ InputNode(feat_1)
+─────────────────────────────────────────────
+History: {'loss': [0.5972051620483398, 0.5853649377822876, 0.5813357830047607, 0.582118034362793, 0.5900870561599731, 0.5972051620483398, 0.5853649377822876, 0.5857870578765869, 0.5887856483459473, 0.5823242664337158], 'complexity': [37, 37, 37, 37, 37, 33, 38, 38, 38, 38]}
+Best genome: [35, 96, 166, 252, 1, 183, 216, 243, 108, 30, 69, 217, 224, 163, 31, 31, 122, 150, 8, 175, 139, 3, 24, 116, 184, 211, 110, 75, 247, 117, 80, 113, 3, 77, 131, 235, 188, 200, 139, 28, 100, 255, 11, 225, 175, 72, 199, 214, 11, 27, 170, 255, 6, 170, 34, 166, 159, 23, 174, 229, 221, 7, 62, 61, 116, 36, 218, 198, 206, 50, 3, 233, 73, 168, 232, 9, 1, 1, 40, 13, 209, 155, 250, 205, 246, 61, 73, 217, 62, 14, 171, 205, 247, 237, 30, 197]
