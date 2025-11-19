@@ -7,7 +7,7 @@
     "save_path": "models/",
     "model_name": "unetplus",
     "validation_split": 0.2,
-    "epochs": 10,
+    "epochs": 80,
     "batch_size": 16,
     "resize_size": [
         256,

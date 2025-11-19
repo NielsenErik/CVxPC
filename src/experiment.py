@@ -621,50 +621,57 @@ class ExperimentDL(Experiment):
     def evaluate(self, model, test_data, loss_function=torch.nn.BCEWithLogitsLoss()):
         test_loader = DataLoader(test_data, batch_size=self.batch_size, shuffle=False)
         model.eval()
-        test_loss, test_dice, test_iou, test_cliou = 0,0,0,0
-        accuracy, precision, recall, f1_score = 0,0,0,0
+        losses, dices, ious, clious = [], [], [], []
+        accuracies, precisions, recalls, f1_scores = [], [], [], []
+        losses, dices, ious, clious = [], [], [], []
+        accuracies, precisions, recalls, f1_scores = [], [], [], []
         with torch.no_grad():
             for images, masks in test_loader:
                 images, masks = images.to(self.device), masks.to(self.device)
                 outputs = model(images)
                 loss = loss_function(outputs, masks)
-                test_loss += loss.item()
-                test_dice += self.dice_coef(outputs, masks).item()
-                test_iou  += self.iou_score(outputs, masks).item()
-                test_cliou += self.cl_iou_score(outputs, masks)
-                accuracy += ((outputs == masks).float().sum()) / torch.numel(masks)
-                precision += ( ( (outputs == 1) & (masks == 1) ).float().sum() ) / ( (outputs == 1).float().sum() + 1e-8 )
-                recall += ( ( (outputs == 1) & (masks == 1) ).float().sum() ) / ( (masks == 1).float().sum() + 1e-8 )
-                f1_score += 2 * (precision * recall) / (precision + recall + 1e-8)
-        print(f"Test Loss: {test_loss/len(test_loader)}")
-        print(f"Test Dice: {test_dice/len(test_loader)}")
-        print(f"Test IoU: {test_iou/len(test_loader)}")
-        print(f"Test CL IoU: {test_cliou/len(test_loader)}")
-        print(f"Test Accuracy: {accuracy/len(test_loader)}")
-        print(f"Test Precision: {precision/len(test_loader)}")
-        print(f"Test Recall: {recall/len(test_loader)}")
-        print(f"Test F1 Score: {f1_score/len(test_loader)}")
+        
+                dice_score = self.dice_coef(outputs, masks)
+                iou_score = self.iou_score(outputs, masks)
+                cl_iou_score = self.cl_iou_score(outputs, masks)
+                prob = torch.sigmoid(outputs)
+                pred_mask = (prob > self.threshold).float()
+                true_mask = masks.float()
 
-        with open(self.experiment_report, "a") as f:
-            f.write(f"Test Loss: {test_loss/len(test_loader)}\n")
-            f.write(f"Test dice: {test_dice/len(test_loader)}\n")
-            f.write(f"Test iou: {test_iou/len(test_loader)}\n")
-            f.write(f"Test cliou: {test_cliou/len(test_loader)}\n")
-            f.write(f"Test accuracy: {accuracy/len(test_loader)}\n")
-            f.write(f"Test precision: {precision/len(test_loader)}\n")
-            f.write(f"Test recall: {recall/len(test_loader)}\n")
-            f.write(f"Test f1 score: {f1_score/len(test_loader)}\n")
-        f.close()
-        self.experiment_dict["test_metrics"] = {
-            "test_loss": test_loss/len(test_loader),
-            "test_dice": test_dice/len(test_loader),
-            "test_iou": test_iou/len(test_loader),
-            "test_cliou": test_cliou/len(test_loader),
-            "test_accuracy": accuracy/len(test_loader),
-            "test_precision": precision/len(test_loader),
-            "test_recall": recall/len(test_loader),
-            "test_f1_score": f1_score/len(test_loader)
+                accuracy = ((pred_mask == true_mask).float().sum()) / torch.numel(true_mask)
+                precision = ( ( (pred_mask == 1) & (true_mask == 1) ).float().sum() ) / ( (pred_mask == 1).float().sum() + 1e-8 )
+                recall = ( ( (pred_mask == 1) & (true_mask == 1) ).float().sum() ) / ( (true_mask == 1).float().sum() + 1e-8 )
+                f1_score = 2 * (precision * recall) / (precision + recall + 1e-8)
+
+                losses.append(loss.item())
+                dices.append(float(torch.as_tensor(dice_score).mean()))
+                ious.append(float(torch.as_tensor(iou_score).mean()))
+                clious.append(float(torch.as_tensor(cl_iou_score)))
+
+                accuracies.append(accuracy.item())
+                precisions.append(precision.item())
+                recalls.append(recall.item())
+                f1_scores.append(f1_score.item())
+
+        print_info("✅ Testing complete.")
+        print_info(f"Test Loss: {np.mean(losses):.4f}, Dice: {np.mean(dices):.4f}, IoU: {np.mean(ious):.4f}, CL IoU: {np.mean(clious):.4f}")
+        print_info(f"Test Accuracy: {np.mean(accuracies):.4f}, Precision: {np.mean(precisions):.4f}, Recall: {np.mean(recalls):.4f}, F1-Score: {np.mean(f1_scores):.4f}")
+        self.experiment_dict["results"] = {
+            "test_loss": np.mean(losses),
+            "test_dice": np.mean(dices),
+            "test_iou": np.mean(ious),
+            "test_cl_iou": np.mean(clious),
+            "test_accuracy": np.mean(accuracies),
+            "test_precision": np.mean(precisions),
+            "test_recall": np.mean(recalls),
+            "test_f1_score": np.mean(f1_scores)
         }
+        with open(self.experiment_report, "a") as f:
+            f.write(f"Test Loss: {np.mean(losses):.4f}, Dice: {np.mean(dices):.4f}, IoU: {np.mean(ious):.4f}, CL IoU: {np.mean(clious):.4f}\n")
+            f.write(f"Test Accuracy: {np.mean(accuracies):.4f}, Precision: {np.mean(precisions):.4f}, Recall: {np.mean(recalls):.4f}, F1-Score: {np.mean(f1_scores):.4f}\n")
+        test_loss = sum(losses)
+
+                
         return test_loss/len(test_loader)        
 
     def log_results(self):

@@ -27,7 +27,7 @@
         "crossover_rate": 0.9,
         "mutation_rate": 0.05,
         "elite_k": 2,
-        "train_split": 0.05
+        "train_split": 0.2
     },
 
     "execution_mode": "train"
