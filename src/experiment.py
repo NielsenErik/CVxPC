@@ -623,6 +623,8 @@ class ExperimentDL(Experiment):
         model.eval()
         losses, dices, ious, clious = [], [], [], []
         accuracies, precisions, recalls, f1_scores = [], [], [], []
+        losses, dices, ious, clious = [], [], [], []
+        accuracies, precisions, recalls, f1_scores = [], [], [], []
         with torch.no_grad():
             for images, masks in test_loader:
                 images, masks = images.to(self.device), masks.to(self.device)

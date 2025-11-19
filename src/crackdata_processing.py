@@ -143,6 +143,7 @@ class CrackDataset(Dataset):
         img = self.resize_img(img, self.resize_size[0], self.resize_size[1])
         if mask is not None:
             mask = self.resize_gt(mask, self.resize_size[0], self.resize_size[1])
+            mask = (mask > 0.1).float()
         return img, mask
     
 if __name__ == "__main__":
