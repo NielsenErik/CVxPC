@@ -65,3 +65,82 @@ Best genome: [39, 104, 215, 55, 242, 150, 154, 81, 235, 9, 76, 73, 122, 121, 144
 	val	0.4789	0.1091
 25	train	0.4732	0.1056
 	val	0.4732	0.0825
+30	train	0.4682	0.0920
+	val	0.4679	0.0787
+35	train	0.4631	0.0876
+	val	0.4627	0.0840
+40	train	0.4573	0.0558
+	val	0.4573	0.0489
+45	train	0.4507	0.0280
+	val	0.4511	0.0332
+50	train	0.4435	0.0263
+	val	0.4438	0.0327
+55	train	0.4354	0.0295
+	val	0.4360	0.0392
+60	train	0.4297	0.0297
+	val	0.4297	0.0395
+65	train	0.4253	0.0349
+	val	0.4248	0.0449
+70	train	0.4207	0.0428
+	val	0.4207	0.0500
+75	train	0.4167	0.0495
+	val	0.4170	0.0546
+80	train	0.4119	0.0565
+	val	0.4130	0.0625
+Final Training — Loss: 0.4119, Dice: 0.3757, IoU: 0.2705, CL-IoU: 0.0565
+Final Validation — Loss: 0.4130, Dice: 0.3753, IoU: 0.2719, CL-IoU: 0.0625
+Test Loss: 0.3970, Dice: 0.3796, IoU: 0.2710, CL IoU: 0.0546
+Test Accuracy: 0.4332, Precision: 0.0741, Recall: 0.9392, F1-Score: 0.1373
+─────────────────────────────────────────────
+🧠  Probabilistic Circuit Network Summary
+─────────────────────────────────────────────
+📦 Classes: 1
+📏 Input size: torch.Size([3, 400, 400])
+⚙️  Depth: 3, Branching: 3
+💻 Device: cpu
+─────────────────────────────────────────────
+📊 Node counts:
+  • InputNode      : 3
+  • SumNode        : 4
+  • ProductNode    : 3
+  • ClassifierNode : 1
+─────────────────────────────────────────────
+🧩 Trainable parameters: 65
+  • InputNode      : 21
+  • SumNode        : 11
+─────────────────────────────────────────────
+📚 Structure:Memory usage: 0.14 KB
+
+└─ ClassifierNode(classes=2)
+   ├─ ResidualNode
+   │  ├─ ResidualNode
+   │  │  ├─ InputNode(feat_1)
+   │  │  └─ ProductNode(children=2)
+   │  │     ├─ InputNode(feat_2)
+   │  │     └─ InputNode(feat_2)
+   │  └─ InputNode(feat_1)
+   └─ SumNode(children=3, weights=3)
+      ├─ ResidualNode
+      │  ├─ SumNode(children=3, weights=3)
+      │  │  ├─ InputNode(feat_0)
+      │  │  ├─ InputNode(feat_0)
+      │  │  └─ InputNode(feat_0)
+      │  └─ ProductNode(children=2)
+      │     ├─ InputNode(feat_1)
+      │     └─ InputNode(feat_1)
+      ├─ SumNode(children=2, weights=2)
+      │  ├─ ProductNode(children=4)
+      │  │  ├─ InputNode(feat_1)
+      │  │  ├─ InputNode(feat_1)
+      │  │  ├─ InputNode(feat_1)
+      │  │  └─ InputNode(feat_1)
+      │  └─ ResidualNode
+      │     ├─ InputNode(feat_2)
+      │     └─ InputNode(feat_2)
+      └─ SumNode(children=3, weights=3)
+         ├─ ResidualNode
+         │  ├─ InputNode(feat_2)
+         │  └─ InputNode(feat_2)
+         ├─ InputNode(feat_2)
+         └─ InputNode(feat_0)
+─────────────────────────────────────────────
