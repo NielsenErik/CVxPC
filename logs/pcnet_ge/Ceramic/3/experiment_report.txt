@@ -1,2 +1,79 @@
-Experiment Configurations: {'mlflow': None, 'experiment': 'pcnet_ge', 'algorithm': 'pcnet_ge', 'device': 'cpu', 'n_cpus': 30, 'data_path': 'data/crackseg9k_split/Ceramic/train', 'test_path': 'data/crackseg9k_split/Ceramic/test', 'save_path': 'models/', 'validation_split': 0.2, 'epochs': 80, 'batch_size': 32, 'resize_size': [400, 400], 'n_classes': 1, 'max_depth': 3, 'max_branching': 3, 'seed': 3, 'ge': {'generations': 10, 'pop_size': 20, 'genome_len': 96, 'crossover_rate': 0.9, 'mutation_rate': 0.05, 'elite_k': 2, 'train_split': 0.01}, 'execution_mode': 'train', 'log_dir': 'logs/pcnet_ge/Ceramic/3'}
+Experiment Configurations: {'mlflow': None, 'experiment': 'pcnet_ge', 'algorithm': 'pcnet_ge', 'device': 'cpu', 'n_cpus': 30, 'data_path': 'data/crackseg9k_split/Ceramic/train', 'test_path': 'data/crackseg9k_split/Ceramic/test', 'save_path': 'models/', 'validation_split': 0.2, 'epochs': 80, 'batch_size': 32, 'resize_size': [400, 400], 'n_classes': 1, 'max_depth': 3, 'max_branching': 3, 'seed': 3, 'ge': {'generations': 10, 'pop_size': 20, 'genome_len': 96, 'crossover_rate': 0.9, 'mutation_rate': 0.05, 'elite_k': 2, 'train_split': 0.2}, 'execution_mode': 'train', 'log_dir': 'logs/pcnet_ge/Ceramic/3'}
 Dataset sizes: {'train': 80, 'val': 16, 'test': 20}
+─────────────────────────────────────────────
+🧠  Probabilistic Circuit Network Summary
+─────────────────────────────────────────────
+📦 Classes: 1
+📏 Input size: torch.Size([3, 400, 400])
+⚙️  Depth: 3, Branching: 3
+💻 Device: cpu
+─────────────────────────────────────────────
+📊 Node counts:
+  • InputNode      : 3
+  • SumNode        : 3
+  • ProductNode    : 3
+  • ClassifierNode : 1
+─────────────────────────────────────────────
+🧩 Trainable parameters: 86
+  • InputNode      : 21
+  • SumNode        : 7
+─────────────────────────────────────────────
+📚 Structure:Memory usage: 0.13 KB
+
+└─ ClassifierNode(classes=2)
+   ├─ GateNode
+   │  ├─ SumNode(children=3, weights=3)
+   │  │  ├─ SumNode(children=2, weights=2)
+   │  │  │  ├─ InputNode(feat_2)
+   │  │  │  └─ InputNode(feat_2)
+   │  │  ├─ ResidualNode
+   │  │  │  ├─ InputNode(feat_0)
+   │  │  │  └─ InputNode(feat_0)
+   │  │  └─ ResidualNode
+   │  │     ├─ InputNode(feat_1)
+   │  │     └─ InputNode(feat_1)
+   │  └─ GateNode
+   │     ├─ ProductNode(children=4)
+   │     │  ├─ InputNode(feat_0)
+   │     │  ├─ InputNode(feat_0)
+   │     │  ├─ InputNode(feat_0)
+   │     │  └─ InputNode(feat_0)
+   │     └─ ProductNode(children=2)
+   │        ├─ InputNode(feat_1)
+   │        └─ InputNode(feat_1)
+   └─ ProductNode(children=2)
+      ├─ InputNode(feat_0)
+      └─ SumNode(children=2, weights=2)
+         ├─ ResidualNode
+         │  ├─ InputNode(feat_1)
+         │  └─ InputNode(feat_1)
+         └─ GateNode
+            ├─ InputNode(feat_2)
+            └─ InputNode(feat_2)
+─────────────────────────────────────────────
+History: {'loss': [0.4983784854412079, 0.4983784854412079, 0.4983784854412079, 0.4983784854412079, 0.4983784854412079, 0.4983784854412079, 0.4983784854412079, 0.4983784854412079, 0.4983784854412079, 0.49249881505966187], 'complexity': [25, 34, 43, 33, 14, 34, 33, 14, 14, 34]}
+Best genome: [138, 121, 225, 186, 244, 84, 134, 133, 217, 112, 102, 5, 93, 211, 2, 229, 138, 35, 77, 141, 80, 27, 170, 172, 30, 71, 62, 168, 186, 186, 240, 196, 63, 27, 157, 234, 249, 58, 60, 9, 36, 167, 139, 94, 79, 212, 117, 206, 246, 81, 51, 243, 117, 74, 30, 131, 231, 65, 253, 239, 46, 42, 136, 11, 76, 111, 248, 254, 189, 228, 23, 191, 216, 228, 57, 228, 29, 132, 120, 80, 5, 197, 85, 169, 105, 1, 236, 4, 141, 254, 147, 34, 99, 32, 146, 229]
+5	train	0.4691	0.1123
+	val	0.4634	0.2346
+10	train	0.4675	0.1166
+	val	0.4597	0.2342
+15	train	0.4660	0.1155
+	val	0.4564	0.2220
+20	train	0.4645	0.1170
+	val	0.4534	0.2235
+25	train	0.4634	0.1230
+	val	0.4511	0.2384
+30	train	0.4621	0.1265
+	val	0.4494	0.2357
+35	train	0.4619	0.1264
+	val	0.4482	0.2379
+40	train	0.4612	0.1259
+	val	0.4475	0.2350
+45	train	0.4606	0.1262
+	val	0.4471	0.2301
+50	train	0.4603	0.1278
+	val	0.4467	0.2281
+55	train	0.4597	0.1295
+	val	0.4464	0.2246
+60	train	0.4594	0.1322
+	val	0.4459	0.2234
