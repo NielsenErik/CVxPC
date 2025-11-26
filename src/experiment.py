@@ -268,7 +268,12 @@ class Experiment:
 
         if self.execution_mode == "train":
             self.images_path = train_path + "/images/"
-            self.ground_truth_path = train_path + "/masks/"        
+            self.ground_truth_path = train_path + "/masks/"  
+            if self.sample_size is not None: 
+                n_images = len(os.listdir(self.images_path))
+                print_info(f"Number of images: {n_images}")
+                self.sample_size = int(n_images * self.sample_size)
+                print_info(f"Using sample size: {self.sample_size}/{n_images} which is {self.sample_size/n_images*100}% of the dataset")  
             self.data = CrackDataset(self.images_path, self.ground_truth_path,sample_size=self.sample_size, resize_size=(self.resize_size[0], self.resize_size[1]))
             torch.manual_seed(self.config.get("seed", 42))
             perm = torch.randperm(len(self.data))  # permutation over CrackDataset
@@ -1597,7 +1602,7 @@ class ExperimentPC(Experiment):
             pickle.dump(self.model, f)
 
     def load_model(self, model_name="pcnet"):
-        with open(os.path.join(self.save_path, f"{model_name}.pkl"), "rb") as f:
+        with open(model_name, "rb") as f:
             self.model = pickle.load(f)
 
     # --------------------------------------------------------
@@ -1734,7 +1739,7 @@ class ExperimentGEPC(ExperimentPC):
     def run(self):
         
         self.set_dataset(self.data_path, self.test_path)
-        print_info("Dataset size:", len(self.data))
+        # print_info("Dataset size:", len(self.data))
         if self.execution_mode == "train":
             self.set_algorithm()
             
@@ -1822,9 +1827,24 @@ class ExperimentGEPC(ExperimentPC):
                 json.dump(self.experiment_dict, open(os.path.join(self.config["log_dir"], "experiment.json"), "w"), indent=4)
                 self.show_prediction(self.model)
         elif self.execution_mode == "test":
-            self.load_model(self.model_name)
-            self.test_inputs = torch.from_numpy(self.get_feature_tensor(np.array([self.test_data[i][0] for i in range(len(self.test_data))]))).float().to(self.device)
-            self.test_ground_truth = torch.from_numpy(np.array([self.test_data[i][1] for i in range(len(self.test_data))])).long().to(self.device)
+            self.model_path = self.config["model_path"]
+            self.load_model(self.model_path)
+            test_data = []
+            test_masks = []
+            for i in range(len(self.test_data)):
+                try:
+                    x = self.test_data[i]
+                    test_data.append(x[0])
+                    test_masks.append(x[1])
+                except Exception as e:
+                    print_error(f"Error processing validation sample {i}: {e}")
+            self.test_inputs = torch.from_numpy(np.array(test_data)).float().to(self.device)
+            self.test_ground_truth = torch.from_numpy(np.array(test_masks)).long().to(self.device)
+            self.set_criterion(self.test_ground_truth)
             if self.test_ground_truth.dim() == 4 and self.test_ground_truth.size(1) == 1:
-                    self.test_ground_truth = self.test_ground_truth.squeeze(1)
-            self.show_prediction(self.model)
+                self.test_ground_truth = self.test_ground_truth.squeeze(1)
+            test_loader = self.get_dataloaders(TensorDataset(self.test_inputs, self.test_ground_truth), shuffle=False, batch_size=self.batch_size)
+            loss, dice, iou, cl_iou = self.test(self.model, test_loader)
+            json.dump(self.experiment_dict, open(os.path.join(self.config["log_dir"], "experiment.json"), "w"), indent=4)
+
+
