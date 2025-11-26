@@ -5,8 +5,8 @@
     "device": "cpu",
     "n_cpus": 4,
 
-    "data_path": "data/crackseg9k_split/cracktree200/train",
-    "test_path": "data/crackseg9k_split/cracktree200/test",
+    "data_path": "data/crackseg9k_split/DeepCrack/train",
+    "test_path": "data/crackseg9k_split/DeepCrack/test",
     "save_path": "models/",
     "validation_split": 0.2,
 

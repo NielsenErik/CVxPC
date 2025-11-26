@@ -10,137 +10,267 @@ import pickle
 import scienceplots
 plt.style.use('science')
 
-class PCNetAnalyzer:
-    def __init__(self, pcnet):
-        self.pcnet = pcnet
+# =========================================================
+# pcnet_plots.py
+# Utility to generate structural and interpretability plots
+# for PCNet / MultiPCNet models
+# =========================================================
 
-    # --------------------------
-    # Histogram of gate / residual coefficients
-    # --------------------------
-    def plot_parameter_histograms(self, save_path=None):
-        gate_vals, res_vals = [], []
-        for n in self.pcnet.get_nodes():
-            if isinstance(n, GateNode):
-                gate_vals.append(torch.sigmoid(n.alpha).item())
-            elif isinstance(n, ResidualNode):
-                res_vals.append(torch.sigmoid(n.beta).item())
+import os
+import torch
+import numpy as np
+import matplotlib.pyplot as plt
+import networkx as nx
+from scipy.ndimage import gaussian_filter
 
-        plt.figure(figsize=(10,4))
-        if gate_vals:
-            sns.histplot(gate_vals, kde=True, color="orange", label="GateNode α (sigmoid)")
-        if res_vals:
-            sns.histplot(res_vals, kde=True, color="skyblue", label="ResidualNode β (sigmoid)")
-        plt.legend()
-        plt.title("Distribution of Gate / Residual Coefficients")
-        plt.xlabel("Value (after sigmoid)")
-        plt.ylabel("Count")
-        if save_path:
-            plt.savefig(save_path, bbox_inches='tight')
-            print(f"Saved histogram to {save_path}")
-        plt.show()
+# ---------------------------------------------------------
+# 1. STRUCTURAL VISUALIZATIONS
+# ---------------------------------------------------------
 
-    # --------------------------
-    # Heatmap visualization of per-feature gate/residual activation
-    # --------------------------
-    def activation_heatmap(self, inputs, save_path=None):
-        """
-        Compute per-feature average gate and residual activation strength.
-        Args:
-            inputs (torch.Tensor): input batch (B, C, H, W)
-        """
-        activations = []
-        with torch.no_grad():
-            for node in self.pcnet.get_nodes():
-                if isinstance(node, GateNode):
-                    gate_val = torch.sigmoid(node.alpha).item()
-                    activations.append(("GateNode", node, gate_val))
-                elif isinstance(node, ResidualNode):
-                    res_val = torch.sigmoid(node.beta).item()
-                    activations.append(("ResidualNode", node, res_val))
+def plot_node_type_distribution(pcnet, save_dir):
+    os.makedirs(save_dir, exist_ok=True)
+    nodes = list(pcnet.get_nodes())
+    types = [n.__class__.__name__ for n in nodes]
 
-        if not activations:
-            print("No Gate/Residual nodes to visualize.")
-            return
+    vals = {}
+    for t in types:
+        vals[t] = vals.get(t,0)+1
 
-        # Convert to heatmap-like tensor for visualization
-        names, vals = zip(*[(a[0], a[2]) for a in activations])
-        vals = np.array(vals)
-
-        # Plot
-        plt.figure(figsize=(8, max(2, len(vals)*0.2)))
-        sns.heatmap(vals.reshape(-1,1),
-                    annot=True, fmt=".2f",
-                    cmap="coolwarm", cbar=True,
-                    yticklabels=names,
-                    xticklabels=["Activation"])
-        plt.title("Gate / Residual Activation Heatmap")
-        if save_path:
-            plt.savefig(save_path, bbox_inches='tight')
-            print(f"Saved heatmap to {save_path}")
-        plt.show()
-
-        # ----------------------------------------------------------
-    # Per-sample GateNode activation maps (dynamic visualization)
-    # ----------------------------------------------------------
-    def sample_gate_maps(self, inputs, max_nodes=4, save_dir=None):
-        """
-        Visualize GateNode activations for specific inputs.
-        Each GateNode outputs a gate value per image -> heatmap overlay.
-
-        Args:
-            inputs (torch.Tensor): shape (B, C, H, W)
-            max_nodes (int): number of GateNodes to visualize
-            save_dir (str): directory to save plots (optional)
-        """
-        if save_dir:
-            os.makedirs(save_dir, exist_ok=True)
-
-        gate_nodes = [n for n in self.pcnet.get_nodes() if isinstance(n, GateNode)]
-        if not gate_nodes:
-            print("No GateNodes found for visualization.")
-            return
-
-        gate_nodes = gate_nodes[:max_nodes]
-
-        with torch.no_grad():
-            for i, node in enumerate(gate_nodes):
-                gate = torch.sigmoid(node.alpha).item()
-                # Estimate activation map: combine child log-likelihoods spatially
-                A = node.children[0].evaluate(inputs)  # (B, H, W)
-                B = node.children[1].evaluate(inputs)
-                # Compute soft contribution of each pixel
-                contrib = torch.softmax(torch.stack([A, B], dim=0), dim=0)[0]  # select first child weight
-                mean_map = contrib.mean(dim=0).cpu().numpy()
-
-                plt.figure(figsize=(4,4))
-                sns.heatmap(mean_map, cmap="magma", cbar=False)
-                plt.title(f"GateNode {i} — α={gate:.2f}")
-                if save_dir:
-                    path = os.path.join(save_dir, f"gate_map_{i}.png")
-                    plt.savefig(path, bbox_inches='tight')
-                    print(f"Saved {path}")
-                plt.show()
+    plt.figure(figsize=(6,4))
+    plt.bar(vals.keys(), vals.values())
+    plt.title("Node Type Distribution")
+    plt.ylabel("#Nodes")
+    plt.tight_layout()
+    plt.savefig(f"{save_dir}/node_type_distribution.png")
+    plt.close()
 
 
-    # --------------------------
-    # Combined summary
-    # --------------------------
-    def summary(self, inputs=None, save_dir=None):
-        if save_dir:
-            os.makedirs(save_dir, exist_ok=True)
-        hist_path = os.path.join(save_dir, "gate_res_hist.png") if save_dir else None
-        heat_path = os.path.join(save_dir, "gate_res_heatmap.png") if save_dir else None
+def plot_depth_histogram(pcnet, save_dir):
+    """
+    Compute the depth of each node by BFS from root.
+    """
+    os.makedirs(save_dir, exist_ok=True)
+    root = pcnet.root
+    edges = pcnet.get_edges()
 
-        self.plot_parameter_histograms(save_path=hist_path)
-        if inputs is not None:
-            self.activation_heatmap(inputs, save_path=heat_path)
+    children_map = {}
+    parents_map  = {}
+    for p,c in edges:
+        children_map.setdefault(p, []).append(c)
+        parents_map.setdefault(c, []).append(p)
+
+    # BFS depth
+    depths = {root: 0}
+    queue = [root]
+
+    while queue:
+        n = queue.pop(0)
+        for ch in children_map.get(n,[]):
+            if ch not in depths:
+                depths[ch] = depths[n] + 1
+                queue.append(ch)
+
+    plt.figure(figsize=(6,4))
+    plt.hist(list(depths.values()))
+    plt.title("Node Depth Histogram")
+    plt.xlabel("Depth")
+    plt.ylabel("#Nodes")
+    plt.tight_layout()
+    plt.savefig(f"{save_dir}/node_depth_histogram.png")
+    plt.close()
+
+
+def plot_inputnode_parameter_distributions(pcnet, save_dir):
+    os.makedirs(save_dir, exist_ok=True)
+
+    mus, sigmas, nus = [], [], []
+    for n in pcnet.get_nodes():
+        if n.__class__.__name__ == "InputNode":
+            mus.append(n.mu.item())
+            sigmas.append(torch.exp(n.log_sigma).item())
+            nus.append(torch.exp(n.log_nu).item())
+
+    fig, axs = plt.subplots(1,3, figsize=(12,4))
+    axs[0].hist(mus, bins=20); axs[0].set_title("μ distribution")
+    axs[1].hist(sigmas, bins=20); axs[1].set_title("σ distribution")
+    axs[2].hist(nus, bins=20); axs[2].set_title("ν distribution")
+    fig.tight_layout()
+    plt.savefig(f"{save_dir}/inputnode_param_distributions.png")
+    plt.close()
+
+# ---------------------------------------------------------
+# 2. ACTIVATION & INTERPRETABILITY MAPS
+# ---------------------------------------------------------
+
+def eval_all_nodes(pcnet, x):
+    """
+    Return a dict: node -> activation (log-prob map)
+    """
+    node_outputs = {}
+    # evaluate in topological order
+    for n in pcnet.get_nodes():
+        try:
+            out = n.evaluate(x)
+            node_outputs[n] = out.detach().cpu().numpy()
+        except:
+            pass
+    return node_outputs
+
+
+def plot_node_activation_maps(pcnet, x, save_dir, max_nodes=20):
+    """
+    For each node, save a heatmap of its activation map.
+    """
+    os.makedirs(save_dir, exist_ok=True)
+    node_outputs = eval_all_nodes(pcnet, x)
+
+    for i, (node, act) in enumerate(node_outputs.items()):
+        if i >= max_nodes:
+            break
+        if act.ndim == 4:
+            act = act[0,0] if act.shape[1]>1 else act[0,0]   # pick class 0
+
+        plt.figure(figsize=(4,4))
+        plt.imshow(act, cmap="viridis")
+        plt.colorbar()
+        plt.title(node.__class__.__name__)
+        plt.tight_layout()
+        plt.savefig(f"{save_dir}/node_{i}_{node.__class__.__name__}.png")
+        plt.close()
+
+
+def plot_class_loglik_maps(pcnet, x, save_dir):
+    """
+    Plot log-likelihood maps for each class.
+    """
+    os.makedirs(save_dir, exist_ok=True)
+    with torch.no_grad():
+        logits = pcnet.evaluate(x)
+
+    logits = logits[0].detach().cpu().numpy()  # (C,H,W)
+
+    C = logits.shape[0]
+    fig, axs = plt.subplots(1,C, figsize=(5*C,4))
+    for c in range(C):
+        axs[c].imshow(logits[c], cmap="magma")
+        axs[c].set_title(f"Class {c} log-likelihood")
+        axs[c].axis("off")
+
+    plt.tight_layout()
+    plt.savefig(f"{save_dir}/class_loglik_maps.png")
+    plt.close()
+
+# ---------------------------------------------------------
+# 3. GATE & RESIDUAL INTERPRETABILITY
+# ---------------------------------------------------------
+
+def plot_gate_residual_maps(pcnet, x, save_dir):
+    """
+    Visualize gate α and residual β values as global interpretability signals.
+    """
+    os.makedirs(save_dir, exist_ok=True)
+
+    gate_vals = []
+    resid_vals = []
+
+    for n in pcnet.get_nodes():
+        if n.__class__.__name__ == "GateNode":
+            gate_vals.append(torch.sigmoid(n.alpha).item())
+        if n.__class__.__name__ == "ResidualNode":
+            resid_vals.append(torch.sigmoid(n.beta).item())
+
+    fig, ax = plt.subplots(1,2, figsize=(10,4))
+    ax[0].hist(gate_vals); ax[0].set_title("Gate α values (sigmoid(α))")
+    ax[1].hist(resid_vals); ax[1].set_title("Residual β values")
+    plt.tight_layout()
+    plt.savefig(f"{save_dir}/gate_residual_distributions.png")
+    plt.close()
+
+# ---------------------------------------------------------
+# 4. GRADIENT-BASED SALIENCY ("CIRCUIT SALIENCY")
+# ---------------------------------------------------------
+
+def plot_input_saliencies(pcnet, x, save_dir):
+    """
+    Compute ∂ log p(x) / ∂ x for interpretability.
+    """
+    os.makedirs(save_dir, exist_ok=True)
+    x = x.clone().detach().requires_grad_(True)
+
+    out = pcnet.evaluate(x)
+    loss = out.sum()
+    loss.backward()
+
+    grad = x.grad.detach().cpu().numpy()[0]  # (C,H,W)
+
+    C = grad.shape[0]
+    fig, axs = plt.subplots(1,C, figsize=(5*C,4))
+    for c in range(C):
+        axs[c].imshow(np.abs(grad[c]), cmap="inferno")
+        axs[c].set_title(f"Saliency channel {c}")
+        axs[c].axis("off")
+
+    plt.tight_layout()
+    plt.savefig(f"{save_dir}/input_saliencies.png")
+    plt.close()
+
+# ---------------------------------------------------------
+# 5. MULTIPCNET INTERPRETABILITY: EXPERT RESPONSIBILITY
+# ---------------------------------------------------------
+
+def plot_expert_selection_map(multinet, x, save_dir):
+    """
+    For soft selectors: extract mixture weights → soft responsibility map.
+    """
+    os.makedirs(save_dir, exist_ok=True)
+
+    out = multinet.evaluate(x)     # (B,C,H,W)
+
+    if hasattr(multinet.selector, "logits"):
+        w = torch.softmax(multinet.selector.logits, dim=0).cpu().numpy()
+        plt.figure(figsize=(6,4))
+        plt.bar(np.arange(len(w)), w)
+        plt.title("Soft selector expert weights")
+        plt.savefig(f"{save_dir}/selector_weights.png")
+        plt.close()
+
+# ---------------------------------------------------------
+# MASTER FUNCTION
+# ---------------------------------------------------------
+
+def generate_all_pcnet_plots(model, x, save_root="pcnet_plots", max_nodes=20):
+    """
+    model: PCNet or MultiPCNet
+    x: (1,C,H,W) tensor
+    """
+    os.makedirs(save_root, exist_ok=True)
+
+    if hasattr(model, "experts"):
+        # MultiPCNet
+        for i, e in enumerate(model.experts):
+            subdir = f"{save_root}/expert_{i}"
+            generate_all_pcnet_plots(e.model, x, save_root=subdir)
+
+        plot_expert_selection_map(model, x, f"{save_root}/selector")
+        return
+
+    # Single PCNet
+    plot_node_type_distribution(model, save_root)
+    plot_depth_histogram(model, save_root)
+    plot_inputnode_parameter_distributions(model, save_root)
+    plot_node_activation_maps(model, x, f"{save_root}/node_maps", max_nodes=max_nodes)
+    plot_class_loglik_maps(model, x, save_root)
+    plot_gate_residual_maps(model, x, save_root)
+    plot_input_saliencies(model, x, save_root)
+
+    print(f"All plots saved in: {save_root}")
 
 if __name__ == "__main__":
-    path = "data/cracktree200/test"
-    images_path = path + "images/"
-    ground_truth_path = path + "/masks/"        
-    data = CrackDataset(images_path, ground_truth_path,sample_size=4, resize_size=(256,256))
-    pcnet = pickle.load(open("logs/pcnet_ge/DeepCrack/1001/pcnet-ge.pkl", "rb"))
-    analyzer = PCNetAnalyzer(pcnet)
-    analyzer.summary()
-    analyzer.sample_gate_maps(data, save_dir="./gate_maps")
+    image_path = "data/DeepCrack/test/images/"
+    mask_path = "data/DeepCrack/test/masks/"
+    data = CrackDataset(image_path, mask_path, resize_size=(400, 400))
+    m = pickle.load(open("logs/pcnet_ge/DeepCrack/1/pcnet-ge.pkl", "rb"))
+    # m = MultiPCNet(base_pcnet_cls=PCNet, n_experts=5)
+
+
+    generate_all_pcnet_plots(m, data[0][0], save_root="plots_multipcnet")
