@@ -569,172 +569,286 @@ def _to_spatial_map(arr):
 # =========================================================
 # PLOTTER: generic 4-panel node visualization
 # =========================================================
-def plot_generic_node_panel(node, x, save_path):
-    act = node.evaluate(x).detach().cpu().numpy()
-    act = _to_spatial_map(act)
+def plot_generic_node_panel(node, x_batch, save_path):
+    """
+    New version: supports multiple input images (N,C,H,W)
+    Creates N rows, each row = (original, heatmap, overlay)
+    """
+    x_batch = x_batch.detach().cpu()
+    N = x_batch.shape[0]
 
-    lo, hi = np.percentile(act, [5, 95])
-    act_norm = np.clip((act - lo) / (hi - lo + 1e-8), 0, 1)
+    # Compute activations for all images
+    acts = []
+    for i in range(N):
+        a = node.evaluate(x_batch[i:i+1]).detach().cpu().numpy()
+        acts.append(_to_spatial_map(a))
 
-    # Input image for overlay
-    img = x[0].detach().cpu().numpy().transpose(1, 2, 0)
-    if img.shape[-1] == 1:
-        img = img[:, :, 0]
+    fig, axs = plt.subplots(N, 3, figsize=(12, 4*N))
+    if N == 1:
+        axs = axs.reshape(1, 3)
 
-    # overlay
-    overlay = (0.6 * img + 0.4 * act_norm[..., None]).clip(0, 1)
+    for i in range(N):
+        img = x_batch[i].numpy().transpose(1, 2, 0)
+        if img.shape[-1] == 1:
+            img = img[:, :, 0]
 
-    fig, axs = plt.subplots(2, 2, figsize=(10, 10))
+        act = acts[i]
+        lo, hi = np.percentile(act, [5, 95])
+        act_norm = np.clip((act - lo) / (hi - lo + 1e-8), 0, 1)
 
-    # 1. original
-    axs[0, 0].imshow(img, cmap="gray")
-    axs[0, 0].set_title("Original image")
-    axs[0, 0].axis("off")
+        overlay = (0.6 * img + 0.4 * act_norm[..., None]).clip(0, 1)
 
-    # 2. heatmap
-    im = axs[0, 1].imshow(act, cmap="viridis")
-    axs[0, 1].set_title(f"{node.__class__.__name__} activation")
-    axs[0, 1].axis("off")
-    fig.colorbar(im, ax=axs[0, 1], fraction=0.046, pad=0.04)
+        # Original
+        axs[i, 0].imshow(img, cmap="gray")
+        axs[i, 0].set_title(f"Original {i}")
+        axs[i, 0].axis("off")
 
-    # 3. overlay
-    axs[1, 0].imshow(overlay)
-    axs[1, 0].set_title("Overlay")
-    axs[1, 0].axis("off")
+        # Heatmap
+        im = axs[i, 1].imshow(act, cmap="viridis")
+        axs[i, 1].set_title(f"{node.__class__.__name__} activation {i}")
+        axs[i, 1].axis("off")
+        fig.colorbar(im, ax=axs[i, 1], fraction=0.05, pad=0.04)
 
-    # 4. metadata
-    text = [
-        f"Node: {node.__class__.__name__}",
-        f"min: {act.min():.4f}",
-        f"max: {act.max():.4f}",
-        f"p5–p95: {lo:.3f} → {hi:.3f}",
-    ]
-    if hasattr(node, "alpha"):
-        text.append(f"Gate alpha = {float(torch.sigmoid(node.alpha)):.3f}")
-    if hasattr(node, "beta"):
-        text.append(f"Residual beta = {float(torch.sigmoid(node.beta)):.3f}")
-
-    axs[1, 1].text(0, 1, "\n".join(text), va="top", fontsize=12)
-    axs[1, 1].axis("off")
-    plt.savefig(save_path, bbox_inches="tight")
+        # Overlay
+        axs[i, 2].imshow(overlay)
+        axs[i, 2].set_title(f"Overlay {i}")
+        axs[i, 2].axis("off")
+    plt.savefig(save_path, bbox_inches='tight')
     plt.close()
 
 
 # =========================================================
 # PLOTTER: GateNode specialist (shows both children)
 # =========================================================
-def plot_gate_node(node, x, save_path):
-    # gate prob
+def plot_gate_node(node, x_batch, save_path):
+    N = x_batch.shape[0]
+    x_batch = x_batch.detach().cpu()
+
+    left_maps = []
+    right_maps = []
+
+    for i in range(N):
+        acts = [ _to_spatial_map(child.evaluate(x_batch[i:i+1]).detach().cpu().numpy())
+                 for child in node.children ]
+        left_maps.append(acts[0])
+        right_maps.append(acts[1])
+
+    fig, axs = plt.subplots(N, 4, figsize=(16, 4*N))
+    if N == 1:
+        axs = axs.reshape(1, 4)
+
     gate_val = float(torch.sigmoid(node.alpha))
 
-    # children activations
-    acts = []
-    for child in node.children:
-        a = child.evaluate(x).detach().cpu().numpy()
-        acts.append(_to_spatial_map(a))
+    for i in range(N):
+        L = left_maps[i]
+        R = right_maps[i]
+        lo = min(np.percentile(L,5), np.percentile(R,5))
+        hi = max(np.percentile(L,95), np.percentile(R,95))
 
-    left, right = acts
+        Ln = np.clip((L-lo)/(hi-lo+1e-8),0,1)
+        Rn = np.clip((R-lo)/(hi-lo+1e-8),0,1)
+        diff = Ln - Rn
 
-    # normalize both the same way
-    lo = min(np.percentile(left, 5), np.percentile(right, 5))
-    hi = max(np.percentile(left, 95), np.percentile(right, 95))
+        axs[i,0].imshow(L, cmap="viridis")
+        axs[i,0].set_title(f"Left #{i}")
+        axs[i,0].axis("off")
 
-    l_norm = np.clip((left - lo) / (hi - lo + 1e-8), 0, 1)
-    r_norm = np.clip((right - lo) / (hi - lo + 1e-8), 0, 1)
-    diff = l_norm - r_norm
+        axs[i,1].imshow(R, cmap="viridis")
+        axs[i,1].set_title(f"Right #{i}")
+        axs[i,1].axis("off")
 
-    fig, axs = plt.subplots(2, 2, figsize=(10, 10))
+        im = axs[i,2].imshow(diff, cmap="coolwarm")
+        axs[i,2].set_title(f"Diff #{i}")
+        axs[i,2].axis("off")
+        fig.colorbar(im, ax=axs[i,2], fraction=0.05, pad=0.04)
 
-    axs[0, 0].imshow(left, cmap="viridis")
-    axs[0, 0].set_title("Left child log-likelihood")
-    axs[0, 0].axis("off")
-
-    axs[0, 1].imshow(right, cmap="viridis")
-    axs[0, 1].set_title("Right child log-likelihood")
-    axs[0, 1].axis("off")
-
-    im = axs[1, 0].imshow(diff, cmap="coolwarm")
-    axs[1, 0].set_title("Difference (Left − Right)")
-    axs[1, 0].axis("off")
-    fig.colorbar(im, ax=axs[1, 0], fraction=0.046, pad=0.04)
-
-    axs[1, 1].text(
-        0, 1,
-        f"GateNode\n"
-        f"alpha (sigmoid) = {gate_val:.3f}\n"
-        f"Left stronger = red\n"
-        f"Right stronger = blue\n",
-        fontsize=12, va="top"
-    )
-    axs[1, 1].axis("off")
-    plt.savefig(save_path, bbox_inches="tight")
+        axs[i,3].text(
+            0,1,
+            f"GateNode\nα={gate_val:.3f}\nLeft>Right=red\nRight>Left=blue",
+            va="top", fontsize=10
+        )
+        axs[i,3].axis("off")
+    plt.savefig(save_path, bbox_inches='tight')
     plt.close()
+
 
 
 # =========================================================
 # PLOTTER: SumNode specialist
 # =========================================================
-def plot_sum_node(node, x, save_path):
-    childs = node.children
-    K = len(childs)
+def plot_sum_node(node, x_batch, save_path):
+    N = x_batch.shape[0]
+    K = len(node.children)
 
-    # compute all activations
-    maps = []
-    for ch in childs:
-        a = ch.evaluate(x).detach().cpu().numpy()
-        maps.append(_to_spatial_map(a))
+    maps = [ [] for _ in range(K) ]
 
-    # mixture weights
+    for i in range(N):
+        for k, child in enumerate(node.children):
+            a = child.evaluate(x_batch[i:i+1]).detach().cpu().numpy()
+            maps[k].append(_to_spatial_map(a))
+
     w = torch.softmax(node.weights, dim=0).detach().cpu().numpy()
 
-    # weighted sum map
-    ws_map = sum(w[i] * maps[i] for i in range(K))
+    fig, axs = plt.subplots(N, 4, figsize=(16, 4*N))
+    if N == 1:
+        axs = axs.reshape(1,4)
 
-    fig, axs = plt.subplots(2, 2, figsize=(10, 10))
+    for i in range(N):
+        axs[i,0].imshow(maps[0][i], cmap="viridis")
+        axs[i,0].set_title(f"Child 0 (w={w[0]:.2f})")
+        axs[i,0].axis("off")
 
-    # child contributions
-    im0 = axs[0, 0].imshow(maps[0], cmap="viridis")
-    axs[0, 0].set_title(f"Child 0 (w={w[0]:.2f})")
-    axs[0, 0].axis("off")
+        axs[i,1].imshow(maps[1][i], cmap="viridis")
+        axs[i,1].set_title(f"Child 1 (w={w[1]:.2f})")
+        axs[i,1].axis("off")
 
-    if K > 1:
-        im1 = axs[0, 1].imshow(maps[1], cmap="viridis")
-        axs[0, 1].set_title(f"Child 1 (w={w[1]:.2f})")
-        axs[0, 1].axis("off")
+        mix = w[0]*maps[0][i] + w[1]*maps[1][i]
+        im = axs[i,2].imshow(mix, cmap="magma")
+        axs[i,2].set_title("Weighted output")
+        axs[i,2].axis("off")
+        fig.colorbar(im, ax=axs[i,2], fraction=0.05, pad=0.04)
 
-    # weighted sum map
-    im2 = axs[1, 0].imshow(ws_map, cmap="magma")
-    axs[1, 0].set_title("Weighted mixture output")
-    axs[1, 0].axis("off")
-    fig.colorbar(im2, ax=axs[1, 0], fraction=0.046, pad=0.04)
+        axs[i,3].text(
+            0,1,
+            f"SumNode\nChildren={K}\nWeights={w}",
+            fontsize=10, va="top"
+        )
+        axs[i,3].axis("off")
 
-    # info panel
-    axs[1, 1].text(
-        0, 1,
-        f"SumNode\nChildren: {K}\nWeights:\n{w}",
-        fontsize=12, va="top"
-    )
-    axs[1, 1].axis("off")
-
-    plt.tight_layout()
-    plt.savefig(save_path)
+    plt.savefig(save_path, bbox_inches='tight')
     plt.close()
+
+
+def plot_distribution_flow_paths(model, x_batch, save_path="distribution_paths.pdf"):
+    """
+    NEW PLOT:
+    Shows the distribution evolution for each input image (row).
+    Columns follow the PCNet computational path:
+    Input → InputNodes → internal nodes → ClassifierNode.
+
+    - one row per input image
+    - one column per node along the evaluation path
+    - activation maps are normalized globally
+    """
+
+    os.makedirs(os.path.dirname(save_path), exist_ok=True)
+
+    x_batch = x_batch.detach().cpu()
+    B = x_batch.shape[0]
+
+    # ---------------------------------------------------------
+    # 1. Get model nodes in topological evaluation order
+    # ---------------------------------------------------------
+    nodes = list(model.get_nodes())
+
+    # reorder: ensure InputNodes first, ClassifierNodes last
+    def order_key(n):
+        name = n.__class__.__name__
+        if name == "InputNode": return 0
+        if name == "ClassifierNode": return 2
+        return 1
+
+    nodes = sorted(nodes, key=order_key)
+
+    # ---------------------------------------------------------
+    # 2. Evaluate all nodes for each input image
+    # ---------------------------------------------------------
+    all_maps = []   # shape: B × T × (H,W)
+    for img_idx in range(B):
+        x = x_batch[img_idx:img_idx+1]
+
+        row_maps = []
+        for node in nodes:
+            try:
+                a = node.evaluate(x).detach().cpu().numpy()
+                a = _to_spatial_map(a)
+                row_maps.append(a)
+            except:
+                # broken node → append blank
+                row_maps.append(None)
+
+        all_maps.append(row_maps)
+
+    # ---------------------------------------------------------
+    # 3. Compute global normalization range (5–95 percentile)
+    # ---------------------------------------------------------
+    vals = []
+    for row in all_maps:
+        for m in row:
+            if m is not None:
+                vals.append(m.flatten())
+
+    if len(vals) == 0:
+        print("[WARN] No activations available.")
+        return
+
+    vals = np.concatenate(vals)
+    lo, hi = np.percentile(vals, [5, 95])
+
+    # ---------------------------------------------------------
+    # 4. Plot storyboard:
+    #     - 1 row = 1 input image
+    #     - columns = Input → InputNodes → ... → ClassifierNode
+    # ---------------------------------------------------------
+    T = len(nodes)
+    fig, axs = plt.subplots(B, T+1, figsize=(3*(T+1), 3*B))
+
+    if B == 1:
+        axs = axs.reshape(1, T+1)
+
+    # Column 0 is original image
+    for i in range(B):
+        img = x_batch[i].numpy().transpose(1, 2, 0)
+        if img.shape[-1] == 1:
+            img = img[:, :, 0]
+
+        axs[i,0].imshow(img, cmap="gray")
+        axs[i,0].set_title("Input")
+        axs[i,0].axis("off")
+
+    # Node activations
+    for row_i in range(B):
+        for col_j, node in enumerate(nodes):
+            ax = axs[row_i, col_j+1]
+            act = all_maps[row_i][col_j]
+
+            title = f"{col_j}: {node.__class__.__name__}"
+
+            if act is None:
+                ax.set_title(title + "\n(no eval)")
+                ax.axis("off")
+                continue
+
+            im = ax.imshow(act, cmap="viridis", vmin=lo, vmax=hi)
+            ax.set_title(title, fontsize=9)
+            ax.axis("off")
+
+    # Add a single global colorbar
+    fig.subplots_adjust(right=0.92)
+    cbar_ax = fig.add_axes([0.94, 0.15, 0.02, 0.7])
+    fig.colorbar(im, cbar_ax)
+
+    plt.tight_layout(rect=[0, 0, 0.93, 1])
+    plt.savefig(save_path, dpi=300)
+    plt.close()
+
+    print(f"[OK] Saved distribution path storyboard → {save_path}")
 
 
 # =========================================================
 # MASTER DISPATCHER
 # =========================================================
-def visualize_node(node, x, folder, idx):
+def visualize_node(node, x_batch, folder, idx):
     node_type = node.__class__.__name__
-
     save_path = os.path.join(folder, f"node_{idx}_{node_type}.pdf")
 
     if node_type == "GateNode":
-        plot_gate_node(node, x, save_path)
+        plot_gate_node(node, x_batch, save_path)
     elif node_type == "SumNode":
-        plot_sum_node(node, x, save_path)
+        plot_sum_node(node, x_batch, save_path)
     else:
-        plot_generic_node_panel(node, x, save_path)
+        plot_generic_node_panel(node, x_batch, save_path)
+
 
 
 # =========================================================
@@ -787,6 +901,8 @@ def generate_all_pcnet_plots(model, x, save_root="pcnet_plots"):
     # -------------------------------
     plot_pcnet_topology(model, save_path=os.path.join(save_root, "pcnet_topology.pdf"))
     plot_flow_influence(model, x, save_path=os.path.join(save_root, "pc_flow.pdf"))
+    plot_distribution_flow_paths(model, x,
+                                 save_path=os.path.join(save_root, "distribution_paths.pdf"))
 
 
     print(f"[OK] Saved all PCNet visualizations to {save_root}")
@@ -795,9 +911,13 @@ if __name__ == "__main__":
     image_path = "data/DeepCrack/test/images/"
     mask_path = "data/DeepCrack/test/masks/"
     data = CrackDataset(image_path, mask_path, resize_size=(400, 400))
-    m = pickle.load(open("logs/pcnet_ge/CRACK500/3/pcnet-ge.pkl", "rb"))
+    m = pickle.load(open("logs/old/pcnet_ge/DeepCrack/1/pcnet-ge.pkl", "rb"))
     print(m)
     # m = MultiPCNet(base_pcnet_cls=PCNet, n_experts=5)
 
+    x = torch.stack([data[i][0] for i in range(3)], dim=0)
 
-    generate_all_pcnet_plots(m, data[50][0], save_root="plots_multipcnet")
+    generate_all_pcnet_plots(m, x, save_root="plots_multipcnet")
+
+    # Comparison between the models
+    
