@@ -146,4 +146,6 @@
         "test_recall": 0.5647744337717692,
         "test_f1_score": 0.04693133756518364
     }
+    ,
+    "n_trainable_params": 79
 }

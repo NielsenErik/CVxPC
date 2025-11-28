@@ -41,6 +41,10 @@ def collect_experiment_files(root):
 def extract_metrics(exp):
     metrics = {}
 
+    # Number of trainable params (directly from JSON)
+    if "n_trainable_params" in exp:
+        metrics["n_trainable_params"] = exp["n_trainable_params"]
+
     # Training metrics
     train = exp.get("training", {})
     for k, v in train.items():
@@ -52,6 +56,8 @@ def extract_metrics(exp):
         metrics[k] = v
 
     return metrics
+
+
 
 # ----------------------------------------------------------
 # Summary with structure unchanged:
@@ -110,6 +116,10 @@ def main(log_root, output_csv):
         summaries.append(summary)
 
     df_summary = pd.DataFrame(summaries)
+    param_cols = [c for c in df_summary.columns if "n_trainable_params" in c]
+    other_cols = [c for c in df_summary.columns if c not in param_cols]
+
+    df_summary = df_summary[other_cols + param_cols]
     df_summary.to_csv(output_csv, index=False)
     print(f"\nSaved summary to {output_csv}")
 

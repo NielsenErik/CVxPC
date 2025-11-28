@@ -1,0 +1,16 @@
+{
+    "dataset_size": {
+        "test": 626
+    },
+    "results": {
+        "test_loss": 0.3303962662816048,
+        "test_dice": 0.4013509079813957,
+        "test_iou": 0.5652669318020344,
+        "test_cl_iou": 0.32109865061938764,
+        "test_accuracy": 0.9285497486591339,
+        "test_precision": 0.503845127671957,
+        "test_recall": 0.31962681831791995,
+        "test_f1_score": 0.33163071209564804
+    },
+    "n_trainable_params": 29
+}
