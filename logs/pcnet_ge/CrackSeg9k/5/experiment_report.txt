@@ -1,0 +1,66 @@
+Experiment Configurations: {'mlflow': None, 'experiment': 'pcnet_ge', 'algorithm': 'pcnet_ge', 'device': 'cpu', 'n_cpus': 30, 'data_path': 'data/CrackSeg9k/train', 'test_path': 'data/CrackSeg9k/test', 'save_path': 'models/', 'validation_split': 0.2, 'epochs': 80, 'batch_size': 32, 'resize_size': [400, 400], 'n_classes': 1, 'max_depth': 3, 'max_branching': 3, 'seed': 5, 'ge': {'generations': 10, 'pop_size': 20, 'genome_len': 96, 'crossover_rate': 0.9, 'mutation_rate': 0.05, 'elite_k': 2, 'train_split': 0.05}, 'execution_mode': 'train', 'log_dir': 'logs/pcnet_ge/CrackSeg9k/5'}
+Dataset sizes: {'train': 7332, 'val': 1467, 'test': 1827}
+─────────────────────────────────────────────
+🧠  Probabilistic Circuit Network Summary
+─────────────────────────────────────────────
+📦 Classes: 1
+📏 Input size: torch.Size([3, 400, 400])
+⚙️  Depth: 3, Branching: 3
+💻 Device: cpu
+─────────────────────────────────────────────
+📊 Node counts:
+  • InputNode      : 3
+  • SumNode        : 5
+  • ProductNode    : 0
+  • ClassifierNode : 1
+─────────────────────────────────────────────
+🧩 Trainable parameters: 50
+  • SumNode        : 14
+  • InputNode      : 21
+─────────────────────────────────────────────
+📚 Structure:Memory usage: 0.15 KB
+
+└─ ClassifierNode(classes=2)
+   ├─ GateNode
+   │  ├─ SumNode(children=3, weights=3)
+   │  │  ├─ SumNode(children=3, weights=3)
+   │  │  │  ├─ InputNode(feat_2)
+   │  │  │  ├─ InputNode(feat_2)
+   │  │  │  └─ InputNode(feat_2)
+   │  │  ├─ SumNode(children=2, weights=2)
+   │  │  │  ├─ InputNode(feat_1)
+   │  │  │  └─ InputNode(feat_1)
+   │  │  └─ SumNode(children=4, weights=4)
+   │  │     ├─ InputNode(feat_0)
+   │  │     ├─ InputNode(feat_0)
+   │  │     ├─ InputNode(feat_0)
+   │  │     └─ InputNode(feat_0)
+   │  └─ SumNode(children=2, weights=2)
+   │     ├─ ResidualNode
+   │     │  ├─ InputNode(feat_0)
+   │     │  └─ InputNode(feat_0)
+   │     └─ GateNode
+   │        ├─ InputNode(feat_1)
+   │        └─ InputNode(feat_1)
+   └─ InputNode(feat_2)
+─────────────────────────────────────────────
+History: {'loss': [0.40330201387405396, 0.4021604359149933, 0.40330201387405396, 0.4021604359149933, 0.40330201387405396, 0.40217912197113037, 0.40330201387405396, 0.40323565900325775, 0.40330201387405396, 0.40237918496131897], 'complexity': [30, 31, 31, 39, 39, 32, 36, 42, 42, 36]}
+Best genome: [113, 26, 199, 231, 179, 221, 116, 51, 29, 31, 178, 54, 138, 190, 140, 161, 22, 217, 114, 39, 208, 188, 13, 49, 4, 69, 25, 181, 133, 250, 191, 156, 130, 13, 17, 157, 1, 10, 56, 226, 117, 181, 105, 44, 95, 23, 197, 46, 96, 250, 151, 117, 139, 200, 65, 162, 223, 146, 114, 194, 63, 192, 149, 225, 88, 71, 122, 51, 249, 47, 122, 133, 14, 119, 116, 66, 32, 11, 2, 123, 22, 245, 62, 167, 172, 172, 226, 28, 59, 64, 34, 75, 80, 195, 77, 186]
+5	train	0.4252	0.1794
+	val	0.4263	0.1758
+10	train	0.4212	0.1871
+	val	0.4220	0.1862
+15	train	0.4190	0.1913
+	val	0.4201	0.1902
+20	train	0.4184	0.1938
+	val	0.4193	0.1922
+25	train	0.4181	0.1945
+	val	0.4190	0.1957
+30	train	0.4177	0.1948
+	val	0.4185	0.1965
+35	train	0.4174	0.1961
+	val	0.4183	0.1946
+40	train	0.4170	0.1962
+	val	0.4177	0.1980
+45	train	0.4158	0.1979
+	val	0.4168	0.1981
