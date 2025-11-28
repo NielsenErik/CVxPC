@@ -1,0 +1,4 @@
+Experiment Configurations: {'mlflow': None, 'experiment': 'crack_segmentation', 'algorithm': 'pcnet_ge', 'model_path': 'logs/pcnet_ge/CRACK500/3/pcnet-ge.pkl', 'device': 'cpu', 'n_cpus': 4, 'data_path': 'data/crackseg9k_split/CRACK500/train', 'test_path': 'data/crackseg9k_split/CRACK500/test', 'save_path': 'models/', 'validation_split': 0.2, 'epochs': 20, 'batch_size': 16, 'sample_size': 0.1, 'resize_size': [400, 400], 'input_channels': 3, 'n_classes': 1, 'max_depth': 3, 'max_branching': 4, 'seed': 2000, 'ge': {'generations': 2, 'pop_size': 2, 'genome_len': 96, 'crossover_rate': 0.9, 'mutation_rate': 0.05, 'elite_k': 2, 'train_split': 0.05}, 'execution_mode': 'test', 'log_dir': 'logs/pcnet_ge/CRACK500/2000'}
+Dataset sizes: {'test': 626}
+Test Loss: 0.3304, Dice: 0.4014, IoU: 0.5653, CL IoU: 0.3211
+Test Accuracy: 0.9285, Precision: 0.5038, Recall: 0.3196, F1-Score: 0.3316
