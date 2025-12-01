@@ -64,3 +64,65 @@ Best genome: [113, 26, 199, 231, 179, 221, 116, 51, 29, 31, 178, 54, 138, 190, 1
 	val	0.4177	0.1980
 45	train	0.4158	0.1979
 	val	0.4168	0.1981
+50	train	0.4153	0.1974
+	val	0.4160	0.1970
+55	train	0.4148	0.1975
+	val	0.4158	0.1986
+60	train	0.4146	0.1978
+	val	0.4155	0.1964
+65	train	0.4144	0.1973
+	val	0.4153	0.1983
+70	train	0.4144	0.1970
+	val	0.4152	0.1972
+75	train	0.4141	0.1976
+	val	0.4151	0.1968
+80	train	0.4142	0.1974
+	val	0.4151	0.1980
+Final Training — Loss: 0.4142, Dice: 0.4307, IoU: 0.3420, CL-IoU: 0.1974
+Final Validation — Loss: 0.4151, Dice: 0.4323, IoU: 0.3432, CL-IoU: 0.1980
+Test Loss: 0.4156, Dice: 0.4252, IoU: 0.3367, CL IoU: 0.1895
+Test Accuracy: 0.8781, Precision: 0.1847, Recall: 0.3509, F1-Score: 0.2063
+─────────────────────────────────────────────
+🧠  Probabilistic Circuit Network Summary
+─────────────────────────────────────────────
+📦 Classes: 1
+📏 Input size: torch.Size([3, 400, 400])
+⚙️  Depth: 3, Branching: 3
+💻 Device: cpu
+─────────────────────────────────────────────
+📊 Node counts:
+  • InputNode      : 3
+  • SumNode        : 5
+  • ProductNode    : 0
+  • ClassifierNode : 1
+─────────────────────────────────────────────
+🧩 Trainable parameters: 50
+  • SumNode        : 14
+  • InputNode      : 21
+─────────────────────────────────────────────
+📚 Structure:Memory usage: 0.15 KB
+
+└─ ClassifierNode(classes=2)
+   ├─ GateNode
+   │  ├─ SumNode(children=3, weights=3)
+   │  │  ├─ SumNode(children=3, weights=3)
+   │  │  │  ├─ InputNode(feat_2)
+   │  │  │  ├─ InputNode(feat_2)
+   │  │  │  └─ InputNode(feat_2)
+   │  │  ├─ SumNode(children=2, weights=2)
+   │  │  │  ├─ InputNode(feat_1)
+   │  │  │  └─ InputNode(feat_1)
+   │  │  └─ SumNode(children=4, weights=4)
+   │  │     ├─ InputNode(feat_0)
+   │  │     ├─ InputNode(feat_0)
+   │  │     ├─ InputNode(feat_0)
+   │  │     └─ InputNode(feat_0)
+   │  └─ SumNode(children=2, weights=2)
+   │     ├─ ResidualNode
+   │     │  ├─ InputNode(feat_0)
+   │     │  └─ InputNode(feat_0)
+   │     └─ GateNode
+   │        ├─ InputNode(feat_1)
+   │        └─ InputNode(feat_1)
+   └─ InputNode(feat_2)
+─────────────────────────────────────────────

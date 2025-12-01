@@ -14,7 +14,7 @@ Dataset sizes: {'train': 2500, 'val': 500, 'test': 626}
   • ProductNode    : 4
   • ClassifierNode : 1
 ─────────────────────────────────────────────
-🧩 Trainable parameters: 88
+🧩 Trainable parameters: 64
   • InputNode      : 21
   • SumNode        : 2
 ─────────────────────────────────────────────
@@ -47,88 +47,13 @@ Dataset sizes: {'train': 2500, 'val': 500, 'test': 626}
             ├─ InputNode(feat_2)
             └─ InputNode(feat_2)
 ─────────────────────────────────────────────
-History: {'loss': [0.37480200330416363, 0.3750687638918559, 0.37423065304756165, 0.3705604374408722, 0.3748044768969218, 0.3743906021118164, 0.37419607241948444, 0.3707168896993001, 0.373775839805603, 0.3707757294178009], 'complexity': [29, 29, 29, 29, 29, 29, 29, 29, 39, 38]}
+History: {'loss': [0.37480200330416363, 0.374500850836436, 0.3741803268591563, 0.3750211199124654, 0.3747154672940572, 0.3739188810189565, 0.3704933822154999, 0.37556548913319904, 0.3752962648868561, 0.37438968817392987], 'complexity': [29, 29, 29, 29, 29, 29, 29, 41, 41, 41]}
 Best genome: [22, 198, 167, 112, 110, 219, 22, 178, 51, 24, 134, 249, 188, 194, 183, 201, 131, 32, 214, 115, 128, 94, 46, 237, 200, 164, 103, 210, 139, 113, 115, 58, 23, 141, 227, 16, 219, 211, 70, 161, 42, 194, 179, 90, 17, 248, 114, 228, 173, 199, 194, 49, 93, 119, 127, 11, 139, 39, 190, 174, 236, 190, 93, 247, 105, 83, 231, 94, 19, 120, 203, 48, 118, 33, 175, 121, 84, 58, 144, 171, 240, 111, 41, 213, 161, 179, 24, 79, 196, 213, 111, 206, 215, 99, 229, 73]
-5	train	0.3943	0.1140
-	val	0.3911	0.1302
-10	train	0.3778	0.1704
-	val	0.3782	0.1705
-15	train	0.3729	0.1792
-	val	0.3732	0.1825
-20	train	0.3687	0.1883
-	val	0.3685	0.1938
-25	train	0.3639	0.1979
-	val	0.3634	0.2011
-30	train	0.3590	0.2047
-	val	0.3584	0.2133
-35	train	0.3536	0.2133
-	val	0.3532	0.2168
-40	train	0.3489	0.2189
-	val	0.3483	0.2250
-45	train	0.3438	0.2254
-	val	0.3432	0.2320
-50	train	0.3395	0.2293
-	val	0.3385	0.2376
-55	train	0.3370	0.2310
-	val	0.3372	0.2416
-60	train	0.3421	0.2286
-	val	0.3378	0.2298
-65	train	0.3338	0.2313
-	val	0.3372	0.2438
-70	train	0.3325	0.2329
-	val	0.3320	0.2449
-75	train	0.3324	0.2321
-	val	0.3332	0.2449
-80	train	0.3325	0.2332
-	val	0.3317	0.2438
-Final Training — Loss: 0.3325, Dice: 0.4009, IoU: 0.2908, CL-IoU: 0.2332
-Final Validation — Loss: 0.3317, Dice: 0.4009, IoU: 0.2907, CL-IoU: 0.2438
-Test Loss: 0.3302, Dice: 0.4013, IoU: 0.2909, CL IoU: 0.2351
-Test Accuracy: 0.9294, Precision: 0.4716, Recall: 0.3125, F1-Score: 0.3391
-─────────────────────────────────────────────
-🧠  Probabilistic Circuit Network Summary
-─────────────────────────────────────────────
-📦 Classes: 1
-📏 Input size: torch.Size([3, 400, 400])
-⚙️  Depth: 3, Branching: 3
-💻 Device: cpu
-─────────────────────────────────────────────
-📊 Node counts:
-  • InputNode      : 3
-  • SumNode        : 1
-  • ProductNode    : 4
-  • ClassifierNode : 1
-─────────────────────────────────────────────
-🧩 Trainable parameters: 88
-  • InputNode      : 21
-  • SumNode        : 2
-─────────────────────────────────────────────
-📚 Structure:Memory usage: 0.11 KB
-
-└─ ClassifierNode(classes=2)
-   ├─ ProductNode(children=2)
-   │  ├─ GateNode
-   │  │  ├─ ProductNode(children=3)
-   │  │  │  ├─ InputNode(feat_0)
-   │  │  │  ├─ InputNode(feat_0)
-   │  │  │  └─ InputNode(feat_0)
-   │  │  └─ ProductNode(children=2)
-   │  │     ├─ InputNode(feat_1)
-   │  │     └─ InputNode(feat_1)
-   │  └─ InputNode(feat_0)
-   └─ ProductNode(children=2)
-      ├─ GateNode
-      │  ├─ SumNode(children=2, weights=2)
-      │  │  ├─ InputNode(feat_1)
-      │  │  └─ InputNode(feat_1)
-      │  └─ ResidualNode
-      │     ├─ InputNode(feat_2)
-      │     └─ InputNode(feat_2)
-      └─ ResidualNode
-         ├─ GateNode
-         │  ├─ InputNode(feat_1)
-         │  └─ InputNode(feat_1)
-         └─ ResidualNode
-            ├─ InputNode(feat_2)
-            └─ InputNode(feat_2)
-─────────────────────────────────────────────
+5	train	0.3959	0.1106
+	val	0.3932	0.1246
+10	train	0.3788	0.1677
+	val	0.3787	0.1705
+15	train	0.3734	0.1781
+	val	0.3734	0.1818
+20	train	0.3688	0.1897
+	val	0.3687	0.1928
