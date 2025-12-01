@@ -564,45 +564,34 @@ class ExperimentDL(Experiment):
     # ----------------------------
 
     def iou_score(self, logits, targets, num_classes=None):
-        """
-        logits:  (N, C, H_pred, W_pred)
-        targets: (N, H_gt,  W_gt)
-        """
-        # logits = logits.long()
 
-        # ----------------------------------------------
-        # 1. Resize logits if spatial dimensions differ
-        # ----------------------------------------------
+        # Resize if sizes do not match
         if logits.shape[-2:] != targets.shape[-2:]:
-            logits = torch.nn.functional.interpolate(
+            logits = F.interpolate(
                 logits,
                 size=targets.shape[-2:],
                 mode="bilinear",
                 align_corners=False
             )
 
-        # ----------------------------------------------
-        # 2. Convert logits → predicted class indices
-        # ----------------------------------------------
-        preds = torch.argmax(logits, dim=1)   # (N, H, W)
+        # Decide number of classes
+        if num_classes is None:
+            num_classes = 2 if logits.shape[1] == 1 else logits.shape[1]
 
-        # ----------------------------------------------
-        # 3. Flatten for vectorized IoU computation
-        # ----------------------------------------------
-        preds = preds.view(-1)
+        # Predictions
+        if logits.shape[1] == 1:   # binary
+            preds = (torch.sigmoid(logits) > 0.5).long().squeeze(1)
+        else:                      # multiclass
+            preds = torch.argmax(logits, dim=1)
+
+        # Flatten + convert
+        preds = preds.view(-1).long()
         targets = targets.view(-1).long()
 
-        # ----------------------------------------------
-        # 4. Determine number of classes
-        # ----------------------------------------------
-        if num_classes is None:
-            num_classes = int(logits.shape[1])
-
-        # ----------------------------------------------
-        # 5. Compute confusion matrix
-        # ----------------------------------------------
+        # Compute confusion matrix
+        bins = num_classes * targets + preds
         confusion = torch.bincount(
-            num_classes * targets + preds,
+            bins,
             minlength=num_classes ** 2
         ).reshape(num_classes, num_classes)
 
@@ -611,8 +600,8 @@ class ExperimentDL(Experiment):
         FN = confusion.sum(1) - TP
 
         IoU = TP / (TP + FP + FN + 1e-7)
-        mIoU = IoU.mean()
-        return mIoU
+        return IoU.mean()
+
     def train(self, model, train_data, val_data=None, 
             loss_function=None, optimizer=None, scheduler=None, 
             device="cuda", epochs=20, batch_size=8):
