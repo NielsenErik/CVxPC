@@ -268,7 +268,12 @@ class Experiment:
 
         if self.execution_mode == "train":
             self.images_path = train_path + "/images/"
-            self.ground_truth_path = train_path + "/masks/"        
+            self.ground_truth_path = train_path + "/masks/"  
+            if self.sample_size is not None: 
+                n_images = len(os.listdir(self.images_path))
+                print_info(f"Number of images: {n_images}")
+                self.sample_size = int(n_images * self.sample_size)
+                print_info(f"Using sample size: {self.sample_size}/{n_images} which is {self.sample_size/n_images*100}% of the dataset")  
             self.data = CrackDataset(self.images_path, self.ground_truth_path,sample_size=self.sample_size, resize_size=(self.resize_size[0], self.resize_size[1]))
             torch.manual_seed(self.config.get("seed", 42))
             perm = torch.randperm(len(self.data))  # permutation over CrackDataset
@@ -314,49 +319,116 @@ class Experiment:
     # ----------------------------
     # Metrics
     # ----------------------------
-    def dice_coef(self, pred, target, smooth=1.0):
-        """
-        pred: (B, C, H, W) logits
-        target: (B, H, W) or (H, W) integer mask
-        """
-        if target.dim() == 2:  # single mask, no batch
-            target = target.unsqueeze(0)  # (1,H,W)
 
-        if pred.size(1) == 1:  # binary
-            pred_prob = torch.sigmoid(pred)
-            target = target.unsqueeze(1).float()  # (B,1,H,W)
-        else:  # multi-class
-            pred_prob = torch.softmax(pred, dim=1)
-            target = F.one_hot(target, num_classes=pred.size(1))  # (B,H,W,C)
-            target = target.permute(0,3,1,2).float()  # (B,C,H,W)
+    def dice_coef(self, logits, targets, smooth=1.0):
+        """
+        logits:  (B, C, H_pred, W_pred)
+        targets: (B, H_gt,  W_gt) or (H, W)
+        """
 
-        intersection = (pred_prob * target).sum(dim=(2,3))
-        denominator = pred_prob.sum(dim=(2,3)) + target.sum(dim=(2,3))
-        dice = (2. * intersection + smooth) / (denominator + smooth)
+        # ---------------------------------------------------------
+        # 1. Make sure targets has batch dimension
+        # ---------------------------------------------------------
+        if targets.dim() == 2:  # (H, W)
+            targets = targets.unsqueeze(0)  # (1, H, W)
+
+        # ---------------------------------------------------------
+        # 2. Resize logits to match GT spatial size
+        # ---------------------------------------------------------
+        if logits.shape[-2:] != targets.shape[-2:]:
+            logits = F.interpolate(
+                logits,
+                size=targets.shape[-2:],
+                mode="bilinear",
+                align_corners=False
+            )
+
+        B, C, H, W = logits.shape
+
+        # ---------------------------------------------------------
+        # 3. Binary Dice
+        # ---------------------------------------------------------
+        if C == 1:
+            probs = torch.sigmoid(logits)              # (B,1,H,W)
+            targets = targets.unsqueeze(1).float()     # (B,1,H,W)
+
+            intersection = (probs * targets).sum(dim=(2,3))
+            denominator   = probs.sum(dim=(2,3)) + targets.sum(dim=(2,3))
+
+            dice = (2 * intersection + smooth) / (denominator + smooth)
+            return dice.mean()
+
+        # ---------------------------------------------------------
+        # 4. Multi-class Dice (macro Dice)
+        #    One-hot encode ground truth
+        # ---------------------------------------------------------
+        probs = torch.softmax(logits, dim=1)  # (B,C,H,W)
+
+        # one-hot: (B,H,W,C) → (B,C,H,W)
+        targets_1h = F.one_hot(targets, num_classes=C).permute(0, 3, 1, 2).float()
+
+        intersection = (probs * targets_1h).sum(dim=(2,3))      # (B,C)
+        denominator  = probs.sum(dim=(2,3)) + targets_1h.sum(dim=(2,3))
+
+        dice = (2 * intersection + smooth) / (denominator + smooth)  # (B,C)
+
+        # Mean across classes + batch
         return dice.mean()
 
 
 
-    def iou_score(self, pred, target, smooth=1.0):
-        """
-        pred: (B, C, H, W) logits
-        target: (B, H, W) or (H, W) integer mask
-        """
-        if target.dim() == 2:  # single mask
-            target = target.unsqueeze(0)  # (1,H,W)
 
-        if pred.size(1) == 1:  # binary segmentation
-            pred_prob = torch.sigmoid(pred)
-            target = target.unsqueeze(1).float()  # (B,1,H,W)
-        else:  # multi-class segmentation
-            pred_prob = torch.softmax(pred, dim=1)
-            target = F.one_hot(target, num_classes=pred.size(1))  # (B,H,W,C)
-            target = target.permute(0,3,1,2).float()  # (B,C,H,W)
+    def iou_score(self, logits, targets, num_classes=None):
+        """
+        logits:  (N, C, H_pred, W_pred)
+        targets: (N, H_gt,  W_gt)
+        """
 
-        intersection = (pred_prob * target).sum(dim=(2,3))
-        union = pred_prob.sum(dim=(2,3)) + target.sum(dim=(2,3)) - intersection
-        iou = (intersection + smooth) / (union + smooth)
-        return iou.mean()
+        # ----------------------------------------------
+        # 1. Resize logits if spatial dimensions differ
+        # ----------------------------------------------
+        if logits.shape[-2:] != targets.shape[-2:]:
+            logits = torch.nn.functional.interpolate(
+                logits,
+                size=targets.shape[-2:],
+                mode="bilinear",
+                align_corners=False
+            )
+
+        # ----------------------------------------------
+        # 2. Convert logits → predicted class indices
+        # ----------------------------------------------
+        preds = torch.argmax(logits, dim=1)   # (N, H, W)
+
+        # ----------------------------------------------
+        # 3. Flatten for vectorized IoU computation
+        # ----------------------------------------------
+        preds = preds.view(-1)
+        targets = targets.view(-1)
+
+        # ----------------------------------------------
+        # 4. Determine number of classes
+        # ----------------------------------------------
+        if num_classes is None:
+            num_classes = int(logits.shape[1])
+
+        # ----------------------------------------------
+        # 5. Compute confusion matrix
+        # ----------------------------------------------
+        confusion = torch.bincount(
+            num_classes * targets + preds,
+            minlength=num_classes ** 2
+        ).reshape(num_classes, num_classes)
+
+        TP = confusion.diag()
+        FP = confusion.sum(0) - TP
+        FN = confusion.sum(1) - TP
+
+        IoU = TP / (TP + FP + FN + 1e-7)
+        mIoU = IoU.mean()
+        return mIoU
+
+
 
     def cl_iou_score(self,pred_mask, true_mask, tau=4):
         """
@@ -638,10 +710,26 @@ class ExperimentDL(Experiment):
                 pred_mask = (prob > self.threshold).float()
                 true_mask = masks.float()
 
-                accuracy = ((pred_mask == true_mask).float().sum()) / torch.numel(true_mask)
-                precision = ( ( (pred_mask == 1) & (true_mask == 1) ).float().sum() ) / ( (pred_mask == 1).float().sum() + 1e-8 )
-                recall = ( ( (pred_mask == 1) & (true_mask == 1) ).float().sum() ) / ( (true_mask == 1).float().sum() + 1e-8 )
-                f1_score = 2 * (precision * recall) / (precision + recall + 1e-8)
+                # Flatten predictions and targets
+                pm = pred_mask.view(-1).long()
+                tm = true_mask.view(-1).long()
+
+                tp = ((pm == 1) & (tm == 1)).sum()
+                fp = ((pm == 1) & (tm == 0)).sum()
+                fn = ((pm == 0) & (tm == 1)).sum()
+                tn = ((pm == 0) & (tm == 0)).sum()
+
+                # Accuracy
+                accuracy = (tp + tn) / (tp + tn + fp + fn + 1e-8)
+
+                # Precision = TP / (TP + FP)
+                precision = tp / (tp + fp + 1e-8)
+
+                # Recall = TP / (TP + FN)
+                recall = tp / (tp + fn + 1e-8)
+
+                # F1 = harmonic mean
+                f1_score = 2 * precision * recall / (precision + recall + 1e-8)
 
                 losses.append(loss.item())
                 dices.append(float(torch.as_tensor(dice_score).mean()))
@@ -666,6 +754,8 @@ class ExperimentDL(Experiment):
             "test_recall": np.mean(recalls),
             "test_f1_score": np.mean(f1_scores)
         }
+        n_trainable_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
+        self.experiment_dict["n_trainable_params"] = n_trainable_params
         with open(self.experiment_report, "a") as f:
             f.write(f"Test Loss: {np.mean(losses):.4f}, Dice: {np.mean(dices):.4f}, IoU: {np.mean(ious):.4f}, CL IoU: {np.mean(clious):.4f}\n")
             f.write(f"Test Accuracy: {np.mean(accuracies):.4f}, Precision: {np.mean(precisions):.4f}, Recall: {np.mean(recalls):.4f}, F1-Score: {np.mean(f1_scores):.4f}\n")
@@ -1496,10 +1586,26 @@ class ExperimentPC(Experiment):
             true_mask = t_batch.unsqueeze(1).float()
             cl_iou_score = self.cl_iou_score(pred_mask, true_mask)
 
-            accuracy = ((pred_mask == true_mask).float().sum()) / torch.numel(true_mask)
-            precision = ( ( (pred_mask == 1) & (true_mask == 1) ).float().sum() ) / ( (pred_mask == 1).float().sum() + 1e-8 )
-            recall = ( ( (pred_mask == 1) & (true_mask == 1) ).float().sum() ) / ( (true_mask == 1).float().sum() + 1e-8 )
-            f1_score = 2 * (precision * recall) / (precision + recall + 1e-8)
+            # Flatten predictions and targets
+            pm = pred_mask.view(-1).long()
+            tm = true_mask.view(-1).long()
+
+            tp = ((pm == 1) & (tm == 1)).sum()
+            fp = ((pm == 1) & (tm == 0)).sum()
+            fn = ((pm == 0) & (tm == 1)).sum()
+            tn = ((pm == 0) & (tm == 0)).sum()
+
+            # Accuracy
+            accuracy = (tp + tn) / (tp + tn + fp + fn + 1e-8)
+
+            # Precision = TP / (TP + FP)
+            precision = tp / (tp + fp + 1e-8)
+
+            # Recall = TP / (TP + FN)
+            recall = tp / (tp + fn + 1e-8)
+
+            # F1 = harmonic mean
+            f1_score = 2 * precision * recall / (precision + recall + 1e-8)
 
             losses.append(loss.item())
             dices.append(float(torch.as_tensor(dice_score).mean()))
@@ -1524,6 +1630,8 @@ class ExperimentPC(Experiment):
             "test_recall": np.mean(recalls),
             "test_f1_score": np.mean(f1_scores)
         }
+        n_trainable_params = sum(p.numel() for p in model.params if p.requires_grad)
+        self.experiment_dict["n_trainable_params"] = n_trainable_params
         with open(self.experiment_report, "a") as f:
             f.write(f"Test Loss: {np.mean(losses):.4f}, Dice: {np.mean(dices):.4f}, IoU: {np.mean(ious):.4f}, CL IoU: {np.mean(clious):.4f}\n")
             f.write(f"Test Accuracy: {np.mean(accuracies):.4f}, Precision: {np.mean(precisions):.4f}, Recall: {np.mean(recalls):.4f}, F1-Score: {np.mean(f1_scores):.4f}\n")
@@ -1597,7 +1705,7 @@ class ExperimentPC(Experiment):
             pickle.dump(self.model, f)
 
     def load_model(self, model_name="pcnet"):
-        with open(os.path.join(self.save_path, f"{model_name}.pkl"), "rb") as f:
+        with open(model_name, "rb") as f:
             self.model = pickle.load(f)
 
     # --------------------------------------------------------
@@ -1734,7 +1842,7 @@ class ExperimentGEPC(ExperimentPC):
     def run(self):
         
         self.set_dataset(self.data_path, self.test_path)
-        print_info("Dataset size:", len(self.data))
+        # print_info("Dataset size:", len(self.data))
         if self.execution_mode == "train":
             self.set_algorithm()
             
@@ -1822,9 +1930,24 @@ class ExperimentGEPC(ExperimentPC):
                 json.dump(self.experiment_dict, open(os.path.join(self.config["log_dir"], "experiment.json"), "w"), indent=4)
                 self.show_prediction(self.model)
         elif self.execution_mode == "test":
-            self.load_model(self.model_name)
-            self.test_inputs = torch.from_numpy(self.get_feature_tensor(np.array([self.test_data[i][0] for i in range(len(self.test_data))]))).float().to(self.device)
-            self.test_ground_truth = torch.from_numpy(np.array([self.test_data[i][1] for i in range(len(self.test_data))])).long().to(self.device)
+            self.model_path = self.config["model_path"]
+            self.load_model(self.model_path)
+            test_data = []
+            test_masks = []
+            for i in range(len(self.test_data)):
+                try:
+                    x = self.test_data[i]
+                    test_data.append(x[0])
+                    test_masks.append(x[1])
+                except Exception as e:
+                    print_error(f"Error processing validation sample {i}: {e}")
+            self.test_inputs = torch.from_numpy(np.array(test_data)).float().to(self.device)
+            self.test_ground_truth = torch.from_numpy(np.array(test_masks)).long().to(self.device)
+            self.set_criterion(self.test_ground_truth)
             if self.test_ground_truth.dim() == 4 and self.test_ground_truth.size(1) == 1:
-                    self.test_ground_truth = self.test_ground_truth.squeeze(1)
-            self.show_prediction(self.model)
+                self.test_ground_truth = self.test_ground_truth.squeeze(1)
+            test_loader = self.get_dataloaders(TensorDataset(self.test_inputs, self.test_ground_truth), shuffle=False, batch_size=self.batch_size)
+            loss, dice, iou, cl_iou = self.test(self.model, test_loader)
+            json.dump(self.experiment_dict, open(os.path.join(self.config["log_dir"], "experiment.json"), "w"), indent=4)
+
+

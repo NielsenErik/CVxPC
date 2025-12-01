@@ -1,0 +1,2 @@
+Experiment Configurations: {'mlflow': 'aida', 'experiment': 'crack_segmentation', 'algorithm': 'unetplus', 'data_path': 'data/CrackSeg9k/train', 'test_path': 'data/CrackSeg9k/test', 'save_path': 'models/', 'model_name': 'unetplus', 'validation_split': 0.2, 'epochs': 4, 'batch_size': 16, 'sample_size': 50, 'resize_size': [256, 256], 'learning_rate': 0.001, 'threshold': 0.2, 'input_channels': 3, 'n_classes': 1, 'seed': 1, 'execution_mode': 'train', 'log_dir': 'logs/unetplus/CrackSeg9k/1'}
+Dataset sizes: {'train': 7332, 'val': 1467, 'test': 1827}

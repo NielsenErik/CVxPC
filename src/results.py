@@ -5,13 +5,7 @@ from glob import glob
 from collections import defaultdict
 
 # ----------------------------------------------------------
-# Configuration
-# ----------------------------------------------------------
-log_root = "logs/old/pcnet_ge"   # ← CHANGE THIS to your logs root folder
-output_csv = "experiment_summary.csv"
-
-# ----------------------------------------------------------
-# Helper to load a single experiment.json
+# Helper: load experiment
 # ----------------------------------------------------------
 def load_experiment_json(path):
     try:
@@ -22,76 +16,86 @@ def load_experiment_json(path):
         return None
 
 # ----------------------------------------------------------
-# Collect all experiment files grouped by dataset
-# Folder structure:
-#   algorithm/
-#       dataset/
-#           seed/
-#               experiment.json
+# Collect experiment files: algorithm/dataset/seed/experiment.json
 # ----------------------------------------------------------
 def collect_experiment_files(root):
     experiment_files = defaultdict(list)
-
-    # pattern: log_root/*/*/*/experiment.json
     all_jsons = glob(os.path.join(root, "**", "experiment.json"), recursive=True)
-    print(f"Found {len(all_jsons)} experiment.json files.")
+
+    if len(all_jsons) == 0:
+        all_jsons = glob(os.path.join(root, "**", "experiment_results.json"), recursive=True)
+
+    print(f"Found {len(all_jsons)} experiment files.")
+
     for json_path in all_jsons:
         parts = json_path.split(os.sep)
-
-        # Extract algorithm, dataset, seed
-        # [..., log_root, algorithm, dataset, seed, experiment.json]
-        algorithm = parts[-4]
+        # [..., log_root, alg, dataset, seed, experiment.json]
         dataset = parts[-3]
-        seed = parts[-2]
-
-        key = dataset  # group by dataset only
-        experiment_files[key].append(json_path)
+        experiment_files[dataset].append(json_path)
 
     return experiment_files
 
 # ----------------------------------------------------------
-# Extract all metrics from an experiment.json into flat dict
+# Extract flattened metrics
 # ----------------------------------------------------------
 def extract_metrics(exp):
     metrics = {}
 
-    # Pull training metrics
+    # Number of trainable params (directly from JSON)
+    if "n_trainable_params" in exp:
+        metrics["n_trainable_params"] = exp["n_trainable_params"]
+
+    # Training metrics
     train = exp.get("training", {})
     for k, v in train.items():
         metrics[f"train_{k}"] = v
 
-    # Pull test results
+    # Test results
     results = exp.get("results", {})
     for k, v in results.items():
-        metrics[f"{k}"] = v
+        metrics[k] = v
 
     return metrics
 
 
+
 # ----------------------------------------------------------
-# Compute summary statistics for a list of metric dicts
+# Summary with structure unchanged:
+# mean, std, best (but best = metrics from best test_cl_iou run)
 # ----------------------------------------------------------
-def summarize_metrics(metric_dicts):
-    df = pd.DataFrame(metric_dicts)
+def summarize_metrics(metrics_list):
+    df = pd.DataFrame(metrics_list)
 
     summary = {"dataset": None}
+
+    # Compute mean & std normally
     for col in df.columns:
         summary[f"{col}_mean"] = df[col].mean()
         summary[f"{col}_std"] = df[col].std()
-        summary[f"{col}_best"] = df[col].max()  # best = highest score
+
+    # Identify best run: highest test_cl_iou
+    if "test_cl_iou" in df.columns:
+        best_idx = df["test_cl_iou"].idxmax()
+        best_row = df.loc[best_idx]
+    else:
+        print("Warning: test_cl_iou missing, using first run as fallback.")
+        best_row = df.iloc[0]
+
+    # For every column, best = value from best-row run
+    for col in df.columns:
+        summary[f"{col}_best"] = best_row[col]
+
     return summary
 
-
 # ----------------------------------------------------------
-# Main script
+# MAIN
 # ----------------------------------------------------------
-def main(log_root=log_root, output_csv=output_csv):
+def main(log_root, output_csv):
     experiment_files = collect_experiment_files(log_root)
-
     summaries = []
 
     for dataset, files in experiment_files.items():
-        print(f"\nProcessing dataset: {dataset} ({len(files)} seeds)")
+        print(f"\nProcessing dataset: {dataset} ({len(files)} runs)")
 
         metrics_list = []
 
@@ -104,21 +108,23 @@ def main(log_root=log_root, output_csv=output_csv):
             metrics_list.append(metrics)
 
         if not metrics_list:
-            print(f"No valid experiments for dataset {dataset}")
+            print(f"No valid metrics for dataset {dataset}")
             continue
 
         summary = summarize_metrics(metrics_list)
         summary["dataset"] = dataset
         summaries.append(summary)
 
-    # final combined CSV
     df_summary = pd.DataFrame(summaries)
-    df_summary.to_csv(output_csv, index=False)
+    param_cols = [c for c in df_summary.columns if "n_trainable_params" in c]
+    other_cols = [c for c in df_summary.columns if c not in param_cols]
 
-    print(f"\nSummary CSV saved to: {output_csv}")
+    df_summary = df_summary[other_cols + param_cols]
+    df_summary.to_csv(output_csv, index=False)
+    print(f"\nSaved summary to {output_csv}")
 
 
 if __name__ == "__main__":
-    log_root = "logs/old/pcnet_ge"   # ← CHANGE THIS to your logs root folder
-    output_csv = "logs/old/pcnet_ge/experiment_summary.csv"
+    log_root = "logs/pcnet_ge"
+    output_csv = "logs/pcnet_ge/experiment_summary.csv"
     main(log_root, output_csv)

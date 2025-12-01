@@ -145,5 +145,6 @@
         "test_precision": 0.029666269818941753,
         "test_recall": 0.37747734785079956,
         "test_f1_score": 0.05500368898113569
-    }
+    },
+    "n_trainable_params": 43
 }

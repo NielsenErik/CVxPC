@@ -2,16 +2,18 @@
     "mlflow": null,
     "experiment": "crack_segmentation",
     "algorithm": "pcnet_ge",
+    "model_path": "logs/pcnet_ge/CRACK500/3/pcnet-ge.pkl",
     "device": "cpu",
     "n_cpus": 4,
 
-    "data_path": "data/crackseg9k_split/cracktree200/train",
-    "test_path": "data/crackseg9k_split/cracktree200/test",
+    "data_path": "data/crackseg9k_split/CRACK500/train",
+    "test_path": "data/crackseg9k_split/CRACK500/test",
     "save_path": "models/",
     "validation_split": 0.2,
 
     "epochs": 20,
     "batch_size": 16,
+    "sample_size": 0.1,
     "resize_size": [
         400,
         400
@@ -32,7 +34,7 @@
         "train_split": 0.05
     },
 
-    "execution_mode": "train"
+    "execution_mode": "test"
     
 
 }
