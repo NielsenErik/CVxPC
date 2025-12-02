@@ -84,9 +84,10 @@ class CrackAugmentations:
         return self.transform(image)
 
 class CrackDataset(Dataset):
-    def __init__(self, images_dir, masks_dir, resize_size=(128, 128), sample_size=None, **kwargs):
+    def __init__(self, images_dir, masks_dir, resize_size=(128, 128), sample_size=None, preprocessing=False, **kwargs):
         self.images_dir = images_dir
         self.masks_dir  = masks_dir
+        self.preprocessing = preprocessing
 
         # Collect all images and masks (any jpg/png/jpeg)
         image_files = sorted(glob.glob(os.path.join(images_dir, "*.[pjPJ][pnPN][gG]")))
@@ -129,6 +130,38 @@ class CrackDataset(Dataset):
             transforms.ToTensor()
         ])
         return transform(gt)
+    
+    def preprocess_crack_image(self, pil_img):
+        """
+        Gentle, segmentation-friendly preprocessing.
+        Enhances crack visibility without amplifying noise or textures.
+        """
+        img = np.array(pil_img)
+
+        # Convert to grayscale (but keep original color for final merge)
+        gray = cv2.cvtColor(img, cv2.COLOR_RGB2GRAY)
+
+        # --- 1. Light CLAHE (reduced clip limit)
+        clahe = cv2.createCLAHE(clipLimit=1.5, tileGridSize=(8, 8))
+        gray = clahe.apply(gray)
+
+        # --- 2. Soft Gaussian denoising (instead of bilateral)
+        gray = cv2.GaussianBlur(gray, (3, 3), sigmaX=0.5)
+
+        # --- 3. VERY mild sharpening (50% weight)
+        # Sharp = 1.0 * gray - 0.5 * blurred
+        blur = cv2.GaussianBlur(gray, (5, 5), sigmaX=1.0)
+        sharp = cv2.addWeighted(gray, 1.0, blur, -0.5, 0)
+
+        # Normalize to 0–255
+        sharp = cv2.normalize(sharp, None, 0, 255, cv2.NORM_MINMAX)
+
+        # Merge back into 3 channels by mixing 70% original + 30% enhanced
+        enhanced = cv2.cvtColor(sharp, cv2.COLOR_GRAY2RGB)
+        enhanced = cv2.addWeighted(img, 0.7, enhanced, 0.3, 0)
+
+        return Image.fromarray(enhanced)
+
 
     def __len__(self):
         return len(self.img_paths)
@@ -139,6 +172,9 @@ class CrackDataset(Dataset):
             mask = None
         else:
             mask = Image.open(self.mask_paths[idx]).convert("L")   # 1 channel (grayscale)
+        # Optional crack-enhancing preprocessing
+        if self.preprocessing:
+            img = self.preprocess_crack_image(img)
         
         img = self.resize_img(img, self.resize_size[0], self.resize_size[1])
         if mask is not None:

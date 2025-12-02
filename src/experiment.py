@@ -23,7 +23,7 @@ from joblib import Parallel, delayed
 import json
 
 import pandas as pd
-from crackdata_processing import CrackDataset, CrackAugmentations
+from crackdata_processing import CrackDataset
 
 from cv_modules.factories import CVModuleFactory
 
@@ -246,6 +246,7 @@ class Experiment:
         self.learning_rate = self.config.get("learning_rate", 0.001)
         self.threshold = self.config.get("threshold", 0.5)
         self.n_classes = self.config.get("n_classes", 2)
+        self.preprocessing = self.config.get("preprocessing", False)
         
         self.epochs = self.config.get("epochs", 10)
         self.model = None
@@ -258,6 +259,7 @@ class Experiment:
         with open(self.experiment_report, "w") as f:
             f.write(f"Experiment Configurations: {self.config}\n")
         f.close()
+    
 
     
     @abc.abstractmethod
@@ -274,7 +276,7 @@ class Experiment:
                 print_info(f"Number of images: {n_images}")
                 self.sample_size = int(n_images * self.sample_size)
                 print_info(f"Using sample size: {self.sample_size}/{n_images} which is {self.sample_size/n_images*100}% of the dataset")  
-            self.data = CrackDataset(self.images_path, self.ground_truth_path,sample_size=self.sample_size, resize_size=(self.resize_size[0], self.resize_size[1]))
+            self.data = CrackDataset(self.images_path, self.ground_truth_path,sample_size=self.sample_size, resize_size=(self.resize_size[0], self.resize_size[1]), preprocessing=self.preprocessing)
             torch.manual_seed(self.config.get("seed", 42))
             perm = torch.randperm(len(self.data))  # permutation over CrackDataset
 
@@ -293,7 +295,7 @@ class Experiment:
             if test_path is not None:
                 self.test_images_path = test_path + "/images/"
                 self.test_ground_truth_path = test_path + "/masks/"
-                self.test_data = CrackDataset(self.test_images_path, self.test_ground_truth_path,sample_size=self.test_size, resize_size=(self.resize_size[0], self.resize_size[1]))
+                self.test_data = CrackDataset(self.test_images_path, self.test_ground_truth_path,sample_size=self.test_size, resize_size=(self.resize_size[0], self.resize_size[1]), preprocessing=self.preprocessing)
                 print_info(f"Test samples: {len(self.test_data)}")
             self.experiment_dict["dataset_size"] = {
                 "train": len(self.data),
@@ -303,7 +305,7 @@ class Experiment:
         elif self.execution_mode == "test":
             self.images_path = test_path + "/images/"
             self.ground_truth_path = test_path + "/masks/"
-            self.test_data = CrackDataset(self.images_path, self.ground_truth_path, augmentation_percentage=0.0,sample_size=self.test_size, resize_size=(self.resize_size[0], self.resize_size[1]))
+            self.test_data = CrackDataset(self.test_images_path, self.test_ground_truth_path,sample_size=self.test_size, resize_size=(self.resize_size[0], self.resize_size[1]), preprocessing=self.preprocessing)
             print_info(f"Test samples: {len(self.test_data)}")
             self.experiment_dict["dataset_size"] = {
                 "test": len(self.test_data)

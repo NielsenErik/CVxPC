@@ -327,7 +327,7 @@ def plot_node_type_distribution(pcnet, save_dir):
     for t in types:
         vals[t] = vals.get(t,0)+1
 
-    plt.figure(figsize=(6,4))
+    plt.figure(figsize=(12,8))
     plt.bar(vals.keys(), vals.values())
     plt.title("Node Type Distribution")
     plt.ylabel("Number of Nodes")
@@ -1033,16 +1033,16 @@ def generate_all_pcnet_plots(model, x, save_root="pcnet_plots"):
     print(f"[OK] Saved all PCNet visualizations to {save_root}")
 
 if __name__ == "__main__":
-    # image_path = "data/DeepCrack/test/images/"
-    # mask_path = "data/DeepCrack/test/masks/"
-    # data = CrackDataset(image_path, mask_path, resize_size=(400, 400))
-    # m = pickle.load(open("logs/old/pcnet_ge_small/DeepCrack/1/pcnet-ge.pkl", "rb"))
-    # print(m)
-    # # m = MultiPCNet(base_pcnet_cls=PCNet, n_experts=5)
+    image_path = "data/DeepCrack/test/images/"
+    mask_path = "data/DeepCrack/test/masks/"
+    data = CrackDataset(image_path, mask_path, resize_size=(400, 400))
+    m = pickle.load(open("logs/pcnet_ge/DeepCrack/3/pcnet-ge.pkl", "rb"))
+    print(m)
+    # m = MultiPCNet(base_pcnet_cls=PCNet, n_experts=5)
 
-    # x = torch.stack([data[i][0] for i in range(3)], dim=0)
+    x = torch.stack([data[i][0] for i in range(3)], dim=0)
 
-    # generate_all_pcnet_plots(m, x, save_root="plots")
+    generate_all_pcnet_plots(m, x, save_root="plots")
 
     pareto_file = "logs/Paretofront.csv"
     plot_pareto_front(pareto_file, save_path="plots/pareto_front.pdf")
