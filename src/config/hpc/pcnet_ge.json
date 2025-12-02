@@ -3,7 +3,7 @@
     "experiment": "crack_segmentation",
     "algorithm": "pcnet_ge",
     "device": "cpu",
-    "n_cpus": 30,
+    "n_cpus": 20,
 
     "data_path": "data/GAPS384/train",
     "test_path": "data/GAPS384/test",
