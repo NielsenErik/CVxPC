@@ -18,7 +18,12 @@ def main():
     else:
         dataset_name = config["data_path"].split("/")[1]
     config["seed"] = args.seed
-    config["log_dir"] = os.path.join("logs", config["algorithm"], dataset_name, str(config["seed"]))
+    if "preprocessing" not in config:
+        config["preprocessing"] = False
+    if config["preprocessing"]==True:
+        config["log_dir"] = os.path.join("logs", config["algorithm"], "preprocessing", dataset_name, str(config["seed"]))
+    else:
+        config["log_dir"] = os.path.join("logs", config["algorithm"], dataset_name, str(config["seed"]))
     os.makedirs(config["log_dir"], exist_ok=True)
     json.dump(config, open(os.path.join(config["log_dir"], "config.json"), "w"), indent=4)
     run_experiment(config)

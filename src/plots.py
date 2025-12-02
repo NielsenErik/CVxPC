@@ -6,6 +6,7 @@ import seaborn as sns
 from probabilistic_circuits.probabilistic_circuits import *
 from crackdata_processing import *
 import pickle
+import pandas as pd
 
 # =========================================================
 # pcnet_plots.py
@@ -139,7 +140,7 @@ def plot_pcnet_topology(model, save_path="pcnet_topology.pdf"):
         edge_color="gray",
         arrowsize=20,
     )
-    plt.title("PCNet / MultiPCNet Topology", fontsize=16)
+    plt.title("PCNet / MultiPCNet Topology")
     plt.savefig(save_path, bbox_inches="tight")
     plt.close()
 
@@ -188,7 +189,7 @@ def plot_flow_influence(model, x, save_path="pc_flow.pdf"):
     # For MultiPCNet, visualize each expert separately + selector
     if hasattr(model, "experts"):
         plt.figure(figsize=(14, 6))
-        plt.suptitle("MultiPCNet Flow Influence", fontsize=18)
+        plt.suptitle("MultiPCNet Flow Influence")
 
         # Plot selector
         ax = plt.subplot(1, len(model.experts) + 1, 1)
@@ -297,7 +298,7 @@ def draw_flow(pcnet, node_score, edge_score, ax, title=""):
         ax=ax
     )
 
-    ax.set_title(title, fontsize=12)
+    ax.set_title(title)
     ax.axis("off")
 
     # -----------------------------
@@ -326,7 +327,7 @@ def plot_node_type_distribution(pcnet, save_dir):
     for t in types:
         vals[t] = vals.get(t,0)+1
 
-    plt.figure(figsize=(6,4))
+    plt.figure(figsize=(12,8))
     plt.bar(vals.keys(), vals.values())
     plt.title("Node Type Distribution")
     plt.ylabel("Number of Nodes")
@@ -650,21 +651,21 @@ def plot_gate_node(node, x_batch, save_path):
         diff = Ln - Rn
 
         axs[i,0].imshow(L, cmap="viridis")
-        axs[i,0].set_title(f"Left #{i}")
+        axs[i,0].set_title(f"Left {i}")
         axs[i,0].axis("off")
 
         axs[i,1].imshow(R, cmap="viridis")
-        axs[i,1].set_title(f"Right #{i}")
+        axs[i,1].set_title(f"Right {i}")
         axs[i,1].axis("off")
 
         im = axs[i,2].imshow(diff, cmap="coolwarm")
-        axs[i,2].set_title(f"Diff #{i}")
+        axs[i,2].set_title(f"Diff {i}")
         axs[i,2].axis("off")
         fig.colorbar(im, ax=axs[i,2], fraction=0.05, pad=0.04)
 
         axs[i,3].text(
             0,1,
-            f"GateNode\nα={gate_val:.3f}\nLeft>Right=red\nRight>Left=blue",
+            f"GateNode\nalpha={gate_val:.3f}\nLeft>Right=red\nRight>Left=blue",
             va="top", fontsize=10
         )
         axs[i,3].axis("off")
@@ -849,6 +850,130 @@ def visualize_node(node, x_batch, folder, idx):
     else:
         plot_generic_node_panel(node, x_batch, save_path)
 
+def plot_pareto_front(csv_path, save_path):
+    import pandas as pd
+    import numpy as np
+    import matplotlib.pyplot as plt
+
+    # ----------------------------------------------------
+    # Load data
+    # ----------------------------------------------------
+    df = pd.read_csv(csv_path)
+
+    df = df[['Model', 'Dataset', 'CLIoU', 'nParams']]
+    df = df.dropna(subset=['CLIoU', 'nParams'])
+
+    df['nParams'] = pd.to_numeric(df['nParams'])
+    df['CLIoU']   = pd.to_numeric(df['CLIoU'])
+
+    # ----------------------------------------------------
+    # COLOR SETUP BY DATASET
+    # ----------------------------------------------------
+    datasets = df['Dataset'].unique()
+    colors   = plt.cm.tab10(np.linspace(0, 1, len(datasets)))
+    color_map = {ds: colors[i] for i, ds in enumerate(datasets)}
+
+    # Different markers for models
+    ModelMarkers = ['o', 's', 'D', '^', 'v', '<', '>', 'P', 'X', '*']
+    model_list = df['Model'].unique()
+    model_markers = {m: ModelMarkers[i % len(ModelMarkers)] for i, m in enumerate(model_list)}
+
+    # ----------------------------------------------------
+    # PLOT 1: Pareto scatter plot (NO LINES)
+    # ----------------------------------------------------
+    plt.figure(figsize=(6, 4))
+
+    # ---- Dataset-wise scatter ----
+    for ds in datasets:
+        subset = df[df['Dataset'] == ds]
+
+        plt.scatter(
+            subset['nParams'], subset['CLIoU'],
+            color=color_map[ds], s=80, alpha=0.85
+        )
+
+        # Text labels
+        for _, r in subset.iterrows():
+            plt.text(
+                r['nParams'], r['CLIoU'],
+                r['Model'], fontsize=8,
+                color=color_map[ds], alpha=0.8
+            )
+
+    # ---- Dataset-wise Pareto points (dots only) ----
+    for ds in datasets:
+        subset = df[df['Dataset'] == ds].sort_values("nParams")
+
+        pareto = []
+        best_ciou = -np.inf
+
+        for _, row in subset.iterrows():
+            if row['CLIoU'] > best_ciou:
+                pareto.append(row)
+                best_ciou = row['CLIoU']
+
+        pareto_df = pd.DataFrame(pareto)
+
+        plt.scatter(
+            pareto_df['nParams'], pareto_df['CLIoU'],
+            color=color_map[ds], edgecolor="black",
+            s=150, marker="o", linewidth=1.5
+        )
+
+    plt.xscale("log")
+    plt.xlabel("Number of Parameters (log-scale)", fontsize=13)
+    plt.ylabel("CLIoU", fontsize=13)
+    plt.title("Pareto Scatter Plot per Dataset (No Lines)", fontsize=15)
+    plt.grid(True, which="both", linestyle="--", alpha=0.3)
+    plt.legend(datasets, title="Dataset")
+    plt.savefig(save_path.replace(".pdf", "_pareto_front.pdf"), bbox_inches='tight')
+
+    
+def plot_efficiency_barplot(csv_path, save_path):
+    import pandas as pd
+    import matplotlib.pyplot as plt
+    import seaborn as sns
+
+    # Load data
+    df = pd.read_csv(csv_path)
+
+    df = df[['Model', 'Dataset', 'CLIoU', 'nParams']]
+    df = df.dropna(subset=['CLIoU', 'nParams'])
+
+    # Compute efficiency
+    df['Efficiency'] = df['CLIoU'] / (df['nParams'] / 1e6)
+
+    # Seaborn style
+    sns.set(style="whitegrid")
+
+    plt.figure(figsize=(8, 6))
+
+    barplot = sns.barplot(
+        data=df,
+        x="Dataset",
+        y="Efficiency",
+        hue="Model",
+        errorbar=None,
+        palette="tab10"
+    )
+
+    # Apply LOG SCALE
+    plt.yscale("log")
+
+    plt.xticks(rotation=45, ha="right")
+    plt.ylabel("CLIoU per Million Parameters (log scale)", fontsize=13)
+    plt.xlabel("Dataset", fontsize=13)
+    plt.title("Model Efficiency per Dataset (Log-Scale)", fontsize=15)
+
+    # Legend on the right
+    plt.legend(title="Model", bbox_to_anchor=(1.02, 1.0), loc="upper left")
+
+    plt.tight_layout()
+    plt.savefig(save_path, bbox_inches='tight')
+    plt.show()
+
+
+
 
 
 # =========================================================
@@ -911,13 +1036,16 @@ if __name__ == "__main__":
     image_path = "data/DeepCrack/test/images/"
     mask_path = "data/DeepCrack/test/masks/"
     data = CrackDataset(image_path, mask_path, resize_size=(400, 400))
-    m = pickle.load(open("logs/old/pcnet_ge/DeepCrack/1/pcnet-ge.pkl", "rb"))
+    m = pickle.load(open("logs/pcnet_ge/DeepCrack/3/pcnet-ge.pkl", "rb"))
     print(m)
     # m = MultiPCNet(base_pcnet_cls=PCNet, n_experts=5)
 
     x = torch.stack([data[i][0] for i in range(3)], dim=0)
 
-    generate_all_pcnet_plots(m, x, save_root="plots_multipcnet")
+    generate_all_pcnet_plots(m, x, save_root="plots")
 
+    pareto_file = "logs/Paretofront.csv"
+    plot_pareto_front(pareto_file, save_path="plots/pareto_front.pdf")
+    plot_efficiency_barplot(pareto_file, save_path="plots/efficiency_barplot.pdf")
     # Comparison between the models
     

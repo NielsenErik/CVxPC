@@ -23,7 +23,7 @@ from joblib import Parallel, delayed
 import json
 
 import pandas as pd
-from crackdata_processing import CrackDataset, CrackAugmentations
+from crackdata_processing import CrackDataset
 
 from cv_modules.factories import CVModuleFactory
 
@@ -246,6 +246,7 @@ class Experiment:
         self.learning_rate = self.config.get("learning_rate", 0.001)
         self.threshold = self.config.get("threshold", 0.5)
         self.n_classes = self.config.get("n_classes", 2)
+        self.preprocessing = self.config.get("preprocessing", False)
         
         self.epochs = self.config.get("epochs", 10)
         self.model = None
@@ -258,6 +259,7 @@ class Experiment:
         with open(self.experiment_report, "w") as f:
             f.write(f"Experiment Configurations: {self.config}\n")
         f.close()
+    
 
     
     @abc.abstractmethod
@@ -274,7 +276,7 @@ class Experiment:
                 print_info(f"Number of images: {n_images}")
                 self.sample_size = int(n_images * self.sample_size)
                 print_info(f"Using sample size: {self.sample_size}/{n_images} which is {self.sample_size/n_images*100}% of the dataset")  
-            self.data = CrackDataset(self.images_path, self.ground_truth_path,sample_size=self.sample_size, resize_size=(self.resize_size[0], self.resize_size[1]))
+            self.data = CrackDataset(self.images_path, self.ground_truth_path,sample_size=self.sample_size, resize_size=(self.resize_size[0], self.resize_size[1]), preprocessing=self.preprocessing)
             torch.manual_seed(self.config.get("seed", 42))
             perm = torch.randperm(len(self.data))  # permutation over CrackDataset
 
@@ -293,7 +295,7 @@ class Experiment:
             if test_path is not None:
                 self.test_images_path = test_path + "/images/"
                 self.test_ground_truth_path = test_path + "/masks/"
-                self.test_data = CrackDataset(self.test_images_path, self.test_ground_truth_path,sample_size=self.test_size, resize_size=(self.resize_size[0], self.resize_size[1]))
+                self.test_data = CrackDataset(self.test_images_path, self.test_ground_truth_path,sample_size=self.test_size, resize_size=(self.resize_size[0], self.resize_size[1]), preprocessing=self.preprocessing)
                 print_info(f"Test samples: {len(self.test_data)}")
             self.experiment_dict["dataset_size"] = {
                 "train": len(self.data),
@@ -303,7 +305,7 @@ class Experiment:
         elif self.execution_mode == "test":
             self.images_path = test_path + "/images/"
             self.ground_truth_path = test_path + "/masks/"
-            self.test_data = CrackDataset(self.images_path, self.ground_truth_path, augmentation_percentage=0.0,sample_size=self.test_size, resize_size=(self.resize_size[0], self.resize_size[1]))
+            self.test_data = CrackDataset(self.test_images_path, self.test_ground_truth_path,sample_size=self.test_size, resize_size=(self.resize_size[0], self.resize_size[1]), preprocessing=self.preprocessing)
             print_info(f"Test samples: {len(self.test_data)}")
             self.experiment_dict["dataset_size"] = {
                 "test": len(self.test_data)
@@ -562,6 +564,46 @@ class ExperimentDL(Experiment):
     # ----------------------------
     # Training loop
     # ----------------------------
+
+    def iou_score(self, logits, targets, num_classes=None):
+
+        # Resize if sizes do not match
+        if logits.shape[-2:] != targets.shape[-2:]:
+            logits = F.interpolate(
+                logits,
+                size=targets.shape[-2:],
+                mode="bilinear",
+                align_corners=False
+            )
+
+        # Decide number of classes
+        if num_classes is None:
+            num_classes = 2 if logits.shape[1] == 1 else logits.shape[1]
+
+        # Predictions
+        if logits.shape[1] == 1:   # binary
+            preds = (torch.sigmoid(logits) > 0.5).long().squeeze(1)
+        else:                      # multiclass
+            preds = torch.argmax(logits, dim=1)
+
+        # Flatten + convert
+        preds = preds.view(-1).long()
+        targets = targets.view(-1).long()
+
+        # Compute confusion matrix
+        bins = num_classes * targets + preds
+        confusion = torch.bincount(
+            bins,
+            minlength=num_classes ** 2
+        ).reshape(num_classes, num_classes)
+
+        TP = confusion.diag()
+        FP = confusion.sum(0) - TP
+        FN = confusion.sum(1) - TP
+
+        IoU = TP / (TP + FP + FN + 1e-7)
+        return IoU.mean()
+
     def train(self, model, train_data, val_data=None, 
             loss_function=None, optimizer=None, scheduler=None, 
             device="cuda", epochs=20, batch_size=8):

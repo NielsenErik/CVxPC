@@ -125,6 +125,6 @@ def main(log_root, output_csv):
 
 
 if __name__ == "__main__":
-    log_root = "logs/pcnet_ge"
-    output_csv = "logs/pcnet_ge/experiment_summary.csv"
+    log_root = "logs/unet"
+    output_csv = os.path.join(log_root, "summary.csv")
     main(log_root, output_csv)
