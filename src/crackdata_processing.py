@@ -141,10 +141,6 @@ class CrackDataset(Dataset):
         # Convert to grayscale (but keep original color for final merge)
         gray = cv2.cvtColor(img, cv2.COLOR_RGB2GRAY)
 
-        # --- 1. Light CLAHE (reduced clip limit)
-        clahe = cv2.createCLAHE(clipLimit=1.5, tileGridSize=(8, 8))
-        gray = clahe.apply(gray)
-
         # --- 2. Soft Gaussian denoising (instead of bilateral)
         gray = cv2.GaussianBlur(gray, (3, 3), sigmaX=0.5)
 
