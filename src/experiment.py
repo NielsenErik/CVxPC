@@ -27,6 +27,8 @@ from crackdata_processing import CrackDataset
 
 from cv_modules.factories import CVModuleFactory
 
+from probabilistic_circuits.grammatical_evolution_unsupervised import UnsupervisedGEOptimizer
+
 import torch
 import torch.distributed as dist
 from torch.nn.parallel import DistributedDataParallel as DDP
@@ -69,6 +71,10 @@ def run_experiment(config):
 
     elif config["algorithm"] == "pcnet_ge":
         experiment = ExperimentGEPC(config)
+        experiment.run()
+
+    elif config["algorithm"] == "pcnet_ge_unsupervised":
+        experiment = ExperimentUnsupervisedGEPC(config)
         experiment.run()
 
     else:
@@ -226,6 +232,111 @@ class DiceCELoss(nn.Module):
             cl = soft_clDice(pred_prob, tgt_prob)
         dl = self.dice_loss(pred, target)
         return 0.2*ce + 0.1*dl + self.gamma*(1 - cl)
+
+
+class UnsupervisedPCNetLoss(nn.Module):
+    """
+    A stable, balanced, and segmentation-oriented unsupervised loss for crack detection.
+
+    Key features:
+      • symmetric background/crack distributions
+      • gamma entropy term prevents collapse
+      • sparsity term anchors crack ratio to realistic level
+      • deviation-based crack modeling
+      • logit temperature softens responsibilities
+      • works with 1-channel or 2-channel PCNet outputs
+    """
+
+    def __init__(self,
+                 target_crack_ratio=0.06,   # expected 3% pixels are crack (tune)
+                 lambda_sparsity=0.2,       # weight for crack area prior
+                 lambda_entropy=0.15,       # weight for gamma entropy
+                 eps=1e-6,
+                 temperature=2.0):          # softens gamma to avoid saturation
+        super().__init__()
+        self.target_r = target_crack_ratio
+        self.lambda_s = lambda_sparsity
+        self.lambda_e = lambda_entropy
+        self.eps = eps
+        self.T = temperature
+
+    def forward(self, logits, x):
+        """
+        logits: (B,1,H,W) or (B,2,H,W)
+        x:      (B,C,H,W)
+        """
+
+        # ---------------------------------------------------------
+        # 1. RESPONSIBILITY γ
+        # ---------------------------------------------------------
+        if logits.shape[1] == 1:
+            crack_logits = logits[:, 0]
+            background_logits = torch.zeros_like(crack_logits)
+        else:
+            background_logits = logits[:, 0]
+            crack_logits      = logits[:, 1]
+
+        # Temperature-scaled logit difference to avoid saturation
+        delta = (crack_logits - background_logits) / self.T
+        delta = torch.clamp(delta, -8, 8)  # prevents extreme γ
+        gamma = torch.sigmoid(delta)       # (B,H,W)
+
+        gamma_full = gamma.unsqueeze(1).expand(-1, x.size(1), -1, -1)
+
+        # ---------------------------------------------------------
+        # 2. BACKGROUND MODEL (Gaussian-like)
+        # ---------------------------------------------------------
+        mu_b  = torch.mean(x, dim=[2,3], keepdim=True)
+        std_b = torch.abs(x - mu_b) + self.eps   # local variance (balanced!)
+
+        log_pb = -0.5 * (((x - mu_b) / std_b)**2 +
+                         torch.log(2 * torch.pi * std_b**2))
+
+        # ---------------------------------------------------------
+        # 3. CRACK MODEL (deviation-based)
+        # ---------------------------------------------------------
+        # cracks are deviations from the background mean
+        deviation = torch.abs(x - mu_b)
+
+        # cracks get a moderate variance model centered around deviations
+        std_c = deviation + self.eps
+        mu_c  = mu_b
+
+        log_pc = -0.5 * (((x - mu_c) / std_c)**2 +
+                         torch.log(2 * torch.pi * std_c**2))
+
+        # ---------------------------------------------------------
+        # 4. MIXTURE PROBABILITY
+        # ---------------------------------------------------------
+        nll = -(gamma_full * log_pc + (1 - gamma_full) * log_pb)  # (B,C,H,W)
+        nll = nll.mean(dim=1)                                     # (B,H,W)
+        base_loss = nll.mean()
+
+        # ---------------------------------------------------------
+        # 5. SPARSITY PRIOR: penalize deviation from target crack ratio
+        # ---------------------------------------------------------
+        crack_ratio = gamma.mean()
+        sparsity_prior = (crack_ratio - self.target_r).pow(2)
+
+        # ---------------------------------------------------------
+        # 6. ENTROPY REGULARIZATION on γ: keeps responsibilities soft
+        # ---------------------------------------------------------
+        entropy = -(gamma * torch.log(gamma + self.eps) +
+                    (1 - gamma) * torch.log(1 - gamma + self.eps))
+        entropy = entropy.mean()
+
+        # ---------------------------------------------------------
+        # FINAL LOSS
+        # ---------------------------------------------------------
+        loss = (
+            base_loss +
+            self.lambda_s * sparsity_prior -
+            self.lambda_e * entropy          # **maximize entropy**
+        )
+
+        return loss
+
+
 
     
 class Experiment:
@@ -1993,3 +2104,449 @@ class ExperimentGEPC(ExperimentPC):
             json.dump(self.experiment_dict, open(os.path.join(self.config["log_dir"], "experiment.json"), "w"), indent=4)
 
 
+class ExperimentUnsupervisedGEPC(ExperimentPC):
+    def __init__(self, config):
+        super().__init__(config)
+
+        self.ge_config = self.config.get(
+            "ge",
+            {
+                "generations": 10,
+                "pop_size": 8,
+                "genome_len": 96,
+                "crossover_rate": 0.9,
+                "mutation_rate": 0.05,
+                "elite_k": 2,
+                "train_split": 0.05,
+            },
+        )
+
+        self.ge = UnsupervisedGEOptimizer(
+            pop_size=self.ge_config["pop_size"],
+            genome_len=self.ge_config["genome_len"],
+            max_depth=self.max_depth,
+            max_branching=self.max_branching,
+            crossover_rate=self.ge_config["crossover_rate"],
+            mutation_rate=self.ge_config["mutation_rate"],
+            elite_k=self.ge_config["elite_k"],
+            n_classes=self.n_classes,
+            device=self.device,
+            n_jobs=self.n_cpus,
+            report=self.experiment_report,
+            log_path=self.log_path,
+        )
+
+    # --------------------------------------------------------
+    # SET UNSUPERVISED CRITERION
+    # --------------------------------------------------------
+    def set_criterion(self):
+        self.criterion = UnsupervisedPCNetLoss()
+
+    # --------------------------------------------------------
+    # TRAIN (uses only X for loss, Y for metrics)
+    # --------------------------------------------------------
+    def train(self, model, epochs=10, lr=1e-3, n_cpus=None):
+        """
+        Train PCNet model (UNSUPERVISED loss, supervised metrics).
+        Loss = criterion(logits, ft_batch)
+        Metrics use t_batch only for evaluation.
+        """
+        self._setup_cpu_env()
+        device = model.device
+
+        print_info(f"🧮 Using device: {device}")
+        print_info(f"🔢 Model has {len(model.params)} learnable parameter tensors.")
+
+        optimizer = torch.optim.Adam(model.params, lr=lr, weight_decay=1e-4)
+
+        # ------------------------------
+        # Data preparation
+        # ------------------------------
+        X = torch.from_numpy(self.feature_tensor).float()
+        Y = torch.from_numpy(self.train_masks).long()
+
+        if Y.dim() == 4 and Y.size(1) == 1:
+            Y = Y.squeeze(1)
+
+        train_loader = self.get_dataloaders(
+            TensorDataset(X, Y),
+            shuffle=True,
+            batch_size=self.batch_size,
+        )
+
+        val_loader = None
+        if hasattr(self, "val_feature_tensor") and self.val_feature_tensor is not None:
+            Xv = torch.from_numpy(self.val_feature_tensor).float()
+            Yv = torch.from_numpy(self.val_masks).long()
+            if Yv.dim() == 4 and Yv.size(1) == 1:
+                Yv = Yv.squeeze(1)
+
+            val_loader = self.get_dataloaders(
+                TensorDataset(Xv, Yv),
+                shuffle=False,
+                batch_size=self.batch_size,
+            )
+
+        # ------------------------------
+        # Training loop
+        # ------------------------------
+        train_losses, val_losses = [], []
+        train_dices, val_dices = [], []
+        train_ious, val_ious = [], []
+        train_clious, val_clious = [], []
+        gates_over_epochs = []
+
+        pbar = tqdm.tqdm(range(epochs), desc="Training PCNet (unsupervised loss)")
+
+        for epoch in pbar:
+            batch_losses, batch_dices, batch_ious, batch_clious = [], [], [], []
+
+            for ft_batch, t_batch in train_loader:
+                ft_batch = ft_batch.to(device)
+                t_batch = t_batch.to(device)
+
+                optimizer.zero_grad()
+
+                logits = model.evaluate(ft_batch)
+                # UNSUPERVISED loss
+                loss = self.criterion(logits, ft_batch)
+                loss.backward()
+                optimizer.step()
+
+                with torch.no_grad():
+                    pred_mask = torch.argmax(logits, 1, keepdim=True).float()
+                    print_debugging(pred_mask.unique(return_counts=True))
+                    true_mask = t_batch.unsqueeze(1).float()
+
+                    dice_score = self.dice_coef(logits, t_batch)
+                    iou_score = self.iou_score(logits, t_batch)
+                    cl_iou_score = self.cl_iou_score(pred_mask, true_mask)
+
+                batch_losses.append(loss.item())
+                batch_dices.append(float(dice_score))
+                batch_ious.append(float(iou_score))
+                batch_clious.append(float(cl_iou_score))
+
+            epoch_loss = np.mean(batch_losses)
+            epoch_dice = np.mean(batch_dices)
+            epoch_iou = np.mean(batch_ious)
+            epoch_cl_iou = np.mean(batch_clious)
+
+            train_losses.append(epoch_loss)
+            train_dices.append(epoch_dice)
+            train_ious.append(epoch_iou)
+            train_clious.append(epoch_cl_iou)
+
+            print_info(f"Epoch {epoch+1}: Loss={epoch_loss:.4f}, Dice={epoch_dice:.4f}")
+
+            if val_loader is not None:
+                val_loss, val_dice, val_iou, val_cl_iou = self.evaluate(model, val_loader)
+                val_losses.append(val_loss)
+                val_dices.append(val_dice)
+                val_ious.append(val_iou)
+                val_clious.append(val_cl_iou)
+
+                print_info(f"Validation Loss={val_loss:.4f}, Dice={val_dice:.4f}")
+
+            pbar.set_postfix({"loss": epoch_loss})
+
+        # Save CSV logs, plots, etc. (unchanged)
+        # super()._finalize_training_logs(
+        #     train_losses, train_dices, train_ious, train_clious,
+        #     val_losses, val_dices, val_ious, val_clious, gates_over_epochs
+        # )
+
+        print_info("✅ Training complete.")
+        return model
+    
+    @torch.no_grad()
+    def evaluate(self, model, dataloader):
+        losses, dices, ious, clious = [], [], [], []
+
+        for ft_batch, t_batch in dataloader:
+            ft_batch = ft_batch.to(self.device).float()    # PCNet expects float features
+            t_batch = t_batch.to(self.device).long()       # masks for metrics only
+
+            # -------------------------------------------------------
+            # Forward pass (PCNet requires evaluate(), not model(x))
+            # -------------------------------------------------------
+            logits = model.evaluate(ft_batch)   # (B, C, H, W) in log-space
+
+            # -------------------------------------------------------
+            # Unsupervised loss uses **features**, NOT labels
+            # -------------------------------------------------------
+            loss = self.criterion(logits, ft_batch)
+            losses.append(loss.item())
+
+            # -------------------------------------------------------
+            # Supervised metrics for monitoring only
+            # -------------------------------------------------------
+            dice_score = self.dice_coef(logits, t_batch)
+            iou_score  = self.iou_score(logits, t_batch)
+
+            pred_mask = torch.argmax(logits, dim=1, keepdim=True).float()
+            true_mask = t_batch.unsqueeze(1).float()
+
+            cl_iou_score = self.cl_iou_score(pred_mask, true_mask)
+
+            dices.append(float(dice_score))
+            ious.append(float(iou_score))
+            clious.append(float(cl_iou_score))
+
+        return (
+            float(np.mean(losses)),
+            float(np.mean(dices)),
+            float(np.mean(ious)),
+            float(np.mean(clious)),
+        )
+
+    @torch.no_grad()
+    def test(self, model, dataloader):
+        losses, dices, ious, clious = [], [], [], []
+        accuracies, precisions, recalls, f1_scores = [], [], [], []
+
+        for ft_batch, t_batch in dataloader:
+            ft_batch = ft_batch.to(self.device).float()   # features for loss
+            t_batch = t_batch.to(self.device).long()      # masks for metrics
+
+            # ---------------------------------------------------------
+            # Forward pass
+            # ---------------------------------------------------------
+            logits = model.evaluate(ft_batch)
+
+            # ---------------------------------------------------------
+            # UNSUPERVISED LOSS (depends ONLY on images)
+            # ---------------------------------------------------------
+            loss = self.criterion(logits, ft_batch)
+            losses.append(loss.item())
+
+            # ---------------------------------------------------------
+            # SUPERVISED METRICS (compare vs. masks)
+            # ---------------------------------------------------------
+            dice_score = self.dice_coef(logits, t_batch)
+            iou_score = self.iou_score(logits, t_batch)
+
+            pred_mask = torch.argmax(logits, dim=1, keepdim=True).float()
+            true_mask = t_batch.unsqueeze(1).float()
+
+            cl_iou_score = self.cl_iou_score(pred_mask, true_mask)
+
+            dices.append(float(dice_score))
+            ious.append(float(iou_score))
+            clious.append(float(cl_iou_score))
+
+            # ---------------------------------------------------------
+            # Classification metrics per pixel
+            # ---------------------------------------------------------
+            pm = pred_mask.view(-1).long()
+            tm = true_mask.view(-1).long()
+
+            tp = ((pm == 1) & (tm == 1)).sum()
+            fp = ((pm == 1) & (tm == 0)).sum()
+            fn = ((pm == 0) & (tm == 1)).sum()
+            tn = ((pm == 0) & (tm == 0)).sum()
+
+            accuracy = (tp + tn) / (tp + tn + fp + fn + 1e-8)
+            precision = tp / (tp + fp + 1e-8)
+            recall = tp / (tp + fn + 1e-8)
+            f1_score = (2 * precision * recall) / (precision + recall + 1e-8)
+
+            accuracies.append(float(accuracy))
+            precisions.append(float(precision))
+            recalls.append(float(recall))
+            f1_scores.append(float(f1_score))
+
+        # ---------------------------------------------------------
+        # Aggregate results
+        # ---------------------------------------------------------
+        mean_loss = float(np.mean(losses))
+        mean_dice = float(np.mean(dices))
+        mean_iou = float(np.mean(ious))
+        mean_cl_iou = float(np.mean(clious))
+        mean_acc = float(np.mean(accuracies))
+        mean_prec = float(np.mean(precisions))
+        mean_rec = float(np.mean(recalls))
+        mean_f1 = float(np.mean(f1_scores))
+
+        # ---------------------------------------------------------
+        # Print nicely
+        # ---------------------------------------------------------
+        print_info("✅ Testing complete.")
+        print_info(
+            f"Test Loss: {mean_loss:.4f}, Dice: {mean_dice:.4f}, IoU: {mean_iou:.4f}, "
+            f"CL-IoU: {mean_cl_iou:.4f}"
+        )
+        print_info(
+            f"Test Accuracy: {mean_acc:.4f}, Precision: {mean_prec:.4f}, "
+            f"Recall: {mean_rec:.4f}, F1-Score: {mean_f1:.4f}"
+        )
+
+        # ---------------------------------------------------------
+        # Save to experiment_dict
+        # ---------------------------------------------------------
+        self.experiment_dict["results"] = {
+            "test_loss": mean_loss,
+            "test_dice": mean_dice,
+            "test_iou": mean_iou,
+            "test_cl_iou": mean_cl_iou,
+            "test_accuracy": mean_acc,
+            "test_precision": mean_prec,
+            "test_recall": mean_rec,
+            "test_f1_score": mean_f1,
+        }
+
+        # ---------------------------------------------------------
+        # Also save #params info
+        # ---------------------------------------------------------
+        n_trainable_params = sum(
+            p.numel() for p in model.params if p.requires_grad
+        )
+        self.experiment_dict["n_trainable_params"] = n_trainable_params
+
+        # ---------------------------------------------------------
+        # Log to file
+        # ---------------------------------------------------------
+        with open(self.experiment_report, "a") as f:
+            f.write(
+                f"Test Loss: {mean_loss:.4f}, Dice: {mean_dice:.4f}, IoU: {mean_iou:.4f}, "
+                f"CL-IoU: {mean_cl_iou:.4f}\n"
+            )
+            f.write(
+                f"Accuracy: {mean_acc:.4f}, Precision: {mean_prec:.4f}, "
+                f"Recall: {mean_rec:.4f}, F1: {mean_f1:.4f}\n"
+            )
+
+        return mean_loss, mean_dice, mean_iou, mean_cl_iou
+
+
+
+    # --------------------------------------------------------
+    # RUN PIPELINE
+    # --------------------------------------------------------
+    def run(self):
+
+        # Load training/validation/test sets
+        self.set_dataset(self.data_path, self.test_path)
+
+        if self.execution_mode == "train":
+            self.set_algorithm()
+            self.set_criterion()
+
+            # ------------------------------
+            # GE SEARCH DATASET
+            # ------------------------------
+            ge_train_size = int(self.ge_config["train_split"] * len(self.train_data))
+            print_info(f"GE Training size: {ge_train_size}")
+
+            ge_data = []
+            for i in range(ge_train_size):
+                x, _ = self.train_data[i]       # ignore masks
+                ge_data.append(x)
+
+            ge_X_train = torch.from_numpy(np.array(ge_data)).float().to(self.device)
+
+            # ------------------------------
+            # RUN GE EVOLUTION (UNSUPERVISED)
+            # ------------------------------
+            best_pc, best_genome, history = self.ge.evolve(
+                ge_X_train,
+                criterion=self.criterion,
+                generations=self.ge_config["generations"],
+                n_classes=self.n_classes,
+                train_steps=50,
+                lr=self.learning_rate,
+            )
+
+            print_info("Best genome:", best_genome)
+            print_info("Best PC:", str(best_pc))
+
+            self.experiment_dict["ge"] = {
+                "best_genome": best_genome,
+                "history": history
+            }
+
+            self.model = best_pc
+
+            # ------------------------------
+            # FULL TRAIN DATASET FOR PCNet TRAINING
+            # ------------------------------
+            train_data = [x for (x, y) in self.train_data]
+            train_masks = [y for (x, y) in self.train_data]
+
+            self.feature_tensor = np.array(train_data)
+            self.train_masks = np.array(train_masks)
+
+            val_data = [x for (x, y) in self.val_data]
+            val_masks = [y for (x, y) in self.val_data]
+
+            self.val_feature_tensor = np.array(val_data)
+            self.val_masks = np.array(val_masks)
+
+            # DO NOT PASS LABELS TO CRITERION ANYMORE
+            self.set_criterion()
+
+            # ------------------------------
+            # TRAIN FINAL PCNet
+            # ------------------------------
+            self.model = self.train(self.model, epochs=self.epochs, lr=self.learning_rate)
+
+            # Save
+            self.save_model("pcnet-ge")
+
+            # ------------------------------
+            # TEST
+            # ------------------------------
+            if self.test_path is not None:
+                test_data = [x for (x, y) in self.test_data]
+                test_masks = [y for (x, y) in self.test_data]
+
+                self.test_inputs = torch.from_numpy(np.array(test_data)).float().to(self.device)
+                self.test_ground_truth = torch.from_numpy(np.array(test_masks)).long().to(self.device)
+
+                if self.test_ground_truth.dim() == 4 and self.test_ground_truth.size(1) == 1:
+                    self.test_ground_truth = self.test_ground_truth.squeeze(1)
+
+                test_loader = self.get_dataloaders(
+                    TensorDataset(self.test_inputs, self.test_ground_truth),
+                    shuffle=False, batch_size=self.batch_size
+                )
+
+                loss, dice, iou, cl_iou = self.test(self.model, test_loader)
+
+                json.dump(
+                    self.experiment_dict,
+                    open(os.path.join(self.config["log_dir"], "experiment.json"), "w"),
+                    indent=4
+                )
+
+                self.show_prediction(self.model)
+
+        # --------------------------------------------------------
+        # TEST MODE
+        # --------------------------------------------------------
+        elif self.execution_mode == "test":
+            self.load_model(self.config["model_path"])
+
+            test_data = [x for (x, y) in self.test_data]
+            test_masks = [y for (x, y) in self.test_data]
+
+            self.test_inputs = torch.from_numpy(np.array(test_data)).float().to(self.device)
+            self.test_ground_truth = torch.from_numpy(np.array(test_masks)).long().to(self.device)
+
+            if self.test_ground_truth.dim() == 4 and self.test_ground_truth.size(1) == 1:
+                self.test_ground_truth = self.test_ground_truth.squeeze(1)
+
+            self.set_criterion()
+
+            test_loader = self.get_dataloaders(
+                TensorDataset(self.test_inputs, self.test_ground_truth),
+                shuffle=False, batch_size=self.batch_size,
+            )
+
+            loss, dice, iou, cl_iou = self.test(self.model, test_loader)
+
+            json.dump(
+                self.experiment_dict,
+                open(os.path.join(self.config["log_dir"], "experiment.json"), "w"),
+                indent=4
+            )
