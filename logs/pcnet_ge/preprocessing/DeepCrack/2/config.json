@@ -1,35 +1,32 @@
 {
     "mlflow": null,
-    "experiment": "crack_segmentation",
+    "experiment": "pcnet_ge",
     "algorithm": "pcnet_ge",
-    "model_path": "logs/pcnet_ge/CRACK500/3/pcnet-ge.pkl",
     "device": "cpu",
-    "n_cpus": 4,
+    "n_cpus": 30,
     "data_path": "data/crackseg9k_split/DeepCrack/train",
     "test_path": "data/crackseg9k_split/DeepCrack/test",
     "save_path": "models/",
     "validation_split": 0.2,
     "preprocessing": true,
-    "epochs": 20,
-    "batch_size": 16,
-    "sample_size": 0.5,
+    "epochs": 80,
+    "batch_size": 32,
     "resize_size": [
         400,
         400
     ],
-    "input_channels": 3,
     "n_classes": 1,
     "max_depth": 3,
-    "max_branching": 4,
+    "max_branching": 3,
     "seed": 2,
     "ge": {
-        "generations": 2,
-        "pop_size": 2,
+        "generations": 10,
+        "pop_size": 20,
         "genome_len": 96,
         "crossover_rate": 0.9,
         "mutation_rate": 0.05,
         "elite_k": 2,
-        "train_split": 0.05
+        "train_split": 0.2
     },
     "execution_mode": "train",
     "log_dir": "logs/pcnet_ge/preprocessing/DeepCrack/2"
