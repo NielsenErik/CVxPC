@@ -2,10 +2,10 @@
     "mlflow": "aida",
     "experiment": "crack_segmentation",
     "algorithm": "unet",
-    "data_path": "data/crackseg9k_split/AEL/train",
-    "test_path": "data/crackseg9k_split/AEL/test",
+    "data_path": "data/CrackSeg9k/train",
+    "test_path": "data/CrackSeg9k/test",
     "save_path": "models/",
-    "model_name": "deepcrackz",
+    "model_name": "crackformer",
     "validation_split": 0.2,
     "epochs": 4,
     "batch_size": 16,
@@ -21,5 +21,5 @@
     "seed": 1,
     "execution_mode": "train",
     "preprocessing": false,
-    "log_dir": "logs/unet/AEL/1"
+    "log_dir": "logs/unet/CrackSeg9k/1"
 }

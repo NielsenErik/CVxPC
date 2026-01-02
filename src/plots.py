@@ -1033,6 +1033,70 @@ def generate_all_pcnet_plots(model, x, save_root="pcnet_plots"):
     print(f"[OK] Saved all PCNet visualizations to {save_root}")
 
 if __name__ == "__main__":
+
+    # import os
+    # import random
+    # import matplotlib.pyplot as plt
+    # from PIL import Image
+
+    # # Root directory containing all datasets
+    # ROOT_DIR = "data/crackseg9k_split"
+
+    # # Dataset names in required order
+    # DATASETS = ["AEL", "CRACK500", "DeepCrack", "GAPS384", "cracktree200"]
+
+    # NUM_IMAGES = 4  # images per dataset
+
+    # fig, axes = plt.subplots(
+    #     nrows=len(DATASETS),
+    #     ncols=NUM_IMAGES,
+    #     figsize=(8,10),
+    #     gridspec_kw={"wspace": 0.05, "hspace": 0.05}
+    # )
+
+    # for row, dataset in enumerate(DATASETS):
+    #     images_dir = os.path.join(ROOT_DIR, dataset, "train", "images")
+        
+    #     image_files = [
+    #         f for f in os.listdir(images_dir)
+    #         if f.lower().endswith((".png", ".jpg", ".jpeg"))
+    #     ]
+
+    #     # Randomly select 4 different images
+    #     selected_images = random.sample(image_files, NUM_IMAGES)
+
+    #     for col, img_name in enumerate(selected_images):
+    #         img_path = os.path.join(images_dir, img_name)
+    #         img = Image.open(img_path)
+    #         img = img.resize((512, 512))
+    #         ax = axes[row, col]
+    #         # Set dataset name as y-axis title (only once per row)
+    #         ax.imshow(img)
+    #         ax.axis("off")
+    # for row, dataset in enumerate(DATASETS):
+    #     y = 1 - (row + 0.5) / len(DATASETS)
+    #     fig.text(
+    #         0.045, y, dataset,      # ← CLOSE to images
+    #         va="center",
+    #         ha="right",
+    #         fontsize=13,
+    #         rotation=90
+    #     )
+
+    # plt.subplots_adjust(
+    #     left=0.05,   # ← minimal space, labels still fit
+    #     right=0.999,
+    #     top=0.98,
+    #     bottom=0.05,
+    # )
+
+            
+
+    # plt.savefig("plots/dataset_samples.pdf", bbox_inches="tight", pad_inches=0.1)
+    # exit()
+
+
+
     image_path = "data/DeepCrack/test/images/"
     mask_path = "data/DeepCrack/test/masks/"
     data = CrackDataset(image_path, mask_path, resize_size=(400, 400))
