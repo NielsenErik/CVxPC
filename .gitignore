@@ -3,4 +3,4 @@ data/*
 mlruns/
 models/
 logs/old/
-
+nnunet_data/
