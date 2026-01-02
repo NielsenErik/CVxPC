@@ -7,7 +7,7 @@
     "data_path": "data/crackseg9k_split/cracktree200/train",
     "test_path": "data/crackseg9k_split/cracktree200/test",
     "save_path": "models/",
-    "sample_size": 0.75,
+    "sample_size": 0.5,
     "validation_split": 0.2,
     "preprocessing": false,
     "epochs": 80,
