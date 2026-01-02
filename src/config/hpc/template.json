@@ -3,7 +3,7 @@
     "experiment": "crack_segmentation",
     "algorithm": "pcnet_ge",
     "device": "cpu",
-    "n_cpus": 30,
+    "n_cpus": 20,
 
     "data_path": "",
     "test_path": "",
@@ -14,8 +14,8 @@
     "epochs": 80,
     "batch_size": 32,
     "resize_size": [
-        400,
-        400
+        256,
+        256
     ],
     "n_classes": 1,
     "max_depth": 3,
