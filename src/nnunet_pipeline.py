@@ -206,3 +206,15 @@ def dice_iou_binary(pred01: np.ndarray, gt01: np.ndarray, eps=1e-8):
     iou = inter / (union + eps)
     return float(dice), float(iou)
 
+from nnunetv2.training.nnUNetTrainer.nnUNetTrainer import nnUNetTrainer
+class nnUNetTrainerEpochs(nnUNetTrainer):
+    """
+    nnUNet v2 trainer that reads max epochs from env var NNUNET_NUM_EPOCHS.
+    """
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+
+        # nnUNet uses self.num_epochs to decide training length
+        n = int(os.environ.get("NNUNET_NUM_EPOCHS", "10"))
+        self.num_epochs = n

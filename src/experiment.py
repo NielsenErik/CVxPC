@@ -1142,10 +1142,14 @@ class ExperimentNNUNet(Experiment):
         self.nn_cfg = config.get("nnunet_config", "2d")
         self.folds = config.get("nnunet_folds", [0])
         self.num_gpus = int(config.get("nnunet_num_gpus", 1))
-        self.trainer = config.get("nnunet_trainer", "nnUNetTrainer")
+
+        # NEW: epochs
+        self.epochs = int(self.config.get("epochs", 10))
+
+        # Use a custom trainer by default if epochs is specified
+        self.trainer = config.get("nnunet_trainer", "nnUNetTrainerEpochs")
         self.plans = config.get("nnunet_plans", "nnUNetPlans")
 
-        # Ensure writable nnUNet dirs (falls back to ./nnunet_data/* if needed)
         resolve_nnunet_paths(self.config)
 
         self.nnUNet_raw = self.config["nnUNet_raw"]
@@ -1157,8 +1161,15 @@ class ExperimentNNUNet(Experiment):
         self._env["nnUNet_preprocessed"] = self.nnUNet_preprocessed
         self._env["nnUNet_results"] = self.nnUNet_results
 
+        # NEW: tell trainer how many epochs
+        self._env["NNUNET_NUM_EPOCHS"] = str(self.epochs)
 
-        self.model_name = config.get("model_name", "nnunet")  # only for logging labeling
+        # NEW: make sure our custom trainer is importable before site-packages
+        project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+        src_path = os.path.join(project_root, "src")
+        self._env["PYTHONPATH"] = src_path + os.pathsep + self._env.get("PYTHONPATH", "")
+
+        self.model_name = config.get("model_name", "nnunet")
 
     def set_algorithm(self):
         # nnUNet decides architecture/training internally
