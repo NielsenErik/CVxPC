@@ -1239,7 +1239,6 @@ class ExperimentNNUNet(Experiment):
             self.test_data = None
 
     def train(self):
-        # export subset to nnUNet_raw
         export_crackdataset_subset_to_nnunet_raw(
             train_ds=self.train_data,
             test_ds=self.test_data,
@@ -1251,20 +1250,29 @@ class ExperimentNNUNet(Experiment):
 
         nnunet_plan_preprocess(self.dataset_id, env=self._env)
 
-        # You can train "all" folds for proper nnUNet CV, but it’s expensive.
-        # If you want faster learning-curve sweeps, train only fold 0:
-        folds_to_train = self.config.get("nnunet_train_folds", "0")  # "all" or "0"
-        device = self.config.get("nnunet_device", None)  # allow override
+        # ✅ NEW: set epochs and make sure trainer exists inside installed nnUNet
+        self.epochs = int(self.config.get("epochs", 10))
+        self._env["NNUNET_NUM_EPOCHS"] = str(self.epochs)
+
+        # optional: explicitly tell helper which python to use (your venv python)
+        self._env["PYTHON"] = os.path.join(os.path.dirname(sys.executable), "python")
+
+        ensure_trainer_epochs_installed(self._env, class_name="nnUNetTrainerEpochs", default_epochs=self.epochs)
+
+        folds_to_train = self.config.get("nnunet_train_folds", "0")
+        device = self.config.get("nnunet_device", None)
+
         nnunet_train(
             dataset_id=self.dataset_id,
             cfg=self.nn_cfg,
             folds=folds_to_train,
-            trainer=self.trainer,
+            trainer="nnUNetTrainerEpochs",   # ✅ IMPORTANT
             plans=self.plans,
             num_gpus=self.num_gpus,
             env=self._env,
             device=device
         )
+
 
     def evaluate(self):
         if self.test_data is None:

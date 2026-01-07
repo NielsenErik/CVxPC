@@ -206,6 +206,57 @@ def dice_iou_binary(pred01: np.ndarray, gt01: np.ndarray, eps=1e-8):
     iou = inter / (union + eps)
     return float(dice), float(iou)
 
+def ensure_trainer_epochs_installed(env, class_name="nnUNetTrainerEpochs", default_epochs=10):
+    """
+    Installs a custom nnUNet trainer into the *installed* nnunetv2 package
+    so nnUNetv2_train can discover it via -tr.
+
+    Writes to:
+      <venv>/site-packages/nnunetv2/training/nnUNetTrainer/variants/<class_name>.py
+    """
+    import os, textwrap, subprocess
+
+    # Use the same python interpreter as the current venv to locate nnunetv2
+    py = env.get("PYTHON", None)  # optional if you want to pass it
+    if py is None:
+        # fallback: use 'python' in PATH (usually correct inside venv)
+        py = "python"
+
+    # Ask python where nnunetv2 is installed
+    code = "import nnunetv2, os; print(nnunetv2.__path__[0])"
+    nnunet_root = subprocess.check_output([py, "-c", code], env=env, text=True).strip()
+
+    variants_dir = os.path.join(
+        nnunet_root, "training", "nnUNetTrainer", "variants"
+    )
+    os.makedirs(variants_dir, exist_ok=True)
+
+    # Ensure it's a package
+    init_file = os.path.join(variants_dir, "__init__.py")
+    if not os.path.exists(init_file):
+        with open(init_file, "w") as f:
+            f.write("# auto-created\n")
+
+    trainer_file = os.path.join(variants_dir, f"{class_name}.py")
+
+    trainer_src = textwrap.dedent(f"""
+    import os
+    from nnunetv2.training.nnUNetTrainer.nnUNetTrainer import nnUNetTrainer
+
+    class {class_name}(nnUNetTrainer):
+        \"\"\"Trainer that reads max epochs from env var NNUNET_NUM_EPOCHS.\"\"\"
+        def __init__(self, *args, **kwargs):
+            super().__init__(*args, **kwargs)
+            n = int(os.environ.get("NNUNET_NUM_EPOCHS", "{default_epochs}"))
+            self.num_epochs = n
+    """)
+
+    with open(trainer_file, "w") as f:
+        f.write(trainer_src)
+
+    return trainer_file
+
+
 from nnunetv2.training.nnUNetTrainer.nnUNetTrainer import nnUNetTrainer
 class nnUNetTrainerEpochs(nnUNetTrainer):
     """
