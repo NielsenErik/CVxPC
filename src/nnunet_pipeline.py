@@ -208,9 +208,9 @@ def dice_iou_binary(pred01: np.ndarray, gt01: np.ndarray, eps=1e-8):
 
 def ensure_trainer_epochs_installed(env, class_name="nnUNetTrainerEpochs", default_epochs=10):
     """
-    Installs a custom nnUNet trainer into the *installed* nnunetv2 package so nnUNetv2_train can discover it via -tr.
+    Installs a custom nnUNet trainer into installed nnunetv2 so `nnUNetv2_train -tr <class_name>` can find it.
 
-    It auto-matches the exact nnUNetTrainer.__init__ signature to avoid KeyError('args').
+    This version avoids embedding non-literal defaults (like torch.device('cuda')) in the generated signature.
     """
     import os, textwrap, subprocess, inspect
 
@@ -223,7 +223,7 @@ def ensure_trainer_epochs_installed(env, class_name="nnUNetTrainerEpochs", defau
     variants_dir = os.path.join(nnunet_root, "training", "nnUNetTrainer", "variants")
     os.makedirs(variants_dir, exist_ok=True)
 
-    # Make sure variants is a package
+    # Ensure it's a package
     init_file = os.path.join(variants_dir, "__init__.py")
     if not os.path.exists(init_file):
         with open(init_file, "w") as f:
@@ -231,34 +231,44 @@ def ensure_trainer_epochs_installed(env, class_name="nnUNetTrainerEpochs", defau
 
     trainer_file = os.path.join(variants_dir, f"{class_name}.py")
 
-    # Introspect signature of installed nnUNetTrainer.__init__
-    sig_code = textwrap.dedent("""
-        import inspect
-        from nnunetv2.training.nnUNetTrainer.nnUNetTrainer import nnUNetTrainer
-        print(str(inspect.signature(nnunetv2.training.nnUNetTrainer.nnUNetTrainer.nnUNetTrainer.__init__)))
-    """).replace("nnunetv2.training.nnUNetTrainer.nnUNetTrainer.nnUNetTrainer", "nnUNetTrainer")
-
-    # Get signature in *this* interpreter (same environment), safer than string parsing
-    # We'll do it directly here instead:
+    # Introspect installed base trainer signature
     from nnunetv2.training.nnUNetTrainer.nnUNetTrainer import nnUNetTrainer  # noqa
     sig = inspect.signature(nnUNetTrainer.__init__)
+    params = list(sig.parameters.values())
 
-    # Build parameter list exactly (excluding self)
-    params = []
-    call_args = []
-    for p in sig.parameters.values():
+    # Build a safe signature:
+    # - keep the same param names/order (excluding self)
+    # - any param with a default becomes "=None" (so we don't need to represent torch.device etc)
+    # - required params remain required
+    def_params = []
+    call_positional = []   # pass required params positionally
+    kw_pass = []           # pass optional params as kwargs only if not None
+
+    for p in params:
         if p.name == "self":
             continue
-        # create def param
-        if p.default is inspect._empty:
-            params.append(p.name)
-        else:
-            params.append(f"{p.name}={repr(p.default)}")
-        # call super with named args to be explicit
-        call_args.append(f"{p.name}={p.name}")
 
-    params_str = ", ".join(params)
-    call_args_str = ", ".join(call_args)
+        is_required = (p.default is inspect._empty) and (p.kind not in (p.VAR_POSITIONAL, p.VAR_KEYWORD))
+        if is_required:
+            def_params.append(p.name)
+            call_positional.append(p.name)
+        else:
+            # optional -> default to None
+            def_params.append(f"{p.name}=None")
+            # pass to super only if user provided it
+            kw_pass.append(p.name)
+
+    def_params_str = ", ".join(def_params)
+    call_pos_str = ", ".join(call_positional)
+
+    # Build kwargs dict to forward only provided optionals
+    # Example:
+    #   _kw = {}
+    #   if dataset_json is not None: _kw["dataset_json"] = dataset_json
+    kw_build_lines = []
+    for name in kw_pass:
+        kw_build_lines.append(f'        if {name} is not None: _kw["{name}"] = {name}')
+    kw_build = "\n".join(kw_build_lines)
 
     trainer_src = textwrap.dedent(f"""
     import os
@@ -267,8 +277,10 @@ def ensure_trainer_epochs_installed(env, class_name="nnUNetTrainerEpochs", defau
     class {class_name}(nnUNetTrainer):
         \"\"\"Trainer that reads max epochs from env var NNUNET_NUM_EPOCHS.\"\"\"
 
-        def __init__(self, {params_str}):
-            super().__init__({call_args_str})
+        def __init__(self, {def_params_str}):
+            _kw = {{}}
+{kw_build}
+            super().__init__({call_pos_str}{"," if call_pos_str and kw_pass else ""}**_kw)
             self.num_epochs = int(os.environ.get("NNUNET_NUM_EPOCHS", "{default_epochs}"))
     """)
 
@@ -276,6 +288,7 @@ def ensure_trainer_epochs_installed(env, class_name="nnUNetTrainerEpochs", defau
         f.write(trainer_src)
 
     return trainer_file
+
 
 
 

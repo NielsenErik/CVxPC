@@ -1269,7 +1269,7 @@ class ExperimentNNUNet(Experiment):
         self._env["NNUNET_NUM_EPOCHS"] = str(self.epochs)
 
         # optional: explicitly tell helper which python to use (your venv python)
-        self._env["PYTHON"] = os.path.join(os.path.dirname(sys.executable), "python")
+        self._env["PYTHON"] = sys.executable
 
         ensure_trainer_epochs_installed(
             env=self._env,
