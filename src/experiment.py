@@ -1132,6 +1132,19 @@ import torch
 from torch.utils.data import Subset
 
 from crackdata_processing import CrackDataset  # your class
+from nnunetv2.training.nnUNetTrainer.nnUNetTrainer import nnUNetTrainer
+class nnUNetTrainerEpochs(nnUNetTrainer):
+    """
+    nnUNet v2 trainer that reads max epochs from env var NNUNET_NUM_EPOCHS.
+    """
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+
+        # nnUNet uses self.num_epochs to decide training length
+        n = int(os.environ.get("NNUNET_NUM_EPOCHS", "10"))
+        self.num_epochs = n
+
 
 class ExperimentNNUNet(Experiment):
     def __init__(self, config):
@@ -1258,7 +1271,11 @@ class ExperimentNNUNet(Experiment):
         # optional: explicitly tell helper which python to use (your venv python)
         self._env["PYTHON"] = os.path.join(os.path.dirname(sys.executable), "python")
 
-        ensure_trainer_epochs_installed(self._env, class_name="nnUNetTrainerEpochs", default_epochs=self.epochs)
+        ensure_trainer_epochs_installed(
+            env=self._env,
+            class_name="nnUNetTrainerEpochs",
+            default_epochs=self.epochs
+        )
 
         folds_to_train = self.config.get("nnunet_train_folds", "0")
         device = self.config.get("nnunet_device", None)

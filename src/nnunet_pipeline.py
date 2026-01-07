@@ -208,30 +208,22 @@ def dice_iou_binary(pred01: np.ndarray, gt01: np.ndarray, eps=1e-8):
 
 def ensure_trainer_epochs_installed(env, class_name="nnUNetTrainerEpochs", default_epochs=10):
     """
-    Installs a custom nnUNet trainer into the *installed* nnunetv2 package
-    so nnUNetv2_train can discover it via -tr.
+    Installs a custom nnUNet trainer into the *installed* nnunetv2 package so nnUNetv2_train can discover it via -tr.
 
-    Writes to:
-      <venv>/site-packages/nnunetv2/training/nnUNetTrainer/variants/<class_name>.py
+    It auto-matches the exact nnUNetTrainer.__init__ signature to avoid KeyError('args').
     """
-    import os, textwrap, subprocess
+    import os, textwrap, subprocess, inspect
 
-    # Use the same python interpreter as the current venv to locate nnunetv2
-    py = env.get("PYTHON", None)  # optional if you want to pass it
-    if py is None:
-        # fallback: use 'python' in PATH (usually correct inside venv)
-        py = "python"
+    py = env.get("PYTHON", "python")
 
-    # Ask python where nnunetv2 is installed
-    code = "import nnunetv2, os; print(nnunetv2.__path__[0])"
+    # Locate installed nnunetv2 package root
+    code = "import nnunetv2; print(nnunetv2.__path__[0])"
     nnunet_root = subprocess.check_output([py, "-c", code], env=env, text=True).strip()
 
-    variants_dir = os.path.join(
-        nnunet_root, "training", "nnUNetTrainer", "variants"
-    )
+    variants_dir = os.path.join(nnunet_root, "training", "nnUNetTrainer", "variants")
     os.makedirs(variants_dir, exist_ok=True)
 
-    # Ensure it's a package
+    # Make sure variants is a package
     init_file = os.path.join(variants_dir, "__init__.py")
     if not os.path.exists(init_file):
         with open(init_file, "w") as f:
@@ -239,16 +231,45 @@ def ensure_trainer_epochs_installed(env, class_name="nnUNetTrainerEpochs", defau
 
     trainer_file = os.path.join(variants_dir, f"{class_name}.py")
 
+    # Introspect signature of installed nnUNetTrainer.__init__
+    sig_code = textwrap.dedent("""
+        import inspect
+        from nnunetv2.training.nnUNetTrainer.nnUNetTrainer import nnUNetTrainer
+        print(str(inspect.signature(nnunetv2.training.nnUNetTrainer.nnUNetTrainer.nnUNetTrainer.__init__)))
+    """).replace("nnunetv2.training.nnUNetTrainer.nnUNetTrainer.nnUNetTrainer", "nnUNetTrainer")
+
+    # Get signature in *this* interpreter (same environment), safer than string parsing
+    # We'll do it directly here instead:
+    from nnunetv2.training.nnUNetTrainer.nnUNetTrainer import nnUNetTrainer  # noqa
+    sig = inspect.signature(nnUNetTrainer.__init__)
+
+    # Build parameter list exactly (excluding self)
+    params = []
+    call_args = []
+    for p in sig.parameters.values():
+        if p.name == "self":
+            continue
+        # create def param
+        if p.default is inspect._empty:
+            params.append(p.name)
+        else:
+            params.append(f"{p.name}={repr(p.default)}")
+        # call super with named args to be explicit
+        call_args.append(f"{p.name}={p.name}")
+
+    params_str = ", ".join(params)
+    call_args_str = ", ".join(call_args)
+
     trainer_src = textwrap.dedent(f"""
     import os
     from nnunetv2.training.nnUNetTrainer.nnUNetTrainer import nnUNetTrainer
 
     class {class_name}(nnUNetTrainer):
         \"\"\"Trainer that reads max epochs from env var NNUNET_NUM_EPOCHS.\"\"\"
-        def __init__(self, *args, **kwargs):
-            super().__init__(*args, **kwargs)
-            n = int(os.environ.get("NNUNET_NUM_EPOCHS", "{default_epochs}"))
-            self.num_epochs = n
+
+        def __init__(self, {params_str}):
+            super().__init__({call_args_str})
+            self.num_epochs = int(os.environ.get("NNUNET_NUM_EPOCHS", "{default_epochs}"))
     """)
 
     with open(trainer_file, "w") as f:
@@ -257,15 +278,4 @@ def ensure_trainer_epochs_installed(env, class_name="nnUNetTrainerEpochs", defau
     return trainer_file
 
 
-from nnunetv2.training.nnUNetTrainer.nnUNetTrainer import nnUNetTrainer
-class nnUNetTrainerEpochs(nnUNetTrainer):
-    """
-    nnUNet v2 trainer that reads max epochs from env var NNUNET_NUM_EPOCHS.
-    """
 
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-
-        # nnUNet uses self.num_epochs to decide training length
-        n = int(os.environ.get("NNUNET_NUM_EPOCHS", "10"))
-        self.num_epochs = n
