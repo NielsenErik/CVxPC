@@ -1132,6 +1132,33 @@ import torch
 from torch.utils.data import Subset
 
 from crackdata_processing import CrackDataset  # your class
+from nnunetv2.training.nnUNetTrainer.nnUNetTrainer import nnUNetTrainer
+
+class nnUNetTrainer_Epochs(nnUNetTrainer):
+    """
+    Custom trainer to control 'epochs' in nnUNet v2 by defining:
+      - num_iterations_per_epoch
+      - num_epochs
+    Total training iterations = num_epochs * num_iterations_per_epoch
+    """
+
+    def __init__(self, plans, configuration, fold, dataset_json, unpack_dataset=True,
+                 device=None, **kwargs):
+        super().__init__(plans, configuration, fold, dataset_json,
+                         unpack_dataset=unpack_dataset, device=device, **kwargs)
+
+        # Read custom values passed via kwargs (nnUNet forwards unknown args into trainer kwargs)
+        self._custom_num_epochs = int(kwargs.get("epochs", 100))
+        self._custom_iters_per_epoch = int(kwargs.get("num_iterations_per_epoch", 250))
+
+    @property
+    def num_iterations_per_epoch(self) -> int:
+        return self._custom_iters_per_epoch
+
+    @property
+    def num_epochs(self) -> int:
+        return self._custom_num_epochs
+
 
 class ExperimentNNUNet(Experiment):
     def __init__(self, config):
@@ -1253,7 +1280,9 @@ class ExperimentNNUNet(Experiment):
             plans=self.plans,
             num_gpus=self.num_gpus,
             env=self._env,
-            device=device
+            device=device,
+            num_epochs=int(self.config.get("epochs",80)),
+            num_iterations_per_epoch=int(self.config.get("nnunet_iter_per_epoch", 250)),
         )
 
     def evaluate(self):
