@@ -74,7 +74,7 @@ def run_experiment(config):
         experiment = ExperimentCrackFormer(config)
         experiment.run()
 
-    elif config["algorithm"] == "deepcrackZ":
+    elif config["algorithm"] == "deepcrackz":
         experiment = ExperimentDeepCrackZ(config)
         experiment.run()
 
@@ -936,7 +936,6 @@ class ExperimentDL(Experiment):
     def show_predictions(self, model, dataset, device, num_samples=3, threshold=0.5):
         # Save model info
         model_json = os.path.join(self.log_path, "model_info.json")
-        json.dump(model.info(), open(model_json, "w"), indent=4)
         model_memory = self.get_model_size_kb(model)
         with open(self.experiment_report, "a") as f:
             f.write(f"Model info: {model_json}\n")
@@ -1014,7 +1013,7 @@ class ExperimentDL(Experiment):
             # get the class imbalance ratio
             images = [img for img, mask in self.train_data]
             masks = np.array([self.train_data[i][1] for i in range(len(self.train_data))])
-            masks = torch.from_numpy(masks).long().to(self.device)
+            masks = torch.from_numpy(masks).long()
             pos_weight = self.compute_pos_weight(masks)
             pos_weight = pos_weight[1]/pos_weight[0]
             self.setup(pos_weight=pos_weight)

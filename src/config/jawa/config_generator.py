@@ -27,7 +27,7 @@ if __name__ == "__main__":
         "data/CrackSeg9k"
     ]
 
-    algorithms = ["unet", "unetplus", "deepcrackz", "crackformer"]
+    algorithms = ["unet", "unetplus", "deepcrackz", "crackformer", "nnunet"]
     base_path = "src/config/jawa/"
 
     # Generate one config file per (dataset, algorithm) combination

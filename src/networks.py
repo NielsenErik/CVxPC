@@ -1594,19 +1594,27 @@ class LABlock(nn.Module):
 
 
 class Fuse(nn.Module):
-
     def __init__(self, nn, scale):
         super().__init__()
         self.nn = nn
         self.scale = scale
         self.conv = Conv3X3(64, 1)
 
-    def forward(self, down_inp, up_inp, size, attention):
+    def forward(self, down_inp, up_inp, size=None, attention=None):
         outputs = torch.cat([down_inp, up_inp], 1)
         outputs = self.nn(outputs)
-        outputs = attention * outputs
+
+        if attention is not None:
+            outputs = attention * outputs
+
         outputs = self.conv(outputs)
-        outputs = F.interpolate(outputs, scale_factor=self.scale, mode='bilinear')
+
+        # Prefer explicit output size if provided (more robust than scale_factor)
+        if size is not None:
+            outputs = F.interpolate(outputs, size=size, mode="bilinear", align_corners=False)
+        else:
+            outputs = F.interpolate(outputs, scale_factor=self.scale, mode="bilinear", align_corners=False)
+
         return outputs
 
 
