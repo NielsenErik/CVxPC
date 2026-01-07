@@ -19,7 +19,6 @@ import pickle
 import torch.nn.functional as F
 from torch.utils.data import TensorDataset
 from skimage.filters import frangi
-import sys
 
 from joblib import Parallel, delayed
 import json
@@ -75,7 +74,7 @@ def run_experiment(config):
         experiment = ExperimentCrackFormer(config)
         experiment.run()
 
-    elif config["algorithm"] == "deepcrackz":
+    elif config["algorithm"] == "deepcrackZ":
         experiment = ExperimentDeepCrackZ(config)
         experiment.run()
 
@@ -937,6 +936,7 @@ class ExperimentDL(Experiment):
     def show_predictions(self, model, dataset, device, num_samples=3, threshold=0.5):
         # Save model info
         model_json = os.path.join(self.log_path, "model_info.json")
+        json.dump(model.info(), open(model_json, "w"), indent=4)
         model_memory = self.get_model_size_kb(model)
         with open(self.experiment_report, "a") as f:
             f.write(f"Model info: {model_json}\n")
@@ -1014,7 +1014,7 @@ class ExperimentDL(Experiment):
             # get the class imbalance ratio
             images = [img for img, mask in self.train_data]
             masks = np.array([self.train_data[i][1] for i in range(len(self.train_data))])
-            masks = torch.from_numpy(masks).long()
+            masks = torch.from_numpy(masks).long().to(self.device)
             pos_weight = self.compute_pos_weight(masks)
             pos_weight = pos_weight[1]/pos_weight[0]
             self.setup(pos_weight=pos_weight)
@@ -1132,19 +1132,6 @@ import torch
 from torch.utils.data import Subset
 
 from crackdata_processing import CrackDataset  # your class
-from nnunetv2.training.nnUNetTrainer.nnUNetTrainer import nnUNetTrainer
-class nnUNetTrainerEpochs(nnUNetTrainer):
-    """
-    nnUNet v2 trainer that reads max epochs from env var NNUNET_NUM_EPOCHS.
-    """
-
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-
-        # nnUNet uses self.num_epochs to decide training length
-        n = int(os.environ.get("NNUNET_NUM_EPOCHS", "10"))
-        self.num_epochs = n
-
 
 class ExperimentNNUNet(Experiment):
     def __init__(self, config):
@@ -1156,14 +1143,10 @@ class ExperimentNNUNet(Experiment):
         self.nn_cfg = config.get("nnunet_config", "2d")
         self.folds = config.get("nnunet_folds", [0])
         self.num_gpus = int(config.get("nnunet_num_gpus", 1))
-
-        # NEW: epochs
-        self.epochs = int(self.config.get("epochs", 10))
-
-        # Use a custom trainer by default if epochs is specified
-        self.trainer = config.get("nnunet_trainer", "nnUNetTrainerEpochs")
+        self.trainer = config.get("nnunet_trainer", "nnUNetTrainer")
         self.plans = config.get("nnunet_plans", "nnUNetPlans")
 
+        # Ensure writable nnUNet dirs (falls back to ./nnunet_data/* if needed)
         resolve_nnunet_paths(self.config)
 
         self.nnUNet_raw = self.config["nnUNet_raw"]
@@ -1175,15 +1158,8 @@ class ExperimentNNUNet(Experiment):
         self._env["nnUNet_preprocessed"] = self.nnUNet_preprocessed
         self._env["nnUNet_results"] = self.nnUNet_results
 
-        # NEW: tell trainer how many epochs
-        self._env["NNUNET_NUM_EPOCHS"] = str(self.epochs)
 
-        # NEW: make sure our custom trainer is importable before site-packages
-        project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
-        src_path = os.path.join(project_root, "src")
-        self._env["PYTHONPATH"] = src_path + os.pathsep + self._env.get("PYTHONPATH", "")
-
-        self.model_name = config.get("model_name", "nnunet")
+        self.model_name = config.get("model_name", "nnunet")  # only for logging labeling
 
     def set_algorithm(self):
         # nnUNet decides architecture/training internally
@@ -1253,6 +1229,7 @@ class ExperimentNNUNet(Experiment):
             self.test_data = None
 
     def train(self):
+        # export subset to nnUNet_raw
         export_crackdataset_subset_to_nnunet_raw(
             train_ds=self.train_data,
             test_ds=self.test_data,
@@ -1264,33 +1241,20 @@ class ExperimentNNUNet(Experiment):
 
         nnunet_plan_preprocess(self.dataset_id, env=self._env)
 
-        # ✅ NEW: set epochs and make sure trainer exists inside installed nnUNet
-        self.epochs = int(self.config.get("epochs", 10))
-        self._env["NNUNET_NUM_EPOCHS"] = str(self.epochs)
-
-        # optional: explicitly tell helper which python to use (your venv python)
-        self._env["PYTHON"] = sys.executable
-
-        ensure_trainer_epochs_installed(
-            env=self._env,
-            class_name="nnUNetTrainerEpochs",
-            default_epochs=self.epochs
-        )
-
-        folds_to_train = self.config.get("nnunet_train_folds", "0")
-        device = self.config.get("nnunet_device", None)
-
+        # You can train "all" folds for proper nnUNet CV, but it’s expensive.
+        # If you want faster learning-curve sweeps, train only fold 0:
+        folds_to_train = self.config.get("nnunet_train_folds", "0")  # "all" or "0"
+        device = self.config.get("nnunet_device", None)  # allow override
         nnunet_train(
             dataset_id=self.dataset_id,
             cfg=self.nn_cfg,
             folds=folds_to_train,
-            trainer="nnUNetTrainerEpochs",   # ✅ IMPORTANT
+            trainer=self.trainer,
             plans=self.plans,
             num_gpus=self.num_gpus,
             env=self._env,
             device=device
         )
-
 
     def evaluate(self):
         if self.test_data is None:
