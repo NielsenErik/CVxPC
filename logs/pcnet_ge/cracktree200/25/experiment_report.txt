@@ -1,0 +1,136 @@
+Experiment Configurations: {'mlflow': None, 'experiment': 'pcnet_ge', 'algorithm': 'pcnet_ge', 'device': 'cpu', 'n_cpus': 20, 'data_path': 'data/crackseg9k_split/cracktree200/train', 'test_path': 'data/crackseg9k_split/cracktree200/test', 'save_path': 'models/', 'sample_size': 0.25, 'validation_split': 0.2, 'preprocessing': False, 'epochs': 80, 'batch_size': 32, 'resize_size': [256, 256], 'n_classes': 1, 'max_depth': 3, 'max_branching': 3, 'seed': 25, 'ge': {'generations': 10, 'pop_size': 20, 'genome_len': 96, 'crossover_rate': 0.9, 'mutation_rate': 0.05, 'elite_k': 2, 'train_split': 0.2}, 'execution_mode': 'train', 'log_dir': 'logs/pcnet_ge/cracktree200/25'}
+Dataset sizes: {'train': 35, 'val': 7, 'test': 35}
+─────────────────────────────────────────────
+🧠  Probabilistic Circuit Network Summary
+─────────────────────────────────────────────
+📦 Classes: 1
+📏 Input size: torch.Size([3, 256, 256])
+⚙️  Depth: 3, Branching: 3
+💻 Device: cpu
+─────────────────────────────────────────────
+📊 Node counts:
+  • InputNode      : 3
+  • SumNode        : 1
+  • ProductNode    : 1
+  • ClassifierNode : 1
+─────────────────────────────────────────────
+🧩 Trainable parameters: 92
+  • InputNode      : 21
+  • SumNode        : 2
+─────────────────────────────────────────────
+📚 Structure:Memory usage: 0.13 KB
+
+└─ ClassifierNode(classes=2)
+   ├─ ProductNode(children=2)
+   │  ├─ ResidualNode
+   │  │  ├─ ResidualNode
+   │  │  │  ├─ InputNode(feat_0)
+   │  │  │  └─ InputNode(feat_0)
+   │  │  └─ InputNode(feat_1)
+   │  └─ SumNode(children=2, weights=2)
+   │     ├─ GateNode
+   │     │  ├─ InputNode(feat_2)
+   │     │  └─ InputNode(feat_2)
+   │     └─ InputNode(feat_0)
+   └─ ResidualNode
+      ├─ GateNode
+      │  ├─ GateNode
+      │  │  ├─ InputNode(feat_1)
+      │  │  └─ InputNode(feat_1)
+      │  └─ ResidualNode
+      │     ├─ InputNode(feat_2)
+      │     └─ InputNode(feat_2)
+      └─ ResidualNode
+         ├─ ResidualNode
+         │  ├─ InputNode(feat_1)
+         │  └─ InputNode(feat_1)
+         └─ GateNode
+            ├─ InputNode(feat_2)
+            └─ InputNode(feat_2)
+─────────────────────────────────────────────
+History: {'loss': [0.6415412425994873, 0.6415412425994873, 0.6415412425994873, 0.6415412425994873, 0.6404452323913574, 0.6404452323913574, 0.6407176852226257, 0.6407308578491211, 0.6407308578491211, 0.6406992673873901], 'complexity': [33, 34, 36, 36, 34, 33, 34, 33, 34, 34]}
+Best genome: [162, 24, 159, 185, 148, 21, 134, 178, 15, 24, 134, 78, 188, 194, 144, 229, 138, 35, 77, 141, 80, 94, 46, 237, 200, 164, 103, 210, 139, 113, 115, 58, 23, 141, 227, 16, 219, 211, 70, 161, 42, 194, 179, 90, 17, 248, 70, 228, 173, 199, 194, 49, 93, 119, 127, 11, 139, 39, 190, 174, 236, 190, 93, 247, 169, 83, 231, 94, 19, 120, 203, 242, 118, 33, 175, 121, 84, 58, 144, 171, 240, 111, 41, 213, 161, 179, 24, 79, 196, 213, 111, 206, 215, 99, 229, 73]
+5	train	0.4761	0.2989
+	val	0.4692	0.2893
+10	train	0.4735	0.2940
+	val	0.4662	0.2805
+15	train	0.4710	0.2911
+	val	0.4636	0.2760
+20	train	0.4689	0.2871
+	val	0.4614	0.2761
+25	train	0.4671	0.2815
+	val	0.4593	0.2488
+30	train	0.4654	0.2587
+	val	0.4575	0.2332
+35	train	0.4640	0.2464
+	val	0.4560	0.2182
+40	train	0.4628	0.2353
+	val	0.4547	0.1993
+45	train	0.4619	0.2213
+	val	0.4536	0.1838
+50	train	0.4610	0.2069
+	val	0.4527	0.1692
+55	train	0.4604	0.1929
+	val	0.4520	0.1555
+60	train	0.4598	0.1781
+	val	0.4513	0.1398
+65	train	0.4594	0.1627
+	val	0.4508	0.1271
+70	train	0.4591	0.1627
+	val	0.4504	0.1286
+75	train	0.4588	0.1488
+	val	0.4500	0.1155
+80	train	0.4586	0.1361
+	val	0.4497	0.1035
+Final Training — Loss: 0.4586, Dice: 0.4118, IoU: 0.4374, CL-IoU: 0.1361
+Final Validation — Loss: 0.4497, Dice: 0.4169, IoU: 0.4484, CL-IoU: 0.1035
+Test Loss: 0.4694, Dice: 0.4297, IoU: 0.4795, CL IoU: 0.2034
+Test Accuracy: 0.9179, Precision: 0.0436, Recall: 0.4499, F1-Score: 0.0795
+─────────────────────────────────────────────
+🧠  Probabilistic Circuit Network Summary
+─────────────────────────────────────────────
+📦 Classes: 1
+📏 Input size: torch.Size([3, 256, 256])
+⚙️  Depth: 3, Branching: 3
+💻 Device: cpu
+─────────────────────────────────────────────
+📊 Node counts:
+  • InputNode      : 3
+  • SumNode        : 1
+  • ProductNode    : 1
+  • ClassifierNode : 1
+─────────────────────────────────────────────
+🧩 Trainable parameters: 92
+  • InputNode      : 21
+  • SumNode        : 2
+─────────────────────────────────────────────
+📚 Structure:Memory usage: 0.13 KB
+
+└─ ClassifierNode(classes=2)
+   ├─ ProductNode(children=2)
+   │  ├─ ResidualNode
+   │  │  ├─ ResidualNode
+   │  │  │  ├─ InputNode(feat_0)
+   │  │  │  └─ InputNode(feat_0)
+   │  │  └─ InputNode(feat_1)
+   │  └─ SumNode(children=2, weights=2)
+   │     ├─ GateNode
+   │     │  ├─ InputNode(feat_2)
+   │     │  └─ InputNode(feat_2)
+   │     └─ InputNode(feat_0)
+   └─ ResidualNode
+      ├─ GateNode
+      │  ├─ GateNode
+      │  │  ├─ InputNode(feat_1)
+      │  │  └─ InputNode(feat_1)
+      │  └─ ResidualNode
+      │     ├─ InputNode(feat_2)
+      │     └─ InputNode(feat_2)
+      └─ ResidualNode
+         ├─ ResidualNode
+         │  ├─ InputNode(feat_1)
+         │  └─ InputNode(feat_1)
+         └─ GateNode
+            ├─ InputNode(feat_2)
+            └─ InputNode(feat_2)
+─────────────────────────────────────────────
