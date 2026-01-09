@@ -7,7 +7,7 @@
     "save_path": "models/",
     "model_name": "unet",
     "validation_split": 0.2,
-    "sample_size": 0.5,
+    "sample_size": 0.25,
     "epochs": 80,
     "batch_size": 8,
     "resize_size": [
