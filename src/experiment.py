@@ -62,9 +62,9 @@ def run_experiment(config):
         experiment = ExperimentUnetPlus(config)
         experiment.run()
     
-    elif config["algorithm"] == "nnunet":
-        experiment = ExperimentNNUNet(config)
-        experiment.run()
+    # elif config["algorithm"] == "nnunet":
+    #     experiment = ExperimentNNUNet(config)
+    #     experiment.run()
 
     elif config["algorithm"] == "convae":
         experiment = ConvAEExperiment(config)
@@ -1125,221 +1125,221 @@ class ExperimentDeepCrackZ(ExperimentDL):
     def load_model(self, model_name="deepcrackL"):
         self.model.load_state_dict(torch.load(os.path.join(self.save_path, f"{model_name}.pth")))
 
-import os
-import json
-import torch
-from torch.utils.data import Subset
+# import os
+# import json
+# import torch
+# from torch.utils.data import Subset
 
-from crackdata_processing import CrackDataset  # your class
-from nnunetv2.training.nnUNetTrainer.nnUNetTrainer import nnUNetTrainer
+# from crackdata_processing import CrackDataset  # your class
+# from nnunetv2.training.nnUNetTrainer.nnUNetTrainer import nnUNetTrainer
 
-class nnUNetTrainer_Epochs(nnUNetTrainer):
-    """
-    Custom trainer to control 'epochs' in nnUNet v2 by defining:
-      - num_iterations_per_epoch
-      - num_epochs
-    Total training iterations = num_epochs * num_iterations_per_epoch
-    """
+# class nnUNetTrainer_Epochs(nnUNetTrainer):
+#     """
+#     Custom trainer to control 'epochs' in nnUNet v2 by defining:
+#       - num_iterations_per_epoch
+#       - num_epochs
+#     Total training iterations = num_epochs * num_iterations_per_epoch
+#     """
 
-    def __init__(self, plans, configuration, fold, dataset_json, unpack_dataset=True,
-                 device=None, **kwargs):
-        super().__init__(plans, configuration, fold, dataset_json,
-                         unpack_dataset=unpack_dataset, device=device, **kwargs)
+#     def __init__(self, plans, configuration, fold, dataset_json, unpack_dataset=True,
+#                  device=None, **kwargs):
+#         super().__init__(plans, configuration, fold, dataset_json,
+#                          unpack_dataset=unpack_dataset, device=device, **kwargs)
 
-        # Read custom values passed via kwargs (nnUNet forwards unknown args into trainer kwargs)
-        self._custom_num_epochs = int(kwargs.get("epochs", 100))
-        self._custom_iters_per_epoch = int(kwargs.get("num_iterations_per_epoch", 250))
+#         # Read custom values passed via kwargs (nnUNet forwards unknown args into trainer kwargs)
+#         self._custom_num_epochs = int(kwargs.get("epochs", 100))
+#         self._custom_iters_per_epoch = int(kwargs.get("num_iterations_per_epoch", 250))
 
-    @property
-    def num_iterations_per_epoch(self) -> int:
-        return self._custom_iters_per_epoch
+#     @property
+#     def num_iterations_per_epoch(self) -> int:
+#         return self._custom_iters_per_epoch
 
-    @property
-    def num_epochs(self) -> int:
-        return self._custom_num_epochs
-
-
-class ExperimentNNUNet(Experiment):
-    def __init__(self, config):
-        super().__init__(config)
-
-        # nnUNet config
-        self.dataset_id = int(config.get("nnunet_dataset_id", 777))
-        self.dataset_name = config.get("nnunet_dataset_name", "Cracks")
-        self.nn_cfg = config.get("nnunet_config", "2d")
-        self.folds = config.get("nnunet_folds", [0])
-        self.num_gpus = int(config.get("nnunet_num_gpus", 1))
-        self.trainer = config.get("nnunet_trainer", "nnUNetTrainer")
-        self.plans = config.get("nnunet_plans", "nnUNetPlans")
-
-        # Ensure writable nnUNet dirs (falls back to ./nnunet_data/* if needed)
-        resolve_nnunet_paths(self.config)
-
-        self.nnUNet_raw = self.config["nnUNet_raw"]
-        self.nnUNet_preprocessed = self.config["nnUNet_preprocessed"]
-        self.nnUNet_results = self.config["nnUNet_results"]
-
-        self._env = os.environ.copy()
-        self._env["nnUNet_raw"] = self.nnUNet_raw
-        self._env["nnUNet_preprocessed"] = self.nnUNet_preprocessed
-        self._env["nnUNet_results"] = self.nnUNet_results
+#     @property
+#     def num_epochs(self) -> int:
+#         return self._custom_num_epochs
 
 
-        self.model_name = config.get("model_name", "nnunet")  # only for logging labeling
+# class ExperimentNNUNet(Experiment):
+#     def __init__(self, config):
+#         super().__init__(config)
 
-    def set_algorithm(self):
-        # nnUNet decides architecture/training internally
-        pass
+#         # nnUNet config
+#         self.dataset_id = int(config.get("nnunet_dataset_id", 777))
+#         self.dataset_name = config.get("nnunet_dataset_name", "Cracks")
+#         self.nn_cfg = config.get("nnunet_config", "2d")
+#         self.folds = config.get("nnunet_folds", [0])
+#         self.num_gpus = int(config.get("nnunet_num_gpus", 1))
+#         self.trainer = config.get("nnunet_trainer", "nnUNetTrainer")
+#         self.plans = config.get("nnunet_plans", "nnUNetPlans")
 
-    def setup(self, pos_weight=1.0):
-        pass
+#         # Ensure writable nnUNet dirs (falls back to ./nnunet_data/* if needed)
+#         resolve_nnunet_paths(self.config)
 
-    def save(self):
-        pass
+#         self.nnUNet_raw = self.config["nnUNet_raw"]
+#         self.nnUNet_preprocessed = self.config["nnUNet_preprocessed"]
+#         self.nnUNet_results = self.config["nnUNet_results"]
 
-    def load(self):
-        pass
+#         self._env = os.environ.copy()
+#         self._env["nnUNet_raw"] = self.nnUNet_raw
+#         self._env["nnUNet_preprocessed"] = self.nnUNet_preprocessed
+#         self._env["nnUNet_results"] = self.nnUNet_results
 
-    def validate(self):
-        pass
 
-    def resolve_sample_count(self, sample_size, n_total: int) -> int:
-        if sample_size is None:
-            return n_total
-        s = float(sample_size)
-        if 0 < s <= 1:
-            return max(1, int(round(s * n_total)))
-        return int(min(s, n_total))
+#         self.model_name = config.get("model_name", "nnunet")  # only for logging labeling
 
-    def _build_train_subset(self):
-        full = self.data
-        n = len(full)
-        k = self.resolve_sample_count(self.sample_size, n)
+#     def set_algorithm(self):
+#         # nnUNet decides architecture/training internally
+#         pass
 
-        g = torch.Generator()
-        g.manual_seed(int(self.config.get("seed", 42)))
-        idx = torch.randperm(n, generator=g)[:k].tolist()
-        return torch.utils.data.Subset(full, idx)
+#     def setup(self, pos_weight=1.0):
+#         pass
 
-    def set_dataset(self, train_path, test_path=None):
-        # Keep your same folder conventions
+#     def save(self):
+#         pass
 
-        self.images_path = os.path.join(train_path, "images")
-        self.ground_truth_path = os.path.join(train_path, "masks")
+#     def load(self):
+#         pass
 
-        self.data = CrackDataset(
-            self.images_path,
-            self.ground_truth_path,
-            sample_size=None,  # we handle sample_size via Subset for seed control
-            resize_size=(self.resize_size[0], self.resize_size[1]),
-            preprocessing=self.preprocessing
-        )
+#     def validate(self):
+#         pass
 
-        self.train_data = self._build_train_subset()
+#     def resolve_sample_count(self, sample_size, n_total: int) -> int:
+#         if sample_size is None:
+#             return n_total
+#         s = float(sample_size)
+#         if 0 < s <= 1:
+#             return max(1, int(round(s * n_total)))
+#         return int(min(s, n_total))
 
-        # nnUNet doesn't need your val split; it does its own CV folds.
-        # We keep val_data for compatibility, but don't use it.
-        self.val_data = None
+#     def _build_train_subset(self):
+#         full = self.data
+#         n = len(full)
+#         k = self.resolve_sample_count(self.sample_size, n)
 
-        if test_path is not None:
-            test_images = os.path.join(test_path, "images")
-            test_masks = os.path.join(test_path, "masks")
-            self.test_data = CrackDataset(
-                test_images,
-                test_masks,
-                sample_size=self.test_size,
-                resize_size=(self.resize_size[0], self.resize_size[1]),
-                preprocessing=self.preprocessing
-            )
-        else:
-            self.test_data = None
+#         g = torch.Generator()
+#         g.manual_seed(int(self.config.get("seed", 42)))
+#         idx = torch.randperm(n, generator=g)[:k].tolist()
+#         return torch.utils.data.Subset(full, idx)
 
-    def train(self):
-        # export subset to nnUNet_raw
-        export_crackdataset_subset_to_nnunet_raw(
-            train_ds=self.train_data,
-            test_ds=self.test_data,
-            nnunet_raw_dir=self.nnUNet_raw,
-            dataset_id=self.dataset_id,
-            dataset_name=self.dataset_name,
-            input_channels=int(self.config.get("input_channels", 3))
-        )
+#     def set_dataset(self, train_path, test_path=None):
+#         # Keep your same folder conventions
 
-        nnunet_plan_preprocess(self.dataset_id, env=self._env)
+#         self.images_path = os.path.join(train_path, "images")
+#         self.ground_truth_path = os.path.join(train_path, "masks")
 
-        # You can train "all" folds for proper nnUNet CV, but it’s expensive.
-        # If you want faster learning-curve sweeps, train only fold 0:
-        folds_to_train = self.config.get("nnunet_train_folds", "0")  # "all" or "0"
-        device = self.config.get("nnunet_device", None)  # allow override
-        nnunet_train(
-            dataset_id=self.dataset_id,
-            cfg=self.nn_cfg,
-            folds=folds_to_train,
-            trainer=self.trainer,
-            plans=self.plans,
-            num_gpus=self.num_gpus,
-            env=self._env,
-            device=device,
-            num_epochs=int(self.config.get("epochs",80)),
-            num_iterations_per_epoch=int(self.config.get("nnunet_iter_per_epoch", 250)),
-        )
+#         self.data = CrackDataset(
+#             self.images_path,
+#             self.ground_truth_path,
+#             sample_size=None,  # we handle sample_size via Subset for seed control
+#             resize_size=(self.resize_size[0], self.resize_size[1]),
+#             preprocessing=self.preprocessing
+#         )
 
-    def evaluate(self):
-        if self.test_data is None:
-            print("[INFO] No test set provided; skipping.")
-            return None
+#         self.train_data = self._build_train_subset()
 
-        ds_folder = f"Dataset{self.dataset_id:03d}_{self.dataset_name}"
-        raw_base = os.path.join(self.nnUNet_raw, ds_folder)
-        in_dir = os.path.join(raw_base, "imagesTs")
+#         # nnUNet doesn't need your val split; it does its own CV folds.
+#         # We keep val_data for compatibility, but don't use it.
+#         self.val_data = None
 
-        out_dir = os.path.join(self.nnUNet_results, ds_folder, "pred_imagesTs_seed" + str(self.config.get("seed", 0)))
-        nnunet_predict(
-            dataset_id=self.dataset_id,
-            in_dir=in_dir,
-            out_dir=out_dir,
-            cfg=self.nn_cfg,
-            folds=self.folds,
-            trainer=self.trainer,
-            plans=self.plans,
-            env=self._env
-        )
+#         if test_path is not None:
+#             test_images = os.path.join(test_path, "images")
+#             test_masks = os.path.join(test_path, "masks")
+#             self.test_data = CrackDataset(
+#                 test_images,
+#                 test_masks,
+#                 sample_size=self.test_size,
+#                 resize_size=(self.resize_size[0], self.resize_size[1]),
+#                 preprocessing=self.preprocessing
+#             )
+#         else:
+#             self.test_data = None
 
-        # compute Dice/IoU
-        dices, ious = [], []
-        for j in range(len(self.test_data)):
-            case_id = f"case_{100000 + j:06d}"
-            pred_path = os.path.join(out_dir, f"{case_id}.nii.gz")
-            pred = np.squeeze(nib.load(pred_path).get_fdata())  # (H,W) or float
-            pred01 = (pred > 0.5).astype(np.uint8)
+#     def train(self):
+#         # export subset to nnUNet_raw
+#         export_crackdataset_subset_to_nnunet_raw(
+#             train_ds=self.train_data,
+#             test_ds=self.test_data,
+#             nnunet_raw_dir=self.nnUNet_raw,
+#             dataset_id=self.dataset_id,
+#             dataset_name=self.dataset_name,
+#             input_channels=int(self.config.get("input_channels", 3))
+#         )
 
-            _, gt = self.test_data[j]
-            if isinstance(gt, torch.Tensor):
-                gt = gt.detach().cpu().numpy()
-            gt = np.squeeze(gt)
-            gt01 = (gt > 0.5).astype(np.uint8)
+#         nnunet_plan_preprocess(self.dataset_id, env=self._env)
 
-            d, i = dice_iou_binary(pred01, gt01)
-            dices.append(d)
-            ious.append(i)
+#         # You can train "all" folds for proper nnUNet CV, but it’s expensive.
+#         # If you want faster learning-curve sweeps, train only fold 0:
+#         folds_to_train = self.config.get("nnunet_train_folds", "0")  # "all" or "0"
+#         device = self.config.get("nnunet_device", None)  # allow override
+#         nnunet_train(
+#             dataset_id=self.dataset_id,
+#             cfg=self.nn_cfg,
+#             folds=folds_to_train,
+#             trainer=self.trainer,
+#             plans=self.plans,
+#             num_gpus=self.num_gpus,
+#             env=self._env,
+#             device=device,
+#             num_epochs=int(self.config.get("epochs",80)),
+#             num_iterations_per_epoch=int(self.config.get("nnunet_iter_per_epoch", 250)),
+#         )
 
-        results = {
-            "test_dice": float(np.mean(dices)),
-            "test_iou": float(np.mean(ious)),
-            "n_train": int(len(self.train_data)),
-            "seed": int(self.config.get("seed", 0))
-        }
+#     def evaluate(self):
+#         if self.test_data is None:
+#             print("[INFO] No test set provided; skipping.")
+#             return None
 
-        print(f"[nnUNet] n_train={results['n_train']} seed={results['seed']} "
-              f"Dice={results['test_dice']:.4f} IoU={results['test_iou']:.4f}")
+#         ds_folder = f"Dataset{self.dataset_id:03d}_{self.dataset_name}"
+#         raw_base = os.path.join(self.nnUNet_raw, ds_folder)
+#         in_dir = os.path.join(raw_base, "imagesTs")
 
-        # write to your log_dir
-        with open(os.path.join(self.log_path, "nnunet_results.json"), "w") as f:
-            json.dump(results, f, indent=2)
+#         out_dir = os.path.join(self.nnUNet_results, ds_folder, "pred_imagesTs_seed" + str(self.config.get("seed", 0)))
+#         nnunet_predict(
+#             dataset_id=self.dataset_id,
+#             in_dir=in_dir,
+#             out_dir=out_dir,
+#             cfg=self.nn_cfg,
+#             folds=self.folds,
+#             trainer=self.trainer,
+#             plans=self.plans,
+#             env=self._env
+#         )
 
-        return results
+#         # compute Dice/IoU
+#         dices, ious = [], []
+#         for j in range(len(self.test_data)):
+#             case_id = f"case_{100000 + j:06d}"
+#             pred_path = os.path.join(out_dir, f"{case_id}.nii.gz")
+#             pred = np.squeeze(nib.load(pred_path).get_fdata())  # (H,W) or float
+#             pred01 = (pred > 0.5).astype(np.uint8)
 
-    def run(self):
+#             _, gt = self.test_data[j]
+#             if isinstance(gt, torch.Tensor):
+#                 gt = gt.detach().cpu().numpy()
+#             gt = np.squeeze(gt)
+#             gt01 = (gt > 0.5).astype(np.uint8)
+
+#             d, i = dice_iou_binary(pred01, gt01)
+#             dices.append(d)
+#             ious.append(i)
+
+#         results = {
+#             "test_dice": float(np.mean(dices)),
+#             "test_iou": float(np.mean(ious)),
+#             "n_train": int(len(self.train_data)),
+#             "seed": int(self.config.get("seed", 0))
+#         }
+
+#         print(f"[nnUNet] n_train={results['n_train']} seed={results['seed']} "
+#               f"Dice={results['test_dice']:.4f} IoU={results['test_iou']:.4f}")
+
+#         # write to your log_dir
+#         with open(os.path.join(self.log_path, "nnunet_results.json"), "w") as f:
+#             json.dump(results, f, indent=2)
+
+#         return results
+
+#     def run(self):
         self.set_dataset(self.data_path, self.test_path)
 
         if self.execution_mode == "train":
