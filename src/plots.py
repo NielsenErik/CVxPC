@@ -134,13 +134,12 @@ def plot_pcnet_topology(model, save_path="pcnet_topology.pdf"):
         pos,
         labels=node_labels,
         node_color=node_colors,
-        node_size=3600,
-        font_size=10,
+        node_size=20000,
+        font_size=25,
         font_weight="bold",
         edge_color="gray",
-        arrowsize=20,
+        arrowsize=25,
     )
-    plt.title("PCNet / MultiPCNet Topology")
     plt.savefig(save_path, bbox_inches="tight")
     plt.close()
 
@@ -275,7 +274,7 @@ def draw_flow(pcnet, node_score, edge_score, ax, title=""):
         G,
         pos,
         node_color=node_norm,
-        cmap="viridis",
+        cmap="plasma",
         node_size=2400,
         ax=ax
     )
@@ -304,7 +303,7 @@ def draw_flow(pcnet, node_score, edge_score, ax, title=""):
     # -----------------------------
     # Colorbars (nodes + edges)
     # -----------------------------
-    sm_nodes = plt.cm.ScalarMappable(cmap="viridis",
+    sm_nodes = plt.cm.ScalarMappable(cmap="plasma",
                                      norm=plt.Normalize(node_min, node_max))
     sm_nodes.set_array([])
     cbar1 = plt.colorbar(sm_nodes, ax=ax, fraction=0.04, pad=0.02)
@@ -605,7 +604,7 @@ def plot_generic_node_panel(node, x_batch, save_path):
         axs[i, 0].axis("off")
 
         # Heatmap
-        im = axs[i, 1].imshow(act, cmap="viridis")
+        im = axs[i, 1].imshow(act, cmap="plasma")
         axs[i, 1].set_title(f"{node.__class__.__name__} activation {i}")
         axs[i, 1].axis("off")
         fig.colorbar(im, ax=axs[i, 1], fraction=0.05, pad=0.04)
@@ -650,11 +649,11 @@ def plot_gate_node(node, x_batch, save_path):
         Rn = np.clip((R-lo)/(hi-lo+1e-8),0,1)
         diff = Ln - Rn
 
-        axs[i,0].imshow(L, cmap="viridis")
+        axs[i,0].imshow(L, cmap="plasma")
         axs[i,0].set_title(f"Left {i}")
         axs[i,0].axis("off")
 
-        axs[i,1].imshow(R, cmap="viridis")
+        axs[i,1].imshow(R, cmap="plasma")
         axs[i,1].set_title(f"Right {i}")
         axs[i,1].axis("off")
 
@@ -695,11 +694,11 @@ def plot_sum_node(node, x_batch, save_path):
         axs = axs.reshape(1,4)
 
     for i in range(N):
-        axs[i,0].imshow(maps[0][i], cmap="viridis")
+        axs[i,0].imshow(maps[0][i], cmap="plasma")
         axs[i,0].set_title(f"Child 0 (w={w[0]:.2f})")
         axs[i,0].axis("off")
 
-        axs[i,1].imshow(maps[1][i], cmap="viridis")
+        axs[i,1].imshow(maps[1][i], cmap="plasma")
         axs[i,1].set_title(f"Child 1 (w={w[1]:.2f})")
         axs[i,1].axis("off")
 
@@ -722,17 +721,20 @@ def plot_sum_node(node, x_batch, save_path):
 
 def plot_distribution_flow_paths(model, x_batch, save_path="distribution_paths.pdf"):
     """
-    NEW PLOT:
     Shows the distribution evolution for each input image (row).
     Columns follow the PCNet computational path:
-    Input → InputNodes → internal nodes → ClassifierNode.
+    Input → InputNodes → internal nodes → ClassifierNode → FINAL CLASSIFICATION (mask)
 
-    - one row per input image
-    - one column per node along the evaluation path
-    - activation maps are normalized globally
+    FINAL CLASSIFICATION VIS:
+      - white background
+      - black crack
     """
 
-    os.makedirs(os.path.dirname(save_path), exist_ok=True)
+    import os
+    import numpy as np
+    import matplotlib.pyplot as plt
+
+    os.makedirs(os.path.dirname(save_path) or ".", exist_ok=True)
 
     x_batch = x_batch.detach().cpu()
     B = x_batch.shape[0]
@@ -745,30 +747,108 @@ def plot_distribution_flow_paths(model, x_batch, save_path="distribution_paths.p
     # reorder: ensure InputNodes first, ClassifierNodes last
     def order_key(n):
         name = n.__class__.__name__
-        if name == "InputNode": return 0
-        if name == "ClassifierNode": return 2
+        if name == "InputNode":
+            return 0
+        if name == "ClassifierNode":
+            return 2
         return 1
 
     nodes = sorted(nodes, key=order_key)
 
     # ---------------------------------------------------------
+    # Helper: convert raw node output to spatial heatmap
+    # ---------------------------------------------------------
+    def _to_spatial_map(a_np: np.ndarray) -> np.ndarray:
+        """
+        Accepts shapes like:
+          (1,C,H,W), (C,H,W), (1,H,W), (H,W), (N,) ...
+        Returns (H,W) if possible, else (1,1) fallback.
+        """
+        a = a_np
+        # squeeze batch dim if present
+        if a.ndim >= 1 and a.shape[0] == 1:
+            a = np.squeeze(a, axis=0)
+
+        if a.ndim == 2:  # (H,W)
+            return a
+        if a.ndim == 3:  # (C,H,W) or (H,W,C)
+            # assume channel-first if first dim small-ish
+            if a.shape[0] <= 16 and a.shape[1] > 8 and a.shape[2] > 8:
+                return a.mean(axis=0)  # (H,W)
+            # else channel-last
+            if a.shape[2] <= 16 and a.shape[0] > 8 and a.shape[1] > 8:
+                return a.mean(axis=2)
+            # fallback
+            return a[0] if a.shape[0] > 0 else np.zeros((1, 1), dtype=np.float32)
+        if a.ndim == 1:
+            return np.array([[a.mean()]], dtype=np.float32)
+        if a.ndim == 4:  # (B,C,H,W) but batch should already be 1; just in case:
+            return a[0].mean(axis=0)
+        return np.zeros((1, 1), dtype=np.float32)
+
+    # ---------------------------------------------------------
+    # Helper: build final classification mask (white bg, black crack)
+    # ---------------------------------------------------------
+    def _to_final_class_mask(a_np: np.ndarray) -> np.ndarray:
+        """
+        Tries to interpret classifier output as:
+          - multi-class logits/probs: (1,C,H,W) or (C,H,W) -> argmax
+          - binary logits/probs:      (1,1,H,W) or (H,W)  -> threshold
+        Returns mask in {0,1} where:
+          1 = background (white)
+          0 = crack (black)
+        """
+        a = a_np
+        if a.ndim >= 1 and a.shape[0] == 1:
+            a = np.squeeze(a, axis=0)  # remove batch if present
+
+        # Multi-class: (C,H,W)
+        if a.ndim == 3 and a.shape[0] > 1:
+            cls = np.argmax(a, axis=0)  # (H,W)
+            # assume "crack" is class 1 if exists; otherwise crack = any non-zero class
+            crack = (cls == 1) if a.shape[0] > 1 else (cls != 0)
+            bg = (~crack).astype(np.float32)
+            return bg  # 1 background, 0 crack
+
+        # Binary: (1,H,W) or (H,W)
+        if a.ndim == 3 and a.shape[0] == 1:
+            a = a[0]
+        if a.ndim == 2:
+            # if it's logits, threshold at 0; if probs, threshold at 0.5 — we handle both safely:
+            # use 0.5 if values look like probs, else 0.0
+            finite = a[np.isfinite(a)]
+            if finite.size > 0 and finite.min() >= 0.0 and finite.max() <= 1.0:
+                crack = a > 0.5
+            else:
+                crack = a > 0.0
+            bg = (~crack).astype(np.float32)
+            return bg
+
+        # Scalar fallback
+        return np.ones((1, 1), dtype=np.float32)
+
+    # ---------------------------------------------------------
     # 2. Evaluate all nodes for each input image
     # ---------------------------------------------------------
-    all_maps = []   # shape: B × T × (H,W)
+    all_maps = []   # list of rows; each row is list of spatial maps (or None)
+    all_last_raw = []  # store raw output of last (ClassifierNode if present) for final mask
     for img_idx in range(B):
-        x = x_batch[img_idx:img_idx+1]
+        x = x_batch[img_idx:img_idx + 1]
 
         row_maps = []
+        last_raw = None
         for node in nodes:
             try:
-                a = node.evaluate(x).detach().cpu().numpy()
-                a = _to_spatial_map(a)
-                row_maps.append(a)
-            except:
-                # broken node → append blank
+                a_t = node.evaluate(x).detach().cpu()
+                a_np = a_t.numpy()
+                last_raw = a_np  # keep overwriting; ends with last node output
+                a_map = _to_spatial_map(a_np)
+                row_maps.append(a_map)
+            except Exception:
                 row_maps.append(None)
 
         all_maps.append(row_maps)
+        all_last_raw.append(last_raw)
 
     # ---------------------------------------------------------
     # 3. Compute global normalization range (5–95 percentile)
@@ -789,51 +869,75 @@ def plot_distribution_flow_paths(model, x_batch, save_path="distribution_paths.p
     # ---------------------------------------------------------
     # 4. Plot storyboard:
     #     - 1 row = 1 input image
-    #     - columns = Input → InputNodes → ... → ClassifierNode
+    #     - columns = Input → Nodes... → FINAL CLASSIFICATION
     # ---------------------------------------------------------
     T = len(nodes)
-    fig, axs = plt.subplots(B, T+1, figsize=(3*(T+1), 3*B))
+    fig, axs = plt.subplots(B, T + 2, figsize=(3 * (T + 2), 3 * B))
 
     if B == 1:
-        axs = axs.reshape(1, T+1)
+        axs = axs.reshape(1, T + 2)
 
-    # Column 0 is original image
+    # Column 0: original image
     for i in range(B):
         img = x_batch[i].numpy().transpose(1, 2, 0)
         if img.shape[-1] == 1:
             img = img[:, :, 0]
 
-        axs[i,0].imshow(img, cmap="gray")
-        axs[i,0].set_title("Input")
-        axs[i,0].axis("off")
+        axs[i, 0].imshow(img, cmap="gray")
+        if i == 0:
+            axs[i, 0].set_title("Input", fontsize=20)
+        axs[i, 0].axis("off")
 
-    # Node activations
+    # Node activations (columns 1..T+1)
+    im_for_cbar = None
     for row_i in range(B):
         for col_j, node in enumerate(nodes):
-            ax = axs[row_i, col_j+1]
+            ax = axs[row_i, col_j + 1]
             act = all_maps[row_i][col_j]
-
             title = f"{col_j}: {node.__class__.__name__}"
 
             if act is None:
-                ax.set_title(title + "\n(no eval)")
+                if row_i == 0:
+                    ax.set_title(title, fontsize=20)
                 ax.axis("off")
                 continue
 
-            im = ax.imshow(act, cmap="viridis", vmin=lo, vmax=hi)
-            ax.set_title(title, fontsize=9)
+            im = ax.imshow(act, cmap="plasma", vmin=lo, vmax=hi)
+            if im_for_cbar is None:
+                im_for_cbar = im
+            if row_i == 0:
+                ax.set_title(title, fontsize=20)
             ax.axis("off")
 
-    # Add a single global colorbar
-    fig.subplots_adjust(right=0.92)
-    cbar_ax = fig.add_axes([0.94, 0.15, 0.02, 0.7])
-    fig.colorbar(im, cbar_ax)
+    # Final classification (last column, index T+1)
+    for row_i in range(B):
+        ax = axs[row_i, T + 1]
+        raw = all_last_raw[row_i]
+        if raw is None:
+            ax.set_title("Final\n(no output)", fontsize=20)
+            ax.axis("off")
+            continue
+
+        bg_mask = _to_final_class_mask(raw)  # 1=white bg, 0=black crack
+        ax.imshow(bg_mask, cmap="gray", vmin=0, vmax=1)
+        if row_i == 0:
+            ax.set_title("Classification", fontsize=20)
+
+        ax.axis("off")
+
+    # Add a single global colorbar for activations only
+    if im_for_cbar is not None:
+        fig.subplots_adjust(right=0.92)
+        cbar_ax = fig.add_axes([0.945, 0.15, 0.010, 0.7])
+
+        fig.colorbar(im_for_cbar, cax=cbar_ax)
 
     plt.tight_layout(rect=[0, 0, 0.93, 1])
     plt.savefig(save_path, dpi=300)
     plt.close()
 
     print(f"[OK] Saved distribution path storyboard → {save_path}")
+
 
 
 # =========================================================
@@ -1097,14 +1201,14 @@ if __name__ == "__main__":
 
 
 
-    image_path = "data/DeepCrack/test/images/"
-    mask_path = "data/DeepCrack/test/masks/"
-    data = CrackDataset(image_path, mask_path, resize_size=(400, 400))
-    m = pickle.load(open("logs/pcnet_ge/DeepCrack/3/pcnet-ge.pkl", "rb"))
+    image_path = "data/crackseg9k_split/DeepCrack/test/images/"
+    mask_path = "data/crackseg9k_split/DeepCrack/test/masks/"
+    data = CrackDataset(image_path, mask_path, resize_size=(256, 256))
+    m = pickle.load(open("logs/pcnet_ge/DeepCrack/77/pcnet-ge.pkl", "rb"))
     print(m)
     # m = MultiPCNet(base_pcnet_cls=PCNet, n_experts=5)
-
-    x = torch.stack([data[i][0] for i in range(3)], dim=0)
+    rand_img = np.random.randint(0, len(data), 3)
+    x = torch.stack([data[i][0] for i in rand_img], dim=0)
 
     generate_all_pcnet_plots(m, x, save_root="plots")
 
@@ -1112,4 +1216,36 @@ if __name__ == "__main__":
     plot_pareto_front(pareto_file, save_path="plots/pareto_front.pdf")
     plot_efficiency_barplot(pareto_file, save_path="plots/efficiency_barplot.pdf")
     # Comparison between the models
+    models_dict = {
+        "AEL":{
+            "model":"",
+            "image_path":"data/crackseg9k_split/AEL/test/images/",
+            "mask_path":"data/crackseg9k_split/AEL/test/masks/"
+        },
+        "CRACK500":{
+            "model":"",
+            "image_path":"data/crackseg9k_split/CRACK500/test/images/",
+            "mask_path":"data/crackseg9k_split/CRACK500/test/masks/"
+        },
+        "DeepCrack":{
+            "model":"",
+            "image_path":"data/crackseg9k_split/DeepCrack/test/images/",
+            "mask_path":"data/crackseg9k_split/DeepCrack/test/masks/"
+        },
+        "GAPS384":{
+            "model":"",
+            "image_path":"data/crackseg9k_split/GAPS384/test/images/",
+            "mask_path":"data/crackseg9k_split/GAPS384/test/masks/"
+        },
+        "cracktree200":{
+            "model":"",
+            "image_path":"data/crackseg9k_split/cracktree200/test/images/",
+            "mask_path":"data/crackseg9k_split/cracktree200/test/masks/"
+        },
+        "CrackSeg9k":{
+            "model":"",
+            "image_path":"data/CrackSeg9k/test/images/",
+            "mask_path":"data/CrackSeg9k/test/masks/"
+        }
+    }
     
