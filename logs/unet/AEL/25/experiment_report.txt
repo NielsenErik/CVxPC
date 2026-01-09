@@ -1,0 +1,8 @@
+Experiment Configurations: {'mlflow': None, 'experiment': 'jawa_AEL', 'algorithm': 'unet', 'data_path': 'data/crackseg9k_split/AEL/train', 'test_path': 'data/crackseg9k_split/AEL/test', 'save_path': 'models/', 'model_name': 'unet', 'validation_split': 0.2, 'sample_size': 0.25, 'epochs': 80, 'batch_size': 8, 'resize_size': [256, 256], 'learning_rate': 0.001, 'threshold': 0.2, 'input_channels': 3, 'n_classes': 1, 'seed': 25, 'execution_mode': 'train', 'preprocessing': False, 'log_dir': 'logs/unet/AEL/25'}
+Dataset sizes: {'train': 39, 'val': 8, 'test': 39}
+Final Training Loss: 0.1590128354728222, Dice: 0.019785297045018524, IoU: 0.9221497625112534, CL IoU: 0.9053467214107513
+Final Validation Loss: 0.21483445167541504, Dice: 0.0017772226128727198, IoU: 0.8407098054885864, CL IoU: 0.6858850717544556
+Test Loss: 0.2249, Dice: 0.0114, IoU: 0.8139, CL IoU: 0.6753
+Test Accuracy: 0.9823, Precision: 0.7875, Recall: 0.7707, F1-Score: 0.7780
+Model info: logs/unet/AEL/25/model_info.json
+Model size: 34500.00390625 KB
