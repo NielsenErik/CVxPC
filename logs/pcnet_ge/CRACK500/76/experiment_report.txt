@@ -83,3 +83,60 @@ Best genome: [73, 212, 199, 203, 111, 59, 85, 135, 195, 155, 102, 222, 192, 154,
 	val	0.3581	0.2464
 75	train	0.3642	0.2588
 	val	0.3574	0.2487
+80	train	0.3636	0.2612
+	val	0.3569	0.2444
+Final Training — Loss: 0.3636, Dice: 0.5042, IoU: 0.5699, CL-IoU: 0.2612
+Final Validation — Loss: 0.3569, Dice: 0.5078, IoU: 0.5797, CL-IoU: 0.2444
+Test Loss: 0.3701, Dice: 0.4987, IoU: 0.5525, CL IoU: 0.2374
+Test Accuracy: 0.8754, Precision: 0.2978, Recall: 0.5835, F1-Score: 0.3738
+─────────────────────────────────────────────
+🧠  Probabilistic Circuit Network Summary
+─────────────────────────────────────────────
+📦 Classes: 1
+📏 Input size: torch.Size([3, 256, 256])
+⚙️  Depth: 3, Branching: 3
+💻 Device: cpu
+─────────────────────────────────────────────
+📊 Node counts:
+  • InputNode      : 3
+  • SumNode        : 1
+  • ProductNode    : 5
+  • ClassifierNode : 1
+─────────────────────────────────────────────
+🧩 Trainable parameters: 115
+  • SumNode        : 3
+  • InputNode      : 21
+─────────────────────────────────────────────
+📚 Structure:Memory usage: 0.12 KB
+
+└─ ClassifierNode(classes=2)
+   ├─ GateNode
+   │  ├─ ProductNode(children=2)
+   │  │  ├─ ResidualNode
+   │  │  │  ├─ InputNode(feat_0)
+   │  │  │  └─ InputNode(feat_0)
+   │  │  └─ GateNode
+   │  │     ├─ InputNode(feat_1)
+   │  │     └─ InputNode(feat_1)
+   │  └─ SumNode(children=3, weights=3)
+   │     ├─ InputNode(feat_0)
+   │     ├─ InputNode(feat_2)
+   │     └─ ProductNode(children=2)
+   │        ├─ InputNode(feat_2)
+   │        └─ InputNode(feat_2)
+   └─ ProductNode(children=2)
+      ├─ ProductNode(children=2)
+      │  ├─ ResidualNode
+      │  │  ├─ InputNode(feat_2)
+      │  │  └─ InputNode(feat_2)
+      │  └─ ProductNode(children=2)
+      │     ├─ InputNode(feat_0)
+      │     └─ InputNode(feat_0)
+      └─ GateNode
+         ├─ GateNode
+         │  ├─ InputNode(feat_2)
+         │  └─ InputNode(feat_2)
+         └─ ResidualNode
+            ├─ InputNode(feat_0)
+            └─ InputNode(feat_0)
+─────────────────────────────────────────────
