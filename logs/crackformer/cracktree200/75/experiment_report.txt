@@ -1,0 +1,8 @@
+Experiment Configurations: {'mlflow': None, 'experiment': 'jawa_cracktree200', 'algorithm': 'crackformer', 'data_path': 'data/crackseg9k_split/cracktree200/train', 'test_path': 'data/crackseg9k_split/cracktree200/test', 'save_path': 'models/', 'model_name': 'crackformer', 'validation_split': 0.2, 'sample_size': 0.75, 'epochs': 80, 'batch_size': 8, 'resize_size': [256, 256], 'learning_rate': 0.001, 'threshold': 0.2, 'input_channels': 3, 'n_classes': 1, 'seed': 75, 'execution_mode': 'train', 'preprocessing': False, 'log_dir': 'logs/crackformer/cracktree200/75'}
+Dataset sizes: {'train': 105, 'val': 21, 'test': 35}
+Final Training Loss: 0.16910647262226453, Dice: 0.0031881125178188086, IoU: 0.8224194049835205, CL IoU: 0.9790184172717008
+Final Validation Loss: 0.27849764625231427, Dice: 0.003296623627344767, IoU: 0.6427093545595804, CL IoU: 0.8632377584775289
+Test Loss: 0.2861, Dice: 0.0036, IoU: 0.6347, CL IoU: 0.8429
+Test Accuracy: 0.9927, Precision: 0.4559, Recall: 0.4465, F1-Score: 0.4508
+Model info: logs/crackformer/cracktree200/75/model_info.json
+Model size: 19381.60546875 KB

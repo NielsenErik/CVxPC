@@ -1,0 +1,8 @@
+Experiment Configurations: {'mlflow': None, 'experiment': 'jawa_AEL', 'algorithm': 'deepcrackz', 'data_path': 'data/crackseg9k_split/AEL/train', 'test_path': 'data/crackseg9k_split/AEL/test', 'save_path': 'models/', 'model_name': 'deepcrackz', 'validation_split': 0.2, 'epochs': 80, 'batch_size': 8, 'resize_size': [256, 256], 'learning_rate': 0.001, 'threshold': 0.2, 'input_channels': 3, 'n_classes': 1, 'seed': 1, 'execution_mode': 'train', 'preprocessing': False, 'log_dir': 'logs/deepcrackz/AEL/1'}
+Dataset sizes: {'train': 158, 'val': 32, 'test': 39}
+Final Training Loss: 0.1983552509918809, Dice: 0.0017372171714669093, IoU: 0.8134725317358971, CL IoU: 0.6660944446921349
+Final Validation Loss: 0.24041327089071274, Dice: 0.001507828914327547, IoU: 0.7668003737926483, CL IoU: 0.5879066288471222
+Test Loss: 0.2018, Dice: 0.0016, IoU: 0.8291, CL IoU: 0.6936
+Test Accuracy: 0.9821, Precision: 0.7597, Recall: 0.8476, F1-Score: 0.7965
+Model info: logs/deepcrackz/AEL/1/model_info.json
+Model size: 120722.69921875 KB

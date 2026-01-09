@@ -151,15 +151,12 @@ def nnunet_plan_preprocess(dataset_id: int, env):
     _run(["nnUNetv2_plan_and_preprocess", "-d", str(dataset_id), "--verify_dataset_integrity"], env)
 
 def nnunet_train(dataset_id: int, cfg: str, folds, trainer: str, plans: str,
-                 num_gpus: int, env, device: str = None):
-    """
-    device: "cuda" | "cpu" (optionally "mps" if you want to try)
-    If device is None, auto-pick based on torch.cuda.is_available().
-    """
+                 num_gpus: int, env, device: str = None,
+                 num_epochs: int = None, num_iterations_per_epoch: int = None):
+
     if device is None:
         device = "cuda" if torch.cuda.is_available() else "cpu"
 
-    # If CPU, num_gpus must effectively be 0/1; nnUNet ignores multi-gpu anyway.
     cmd = [
         "nnUNetv2_train",
         str(dataset_id),
@@ -167,10 +164,19 @@ def nnunet_train(dataset_id: int, cfg: str, folds, trainer: str, plans: str,
         str(folds),
         "-tr", trainer,
         "-p", plans,
-        "-device", device
+        "-device", device,
     ]
 
-    # Only pass num_gpus if using cuda
+    # pass trainer kwargs if provided
+    trainer_kwargs = {}
+    if num_epochs is not None:
+        trainer_kwargs["num_epochs"] = int(num_epochs)
+    if num_iterations_per_epoch is not None:
+        trainer_kwargs["num_iterations_per_epoch"] = int(num_iterations_per_epoch)
+
+    if trainer_kwargs:
+        cmd += ["--trainer_kwargs", json.dumps(trainer_kwargs)]
+
     if device == "cuda":
         cmd += ["-num_gpus", str(num_gpus)]
 

@@ -1,0 +1,18 @@
+{
+    "dataset_size": {
+        "train": 1250,
+        "val": 250,
+        "test": 626
+    },
+    "results": {
+        "test_loss": 0.23679904300200788,
+        "test_dice": 0.001402556081302464,
+        "test_iou": 0.7382280313515965,
+        "test_cl_iou": 0.5151637305941763,
+        "test_accuracy": 0.9541667020773585,
+        "test_precision": 0.5938793601869028,
+        "test_recall": 0.764649513024318,
+        "test_f1_score": 0.6575243797483323
+    },
+    "n_trainable_params": 36157953
+}

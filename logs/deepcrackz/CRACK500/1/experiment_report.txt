@@ -1,0 +1,8 @@
+Experiment Configurations: {'mlflow': None, 'experiment': 'jawa_CRACK500', 'algorithm': 'deepcrackz', 'data_path': 'data/crackseg9k_split/CRACK500/train', 'test_path': 'data/crackseg9k_split/CRACK500/test', 'save_path': 'models/', 'model_name': 'deepcrackz', 'validation_split': 0.2, 'epochs': 80, 'batch_size': 8, 'resize_size': [256, 256], 'learning_rate': 0.001, 'threshold': 0.2, 'input_channels': 3, 'n_classes': 1, 'seed': 1, 'execution_mode': 'train', 'preprocessing': False, 'log_dir': 'logs/deepcrackz/CRACK500/1'}
+Dataset sizes: {'train': 2500, 'val': 500, 'test': 626}
+Final Training Loss: 0.15930027163028718, Dice: 0.001803928276989609, IoU: 0.8634873669147491, CL IoU: 0.6307318580150604
+Final Validation Loss: 0.23286798265245226, Dice: 0.005614748357662133, IoU: 0.7648301342177013, CL IoU: 0.5252298339018746
+Test Loss: 0.2364, Dice: 0.0039, IoU: 0.7552, CL IoU: 0.5275
+Test Accuracy: 0.9608, Precision: 0.6375, Recall: 0.7851, F1-Score: 0.6951
+Model info: logs/deepcrackz/CRACK500/1/model_info.json
+Model size: 120722.69921875 KB

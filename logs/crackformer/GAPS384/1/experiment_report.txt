@@ -1,0 +1,8 @@
+Experiment Configurations: {'mlflow': None, 'experiment': 'jawa_GAPS384', 'algorithm': 'crackformer', 'data_path': 'data/crackseg9k_split/GAPS384/train', 'test_path': 'data/crackseg9k_split/GAPS384/test', 'save_path': 'models/', 'model_name': 'crackformer', 'validation_split': 0.2, 'epochs': 80, 'batch_size': 8, 'resize_size': [256, 256], 'learning_rate': 0.001, 'threshold': 0.2, 'input_channels': 3, 'n_classes': 1, 'seed': 1, 'execution_mode': 'train', 'preprocessing': False, 'log_dir': 'logs/crackformer/GAPS384/1'}
+Dataset sizes: {'train': 306, 'val': 62, 'test': 77}
+Final Training Loss: 0.1375620158449296, Dice: 0.002362595078715634, IoU: 0.9050157070159912, CL IoU: 0.9907327544304633
+Final Validation Loss: 0.2660429868847132, Dice: 0.0024822996638249606, IoU: 0.6872154399752617, CL IoU: 0.7246507704257965
+Test Loss: 0.2522, Dice: 0.0024, IoU: 0.7033, CL IoU: 0.7624
+Test Accuracy: 0.9901, Precision: 0.6474, Recall: 0.5554, F1-Score: 0.5945
+Model info: logs/crackformer/GAPS384/1/model_info.json
+Model size: 19381.60546875 KB
