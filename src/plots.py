@@ -134,7 +134,7 @@ def plot_pcnet_topology(model, save_path="pcnet_topology.pdf"):
         pos,
         labels=node_labels,
         node_color=node_colors,
-        node_size=20000,
+        node_size=15000,
         font_size=25,
         font_weight="bold",
         edge_color="gray",
@@ -1204,7 +1204,7 @@ if __name__ == "__main__":
     image_path = "data/crackseg9k_split/DeepCrack/test/images/"
     mask_path = "data/crackseg9k_split/DeepCrack/test/masks/"
     data = CrackDataset(image_path, mask_path, resize_size=(256, 256))
-    m = pickle.load(open("logs/pcnet_ge/DeepCrack/77/pcnet-ge.pkl", "rb"))
+    m = pickle.load(open("logs/pcnet_ge/AEL/76/pcnet-ge.pkl", "rb"))
     print(m)
     # m = MultiPCNet(base_pcnet_cls=PCNet, n_experts=5)
     rand_img = np.random.randint(0, len(data), 3)
