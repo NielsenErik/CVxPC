@@ -1077,6 +1077,208 @@ def plot_efficiency_barplot(csv_path, save_path):
     plt.show()
 
 
+import os
+import numpy as np
+import torch
+import matplotlib.pyplot as plt
+import pickle
+
+# ----------------------------
+# Helper: model output -> crack mask
+# ----------------------------
+def cl_iou_score(pred_mask, true_mask, tau=4):
+    """
+    pred_mask, true_mask: (B,1,H,W) in [0,1] (will be thresholded at 0.5 inside)
+    """
+    device = pred_mask.device
+    pred_mask = (pred_mask > 0.5).float()
+    true_mask = (true_mask > 0.5).float()
+
+    # Skeletonization approximation
+    eroded_true = F.max_pool2d(1 - true_mask, 3, 1, 1)
+    eroded_pred = F.max_pool2d(1 - pred_mask, 3, 1, 1)
+    skel_true = torch.relu(true_mask - (1 - eroded_true))
+    skel_pred = torch.relu(pred_mask - (1 - eroded_pred))
+
+    # --- Dilation kernel (ellipse) ---
+    k_np = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (2 * tau + 1, 2 * tau + 1))
+    k = torch.tensor(k_np, dtype=torch.float32, device=device)[None, None, :, :]
+
+    dil_true = (F.conv2d(skel_true, k, padding=tau, groups=1) > 0).float()
+    dil_pred = (F.conv2d(skel_pred, k, padding=tau, groups=1) > 0).float()
+
+    TPcl = (skel_true * dil_pred).sum(dim=(1, 2, 3))
+    FPcl = (skel_pred * (1 - dil_true)).sum(dim=(1, 2, 3))
+    FNcl = (skel_true * (1 - dil_pred)).sum(dim=(1, 2, 3))
+
+    cl_iou = TPcl / (TPcl + FPcl + FNcl + 1e-8)
+    return cl_iou.mean().item()
+
+
+# ----------------------------
+# Helpers: model output -> prob mask, dataset mask -> tensor
+# ----------------------------
+def _model_to_pred_prob(out: torch.Tensor) -> torch.Tensor:
+    """
+    out: (B,C,H,W) logits-like
+    returns (B,1,H,W) prob-like in [0,1]
+    Assumes class 1 = crack for multiclass.
+    """
+    if out.ndim != 4:
+        raise ValueError(f"Expected (B,C,H,W), got {tuple(out.shape)}")
+    B, C, H, W = out.shape
+    if C == 1:
+        return torch.sigmoid(out)
+    prob = torch.softmax(out, dim=1)
+    return prob[:, 1:2]
+
+
+def _to_true_prob_mask(y: torch.Tensor) -> torch.Tensor:
+    """
+    y from CrackDataset: typically (1,H,W) or (H,W).
+    returns (1,1,H,W) float in [0,1]
+    """
+    if y.ndim == 2:
+        y = y.unsqueeze(0)  # (1,H,W)
+    if y.ndim == 3:
+        if y.shape[0] != 1:  # if (C,H,W), take first channel
+            y = y[:1]
+        y = y.unsqueeze(0)  # (1,1,H,W)
+    elif y.ndim == 4:
+        # already batched
+        pass
+    else:
+        raise ValueError(f"Unexpected mask shape: {tuple(y.shape)}")
+
+    y = y.float()
+    # If already {0,1} or [0,1], threshold at 0.5; else treat >0 as crack
+    if y.min() >= 0.0 and y.max() <= 1.0:
+        y = (y > 0.5).float()
+    else:
+        y = (y > 0.0).float()
+    return y
+
+
+def _prob_to_bg_vis(prob_fg: torch.Tensor) -> np.ndarray:
+    """
+    prob_fg: (1,1,H,W) in [0,1]
+    returns (H,W) in {0,1} where 1=white background, 0=black crack
+    """
+    fg = (prob_fg[0, 0] > 0.5).detach().cpu().numpy().astype(np.bool_)
+    bg = (~fg).astype(np.float32)
+    return bg
+
+
+# ----------------------------
+# Main: evaluate 20, keep top-2 by CL-IoU, plot
+# ----------------------------
+def plot_top2_by_cliou_per_dataset(models_dict,
+                                   save_path="plots/top2_cliou_grid.pdf",
+                                   resize_size=(256, 256),
+                                   n_test=20,
+                                   tau=4,
+                                   seed=None,
+                                   device=None):
+    from crackdata_processing import CrackDataset
+
+    if seed is not None:
+        np.random.seed(seed)
+        torch.manual_seed(seed)
+
+    if device is None:
+        device = "cuda" if torch.cuda.is_available() else "cpu"
+
+    datasets = list(models_dict.keys())
+    n_rows = len(datasets)
+    n_cols = 6  # (Input, GT, Pred) x 2
+
+    os.makedirs(os.path.dirname(save_path) or ".", exist_ok=True)
+
+    fig, axs = plt.subplots(n_rows, n_cols, figsize=(3.2 * n_cols, 2.8 * n_rows))
+    if n_rows == 1:
+        axs = axs.reshape(1, -1)
+
+    # column titles only on first row
+    col_titles = ["Input (1)", "Mask (1)", "Output (1)",
+                  "Input (2)", "Mask (2)", "Output (2)"]
+    for j, t in enumerate(col_titles):
+        axs[0, j].set_title(t, fontsize=18)
+
+    for r, ds_name in enumerate(datasets):
+        entry = models_dict[ds_name]
+
+        # load model
+        model = pickle.load(open(entry["model"], "rb"))
+        if hasattr(model, "to"):
+            model = model.to(device)
+
+        # load dataset
+        data = CrackDataset(entry["image_path"], entry["mask_path"], resize_size=resize_size)
+
+        # sample n_test indices (or all if dataset smaller)
+        n_pick = min(n_test, len(data))
+        idxs = np.random.choice(len(data), size=n_pick, replace=False)
+
+        scored = []
+        for idx in idxs:
+            x, y = data[idx]
+            x_in = x.unsqueeze(0).to(device)  # (1,C,H,W)
+            y_true = _to_true_prob_mask(y).to(device)  # (1,1,H,W)
+
+            with torch.no_grad():
+                out = model.evaluate(x_in)  # (1,C,H,W)
+                pred_prob = _model_to_pred_prob(out)  # (1,1,H,W)
+
+            s = cl_iou_score(pred_prob, y_true, tau=tau)
+            scored.append((s, idx, x.detach().cpu(), y.detach().cpu(), pred_prob.detach().cpu()))
+
+        # keep best 2
+        scored.sort(key=lambda t: t[0], reverse=True)
+        top2 = scored[:2]
+        if len(top2) < 2:
+            # if dataset has 1 sample, duplicate it (rare)
+            top2 = top2 + top2
+
+        # dataset row label (left margin, centered)
+        y_center = 1.0 - (r + 0.5) / n_rows
+        fig.text(0.015, y_center, ds_name, va="center", ha="left", fontsize=18, rotation=90)
+
+        for k, (s, idx, x_cpu, y_cpu, pred_prob_cpu) in enumerate(top2):
+            # input image to numpy
+            x_np = x_cpu.numpy()
+            img = np.transpose(x_np, (1, 2, 0)) if x_np.ndim == 3 else x_np
+            if img.ndim == 3 and img.shape[-1] == 1:
+                img = img[..., 0]
+
+            # GT bg mask (white bg, black crack)
+            y_true = _to_true_prob_mask(y_cpu)[0, 0].numpy()  # (H,W) in {0,1} where 1=crack
+            bg_gt = (1.0 - y_true).astype(np.float32)
+
+            # Pred bg mask (white bg, black crack)
+            bg_pred = _prob_to_bg_vis(pred_prob_cpu)
+
+            c0 = 3 * k
+
+            axs[r, c0 + 0].imshow(img, cmap="gray" if img.ndim == 2 else None)
+            axs[r, c0 + 0].axis("off")
+
+            axs[r, c0 + 1].imshow(bg_gt, cmap="gray", vmin=0, vmax=1)
+            axs[r, c0 + 1].axis("off")
+
+            axs[r, c0 + 2].imshow(bg_pred, cmap="gray", vmin=0, vmax=1)
+            axs[r, c0 + 2].axis("off")
+
+
+    plt.tight_layout(rect=[0.01, 0.0, 1.0, 1.0])
+    plt.savefig(save_path, dpi=300, bbox_inches="tight")
+    plt.close()
+    print(f"[OK] Saved -> {save_path}")
+
+
+# Example call:
+# plot_two_examples_per_dataset(models_dict, save_path="plots/datasets_input_gt_pred.pdf", resize_size=(256,256), seed=0)
+
+
 
 
 
@@ -1210,42 +1412,43 @@ if __name__ == "__main__":
     rand_img = np.random.randint(0, len(data), 3)
     x = torch.stack([data[i][0] for i in rand_img], dim=0)
 
-    generate_all_pcnet_plots(m, x, save_root="plots")
+    # generate_all_pcnet_plots(m, x, save_root="plots")
 
-    pareto_file = "logs/Paretofront.csv"
-    plot_pareto_front(pareto_file, save_path="plots/pareto_front.pdf")
-    plot_efficiency_barplot(pareto_file, save_path="plots/efficiency_barplot.pdf")
-    # Comparison between the models
+    # pareto_file = "logs/Paretofront.csv"
+    # plot_pareto_front(pareto_file, save_path="plots/pareto_front.pdf")
+    # plot_efficiency_barplot(pareto_file, save_path="plots/efficiency_barplot.pdf")
+    # # Comparison between the models
     models_dict = {
         "AEL":{
-            "model":"",
+            "model":"logs/pcnet_ge/100/AEL/3/pcnet-ge.pkl",
             "image_path":"data/crackseg9k_split/AEL/test/images/",
             "mask_path":"data/crackseg9k_split/AEL/test/masks/"
         },
         "CRACK500":{
-            "model":"",
+            "model":"logs/pcnet_ge/100/CRACK500/1/pcnet-ge.pkl",
             "image_path":"data/crackseg9k_split/CRACK500/test/images/",
             "mask_path":"data/crackseg9k_split/CRACK500/test/masks/"
         },
         "DeepCrack":{
-            "model":"",
+            "model":"logs/pcnet_ge/100/DeepCrack/3/pcnet-ge.pkl",
             "image_path":"data/crackseg9k_split/DeepCrack/test/images/",
             "mask_path":"data/crackseg9k_split/DeepCrack/test/masks/"
         },
         "GAPS384":{
-            "model":"",
+            "model":"logs/pcnet_ge/100/GAPS384/1/pcnet-ge.pkl",
             "image_path":"data/crackseg9k_split/GAPS384/test/images/",
             "mask_path":"data/crackseg9k_split/GAPS384/test/masks/"
         },
         "cracktree200":{
-            "model":"",
+            "model":"logs/pcnet_ge/100/cracktree200/3/pcnet-ge.pkl",
             "image_path":"data/crackseg9k_split/cracktree200/test/images/",
             "mask_path":"data/crackseg9k_split/cracktree200/test/masks/"
         },
         "CrackSeg9k":{
-            "model":"",
+            "model":"logs/pcnet_ge/100/CrackSeg9k/5/pcnet-ge.pkl",
             "image_path":"data/CrackSeg9k/test/images/",
             "mask_path":"data/CrackSeg9k/test/masks/"
         }
     }
     
+    plot_top2_by_cliou_per_dataset(models_dict, save_path="plots/comparison.pdf", resize_size=(256, 256), n_test=20, tau=4, seed=None, device=None)
