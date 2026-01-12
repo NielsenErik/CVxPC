@@ -1,0 +1,8 @@
+Experiment Configurations: {'mlflow': None, 'experiment': 'jawa_GAPS384', 'algorithm': 'unet', 'data_path': 'data/crackseg9k_split/GAPS384/train', 'test_path': 'data/crackseg9k_split/GAPS384/test', 'save_path': 'models/', 'model_name': 'unet', 'validation_split': 0.2, 'sample_size': 0.25, 'epochs': 80, 'batch_size': 8, 'resize_size': [256, 256], 'learning_rate': 0.001, 'threshold': 0.2, 'input_channels': 3, 'n_classes': 1, 'seed': 25, 'execution_mode': 'train', 'preprocessing': False, 'log_dir': 'logs/unet/GAPS384/25'}
+Dataset sizes: {'train': 76, 'val': 16, 'test': 77}
+Final Training Loss: 0.3664347566664219, Dice: 0.7140505909919739, IoU: 0.4925764799118042, CL IoU: 0.0
+Final Validation Loss: 0.35886406898498535, Dice: 0.6933021247386932, IoU: 0.49456119537353516, CL IoU: 0.0
+Test Loss: 0.3600, Dice: 0.7573, IoU: 0.4933, CL IoU: 0.0000
+Test Accuracy: 0.9867, Precision: 0.0000, Recall: 0.0000, F1-Score: 0.0000
+Model info: logs/unet/GAPS384/25/model_info.json
+Model size: 34500.00390625 KB

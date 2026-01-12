@@ -1,0 +1,8 @@
+Experiment Configurations: {'mlflow': None, 'experiment': 'jawa_CRACK500', 'algorithm': 'unet', 'data_path': 'data/crackseg9k_split/CRACK500/train', 'test_path': 'data/crackseg9k_split/CRACK500/test', 'save_path': 'models/', 'model_name': 'unet', 'validation_split': 0.2, 'sample_size': 0.5, 'epochs': 80, 'batch_size': 8, 'resize_size': [256, 256], 'learning_rate': 0.001, 'threshold': 0.2, 'input_channels': 3, 'n_classes': 1, 'seed': 50, 'execution_mode': 'train', 'preprocessing': False, 'log_dir': 'logs/unet/CRACK500/50'}
+Dataset sizes: {'train': 1250, 'val': 250, 'test': 626}
+Final Training Loss: 0.20734760880470277, Dice: 0.001478673368692398, IoU: 0.7763374938964843, CL IoU: 0.6400343027114869
+Final Validation Loss: 0.26293043373152614, Dice: 0.001497150762588717, IoU: 0.7021262589842081, CL IoU: 0.5127324564382434
+Test Loss: 0.2608, Dice: 0.0015, IoU: 0.7152, CL IoU: 0.4849
+Test Accuracy: 0.9545, Precision: 0.6292, Recall: 0.6911, F1-Score: 0.6384
+Model info: logs/unet/CRACK500/50/model_info.json
+Model size: 34500.00390625 KB

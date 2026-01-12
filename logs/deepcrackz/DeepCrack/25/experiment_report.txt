@@ -1,8 +1,11 @@
 Experiment Configurations: {'mlflow': None, 'experiment': 'jawa_DeepCrack', 'algorithm': 'deepcrackz', 'data_path': 'data/crackseg9k_split/DeepCrack/train', 'test_path': 'data/crackseg9k_split/DeepCrack/test', 'save_path': 'models/', 'model_name': 'deepcrackz', 'validation_split': 0.2, 'sample_size': 0.25, 'epochs': 80, 'batch_size': 8, 'resize_size': [256, 256], 'learning_rate': 0.001, 'threshold': 0.2, 'input_channels': 3, 'n_classes': 1, 'seed': 25, 'execution_mode': 'train', 'preprocessing': False, 'log_dir': 'logs/deepcrackz/DeepCrack/25'}
 Dataset sizes: {'train': 88, 'val': 18, 'test': 89}
+<<<<<<< HEAD
 Final Training Loss: 0.16158943871657053, Dice: 0.0017199725197214219, IoU: 0.8736627101898193, CL IoU: 0.9565281536844041
 Final Validation Loss: 0.18168440461158752, Dice: 0.002064048661850393, IoU: 0.8174081842104594, CL IoU: 0.8704436222712199
 Test Loss: 0.1949, Dice: 0.0024, IoU: 0.8187, CL IoU: 0.8239
 Test Accuracy: 0.9856, Precision: 0.8157, Recall: 0.7879, F1-Score: 0.7940
 Model info: logs/deepcrackz/DeepCrack/25/model_info.json
 Model size: 120722.69921875 KB
+=======
+>>>>>>> 35449665861c28714bc86f2595b881a7cb0068e6
