@@ -1,0 +1,65 @@
+Experiment Configurations: {'mlflow': None, 'experiment': 'pcnet_ge', 'algorithm': 'pcnet_ge', 'device': 'cpu', 'n_cpus': 20, 'data_path': 'data/CrackSeg9k/train', 'test_path': 'data/CrackSeg9k/test', 'save_path': 'models/', 'validation_split': 0.2, 'preprocessing': False, 'epochs': 80, 'sample_size': 0.75, 'batch_size': 32, 'resize_size': [256, 256], 'n_classes': 1, 'max_depth': 3, 'max_branching': 3, 'seed': 80, 'ge': {'generations': 10, 'pop_size': 20, 'genome_len': 96, 'crossover_rate': 0.9, 'mutation_rate': 0.05, 'elite_k': 2, 'train_split': 0.2}, 'execution_mode': 'train', 'log_dir': 'logs/pcnet_ge/CrackSeg9k/80'}
+Dataset sizes: {'train': 5499, 'val': 1100, 'test': 1827}
+─────────────────────────────────────────────
+🧠  Probabilistic Circuit Network Summary
+─────────────────────────────────────────────
+📦 Classes: 1
+📏 Input size: torch.Size([3, 256, 256])
+⚙️  Depth: 3, Branching: 3
+💻 Device: cpu
+─────────────────────────────────────────────
+📊 Node counts:
+  • InputNode      : 3
+  • SumNode        : 4
+  • ProductNode    : 2
+  • ClassifierNode : 1
+─────────────────────────────────────────────
+🧩 Trainable parameters: 61
+  • SumNode        : 12
+  • InputNode      : 21
+─────────────────────────────────────────────
+📚 Structure:Memory usage: 0.14 KB
+
+└─ ClassifierNode(classes=2)
+   ├─ GateNode
+   │  ├─ SumNode(children=4, weights=4)
+   │  │  ├─ SumNode(children=3, weights=3)
+   │  │  │  ├─ InputNode(feat_2)
+   │  │  │  ├─ InputNode(feat_2)
+   │  │  │  └─ InputNode(feat_2)
+   │  │  ├─ SumNode(children=2, weights=2)
+   │  │  │  ├─ InputNode(feat_1)
+   │  │  │  └─ InputNode(feat_1)
+   │  │  ├─ ResidualNode
+   │  │  │  ├─ InputNode(feat_2)
+   │  │  │  └─ InputNode(feat_2)
+   │  │  └─ ResidualNode
+   │  │     ├─ InputNode(feat_2)
+   │  │     └─ InputNode(feat_2)
+   │  └─ InputNode(feat_1)
+   └─ ProductNode(children=2)
+      ├─ GateNode
+      │  ├─ InputNode(feat_1)
+      │  └─ SumNode(children=3, weights=3)
+      │     ├─ InputNode(feat_1)
+      │     ├─ InputNode(feat_1)
+      │     └─ InputNode(feat_1)
+      └─ GateNode
+         ├─ ProductNode(children=3)
+         │  ├─ InputNode(feat_0)
+         │  ├─ InputNode(feat_0)
+         │  └─ InputNode(feat_0)
+         └─ InputNode(feat_0)
+─────────────────────────────────────────────
+History: {'loss': [0.3749260902404785, 0.3737444778283437, 0.3716463843981425, 0.37201056877772015, 0.37331681946913403, 0.3749260902404785, 0.3737011601527532, 0.3716463843981425, 0.3702169209718704, 0.3749260902404785], 'complexity': [26, 30, 42, 33, 34, 33, 33, 26, 38, 39]}
+Best genome: [113, 26, 199, 231, 179, 221, 220, 204, 15, 25, 102, 78, 110, 190, 116, 5, 53, 97, 170, 96, 169, 184, 238, 227, 160, 101, 160, 240, 89, 155, 146, 148, 98, 104, 98, 154, 147, 239, 129, 119, 17, 219, 86, 96, 133, 215, 196, 33, 85, 41, 78, 175, 166, 231, 131, 184, 72, 246, 100, 194, 117, 221, 18, 29, 169, 187, 207, 112, 166, 141, 166, 242, 106, 248, 27, 252, 39, 73, 97, 146, 248, 191, 163, 88, 1, 31, 76, 10, 130, 198, 246, 125, 224, 252, 220, 119]
+5	train	0.4234	0.2397
+	val	0.4223	0.2393
+10	train	0.4169	0.2478
+	val	0.4170	0.2524
+15	train	0.4146	0.2539
+	val	0.4147	0.2573
+20	train	0.4129	0.2544
+	val	0.4130	0.2574
+25	train	0.4117	0.2569
+	val	0.4117	0.2572
