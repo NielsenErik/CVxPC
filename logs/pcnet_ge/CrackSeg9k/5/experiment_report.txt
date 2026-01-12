@@ -1,5 +1,5 @@
-Experiment Configurations: {'mlflow': None, 'experiment': 'pcnet_ge', 'algorithm': 'pcnet_ge', 'device': 'cpu', 'n_cpus': 20, 'data_path': 'data/CrackSeg9k/train', 'test_path': 'data/CrackSeg9k/test', 'save_path': 'models/', 'sample_size': 0.5, 'validation_split': 0.2, 'preprocessing': False, 'epochs': 80, 'batch_size': 32, 'resize_size': [256, 256], 'n_classes': 1, 'max_depth': 3, 'max_branching': 3, 'seed': 5, 'ge': {'generations': 10, 'pop_size': 20, 'genome_len': 96, 'crossover_rate': 0.9, 'mutation_rate': 0.05, 'elite_k': 2, 'train_split': 0.2}, 'execution_mode': 'train', 'log_dir': 'logs/pcnet_ge/CrackSeg9k/5'}
-Dataset sizes: {'train': 3666, 'val': 734, 'test': 1827}
+Experiment Configurations: {'mlflow': None, 'experiment': 'pcnet_ge', 'algorithm': 'pcnet_ge', 'device': 'cpu', 'n_cpus': 20, 'data_path': 'data/CrackSeg9k/train', 'test_path': 'data/CrackSeg9k/test', 'save_path': 'models/', 'validation_split': 0.2, 'preprocessing': False, 'epochs': 80, 'batch_size': 32, 'resize_size': [256, 256], 'n_classes': 1, 'max_depth': 3, 'max_branching': 3, 'seed': 5, 'ge': {'generations': 10, 'pop_size': 20, 'genome_len': 96, 'crossover_rate': 0.9, 'mutation_rate': 0.05, 'elite_k': 2, 'train_split': 0.2}, 'execution_mode': 'train', 'log_dir': 'logs/pcnet_ge/CrackSeg9k/5'}
+Dataset sizes: {'train': 7332, 'val': 1467, 'test': 1827}
 ─────────────────────────────────────────────
 🧠  Probabilistic Circuit Network Summary
 ─────────────────────────────────────────────
@@ -14,9 +14,9 @@ Dataset sizes: {'train': 3666, 'val': 734, 'test': 1827}
   • ProductNode    : 4
   • ClassifierNode : 1
 ─────────────────────────────────────────────
-🧩 Trainable parameters: 97
-  • InputNode      : 21
+🧩 Trainable parameters: 68
   • SumNode        : 17
+  • InputNode      : 21
 ─────────────────────────────────────────────
 📚 Structure:Memory usage: 0.17 KB
 
@@ -63,104 +63,27 @@ Dataset sizes: {'train': 3666, 'val': 734, 'test': 1827}
          ├─ InputNode(feat_0)
          └─ InputNode(feat_1)
 ─────────────────────────────────────────────
-History: {'loss': [0.3759906515479088, 0.3701072782278061, 0.37558526545763016, 0.37558526545763016, 0.37558526545763016, 0.3759906515479088, 0.37556371092796326, 0.375785693526268, 0.37510377168655396, 0.37550564855337143], 'complexity': [33, 44, 35, 28, 41, 28, 41, 41, 41, 35]}
+History: {'loss': [0.3809739761054516, 0.379943810403347, 0.38094469904899597, 0.37977952510118484, 0.3793701007962227, 0.37993429601192474, 0.3809739761054516, 0.3809739761054516, 0.3797204978764057, 0.380949717015028], 'complexity': [33, 44, 43, 33, 44, 33, 39, 39, 38, 37]}
 Best genome: [39, 28, 180, 158, 121, 61, 22, 145, 59, 151, 175, 217, 126, 1, 71, 218, 136, 158, 117, 41, 229, 197, 254, 219, 74, 65, 63, 235, 142, 116, 247, 154, 232, 252, 20, 92, 187, 208, 38, 81, 140, 204, 28, 153, 75, 55, 131, 105, 162, 81, 210, 19, 220, 7, 188, 88, 98, 4, 179, 42, 168, 185, 216, 181, 77, 189, 211, 81, 31, 227, 37, 152, 60, 32, 198, 36, 171, 177, 15, 44, 203, 129, 31, 253, 67, 1, 236, 4, 141, 254, 147, 149, 99, 32, 146, 229]
-5	train	0.4113	0.2409
-	val	0.4061	0.2579
-10	train	0.3917	0.2604
-	val	0.3880	0.2787
-15	train	0.3838	0.2735
-	val	0.3803	0.2889
-20	train	0.3788	0.2845
-	val	0.3750	0.3022
-25	train	0.3738	0.2950
-	val	0.3699	0.3154
-30	train	0.3692	0.3052
-	val	0.3650	0.3230
-35	train	0.3646	0.3130
-	val	0.3602	0.3321
-40	train	0.3600	0.3176
-	val	0.3556	0.3388
-45	train	0.3560	0.3217
-	val	0.3512	0.3419
-50	train	0.3526	0.3240
-	val	0.3480	0.3429
-55	train	0.3499	0.3240
-	val	0.3449	0.3424
-60	train	0.3474	0.3246
-	val	0.3428	0.3395
-65	train	0.3463	0.3243
-	val	0.3422	0.3380
-70	train	0.3453	0.3240
-	val	0.3412	0.3364
-75	train	0.3441	0.3235
-	val	0.3407	0.3380
-80	train	0.3439	0.3235
-	val	0.3391	0.3380
-Final Training — Loss: 0.3439, Dice: 0.3908, IoU: 0.5661, CL-IoU: 0.3235
-Final Validation — Loss: 0.3391, Dice: 0.3890, IoU: 0.5659, CL-IoU: 0.3380
-Test Loss: 0.3886, Dice: 0.3755, IoU: 0.5338, CL IoU: 0.2254
-Test Accuracy: 0.9428, Precision: 0.2832, Recall: 0.2133, F1-Score: 0.2016
-─────────────────────────────────────────────
-🧠  Probabilistic Circuit Network Summary
-─────────────────────────────────────────────
-📦 Classes: 1
-📏 Input size: torch.Size([3, 256, 256])
-⚙️  Depth: 3, Branching: 3
-💻 Device: cpu
-─────────────────────────────────────────────
-📊 Node counts:
-  • InputNode      : 3
-  • SumNode        : 6
-  • ProductNode    : 4
-  • ClassifierNode : 1
-─────────────────────────────────────────────
-🧩 Trainable parameters: 97
-  • InputNode      : 21
-  • SumNode        : 17
-─────────────────────────────────────────────
-📚 Structure:Memory usage: 0.17 KB
-
-└─ ClassifierNode(classes=2)
-   ├─ ResidualNode
-   │  ├─ GateNode
-   │  │  ├─ InputNode(feat_2)
-   │  │  └─ SumNode(children=3, weights=3)
-   │  │     ├─ InputNode(feat_0)
-   │  │     ├─ InputNode(feat_0)
-   │  │     └─ InputNode(feat_0)
-   │  └─ ProductNode(children=2)
-   │     ├─ InputNode(feat_2)
-   │     └─ SumNode(children=4, weights=4)
-   │        ├─ InputNode(feat_2)
-   │        ├─ InputNode(feat_2)
-   │        ├─ InputNode(feat_2)
-   │        └─ InputNode(feat_2)
-   └─ ProductNode(children=3)
-      ├─ SumNode(children=3, weights=3)
-      │  ├─ SumNode(children=2, weights=2)
-      │  │  ├─ InputNode(feat_1)
-      │  │  └─ InputNode(feat_1)
-      │  ├─ SumNode(children=2, weights=2)
-      │  │  ├─ InputNode(feat_0)
-      │  │  └─ InputNode(feat_0)
-      │  └─ ProductNode(children=3)
-      │     ├─ InputNode(feat_1)
-      │     ├─ InputNode(feat_1)
-      │     └─ InputNode(feat_1)
-      ├─ SumNode(children=3, weights=3)
-      │  ├─ ProductNode(children=4)
-      │  │  ├─ InputNode(feat_1)
-      │  │  ├─ InputNode(feat_1)
-      │  │  ├─ InputNode(feat_1)
-      │  │  └─ InputNode(feat_1)
-      │  ├─ ResidualNode
-      │  │  ├─ InputNode(feat_2)
-      │  │  └─ InputNode(feat_2)
-      │  └─ ResidualNode
-      │     ├─ InputNode(feat_0)
-      │     └─ InputNode(feat_0)
-      └─ ResidualNode
-         ├─ InputNode(feat_0)
-         └─ InputNode(feat_1)
-─────────────────────────────────────────────
+5	train	0.4304	0.2160
+	val	0.4312	0.2266
+10	train	0.4195	0.2348
+	val	0.4206	0.2404
+15	train	0.4128	0.2388
+	val	0.4130	0.2451
+20	train	0.4048	0.2424
+	val	0.4037	0.2489
+25	train	0.3967	0.2410
+	val	0.3944	0.2481
+30	train	0.3907	0.2382
+	val	0.3872	0.2460
+35	train	0.3877	0.2363
+	val	0.3856	0.2460
+40	train	0.3864	0.2364
+	val	0.3816	0.2442
+45	train	0.3839	0.2348
+	val	0.3828	0.2416
+50	train	0.3834	0.2334
+	val	0.3792	0.2432
+55	train	0.3828	0.2369
+	val	0.3784	0.2432
