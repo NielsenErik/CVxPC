@@ -1,0 +1,8 @@
+Experiment Configurations: {'mlflow': 'aida', 'experiment': 'crack_segmentation', 'algorithm': 'unet', 'data_path': 'data/crackseg9k_split/AEL/train', 'test_path': 'data/crackseg9k_split/AEL/test', 'save_path': 'models/', 'model_name': 'deepcrackz', 'validation_split': 0.2, 'epochs': 4, 'batch_size': 16, 'sample_size': 500, 'resize_size': [256, 256], 'learning_rate': 0.001, 'threshold': 0.2, 'input_channels': 3, 'n_classes': 1, 'seed': 1, 'execution_mode': 'train', 'preprocessing': False, 'log_dir': 'logs/unet/AEL/1'}
+Dataset sizes: {'train': 158, 'val': 32, 'test': 39}
+Final Training Loss: 0.3614515960216522, Dice: 0.0003585794365790207, IoU: 0.6144543406553566, CL IoU: 0.46932363882660866
+Final Validation Loss: 0.37583062052726746, Dice: 0.00036255909071769565, IoU: 0.6376141905784607, CL IoU: 0.5505678653717041
+Test Loss: 0.3389, Dice: 0.0004, IoU: 0.7380, CL IoU: 0.6124
+Test Accuracy: 0.0461, Precision: 0.0461, Recall: 1.0000, F1-Score: 0.0880
+Model info: logs/unet/AEL/1/model_info.json
+Model size: 34500.00390625 KB

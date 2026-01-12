@@ -1,0 +1,8 @@
+Experiment Configurations: {'mlflow': None, 'experiment': 'jawa_CrackSeg9k', 'algorithm': 'unet', 'data_path': 'data/CrackSeg9k/train', 'test_path': 'data/CrackSeg9k/test', 'save_path': 'models/', 'model_name': 'unet', 'validation_split': 0.2, 'sample_size': 0.25, 'epochs': 80, 'batch_size': 8, 'resize_size': [256, 256], 'learning_rate': 0.001, 'threshold': 0.2, 'input_channels': 3, 'n_classes': 1, 'seed': 25, 'execution_mode': 'train', 'preprocessing': False, 'log_dir': 'logs/unet/CrackSeg9k/25'}
+Dataset sizes: {'train': 1833, 'val': 367, 'test': 1827}
+Final Training Loss: 0.2034042211168486, Dice: 0.0015394739666194453, IoU: 0.7840049969761268, CL IoU: 0.6303002144331518
+Final Validation Loss: 0.2513137006241342, Dice: 0.001236148578438746, IoU: 0.720945691284926, CL IoU: 0.49906481284162274
+Test Loss: 0.3386, Dice: 0.0012, IoU: 0.5984, CL IoU: 0.3675
+Test Accuracy: 0.9159, Precision: 0.3280, Recall: 0.5267, F1-Score: 0.3603
+Model info: logs/unet/CrackSeg9k/25/model_info.json
+Model size: 34500.00390625 KB

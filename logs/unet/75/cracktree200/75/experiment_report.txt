@@ -1,0 +1,8 @@
+Experiment Configurations: {'mlflow': None, 'experiment': 'jawa_cracktree200', 'algorithm': 'unet', 'data_path': 'data/crackseg9k_split/cracktree200/train', 'test_path': 'data/crackseg9k_split/cracktree200/test', 'save_path': 'models/', 'model_name': 'unet', 'validation_split': 0.2, 'sample_size': 0.75, 'epochs': 80, 'batch_size': 8, 'resize_size': [256, 256], 'learning_rate': 0.001, 'threshold': 0.2, 'input_channels': 3, 'n_classes': 1, 'seed': 75, 'execution_mode': 'train', 'preprocessing': False, 'log_dir': 'logs/unet/cracktree200/75'}
+Dataset sizes: {'train': 105, 'val': 21, 'test': 35}
+Final Training Loss: 0.36286368424242194, Dice: 0.5484081723473289, IoU: 0.4963951110839844, CL IoU: 0.0
+Final Validation Loss: 0.3692789872487386, Dice: 0.4927774965763092, IoU: 0.49599380294481915, CL IoU: 0.0
+Test Loss: 0.3627, Dice: 0.5256, IoU: 0.4967, CL IoU: 0.0000
+Test Accuracy: 0.9933, Precision: 0.0000, Recall: 0.0000, F1-Score: 0.0000
+Model info: logs/unet/cracktree200/75/model_info.json
+Model size: 34500.00390625 KB

@@ -1,0 +1,8 @@
+Experiment Configurations: {'mlflow': None, 'experiment': 'jawa_DeepCrack', 'algorithm': 'unetplus', 'data_path': 'data/crackseg9k_split/DeepCrack/train', 'test_path': 'data/crackseg9k_split/DeepCrack/test', 'save_path': 'models/', 'model_name': 'unetplus', 'validation_split': 0.2, 'sample_size': 0.25, 'epochs': 80, 'batch_size': 8, 'resize_size': [256, 256], 'learning_rate': 0.001, 'threshold': 0.2, 'input_channels': 3, 'n_classes': 1, 'seed': 25, 'execution_mode': 'train', 'preprocessing': False, 'log_dir': 'logs/unetplus/DeepCrack/25'}
+Dataset sizes: {'train': 88, 'val': 18, 'test': 89}
+Final Training Loss: 0.6044865383042229, Dice: 0.11232960413649885, IoU: 0.48810701237784493, CL IoU: 0.0440147320429484
+Final Validation Loss: 0.3621209462483724, Dice: 0.0014457295183092356, IoU: 0.500561128060023, CL IoU: 0.0
+Test Loss: 0.3660, Dice: 0.0022, IoU: 0.4989, CL IoU: 0.0000
+Test Accuracy: 0.9727, Precision: 0.7642, Recall: 0.3581, F1-Score: 0.4699
+Model info: logs/unetplus/DeepCrack/25/model_info.json
+Model size: 141242.00390625 KB
