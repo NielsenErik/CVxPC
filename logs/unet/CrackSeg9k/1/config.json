@@ -1,15 +1,14 @@
 {
-    "mlflow": "aida",
-    "experiment": "crack_segmentation",
+    "mlflow": null,
+    "experiment": "jawa_CrackSeg9k",
     "algorithm": "unet",
     "data_path": "data/CrackSeg9k/train",
     "test_path": "data/CrackSeg9k/test",
     "save_path": "models/",
-    "model_name": "crackformer",
+    "model_name": "unet",
     "validation_split": 0.2,
-    "epochs": 4,
+    "epochs": 80,
     "batch_size": 16,
-    "sample_size": 500,
     "resize_size": [
         256,
         256

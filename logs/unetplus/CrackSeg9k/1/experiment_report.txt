@@ -1,2 +1,8 @@
-Experiment Configurations: {'mlflow': 'aida', 'experiment': 'crack_segmentation', 'algorithm': 'unetplus', 'data_path': 'data/CrackSeg9k/train', 'test_path': 'data/CrackSeg9k/test', 'save_path': 'models/', 'model_name': 'unetplus', 'validation_split': 0.2, 'epochs': 4, 'batch_size': 16, 'sample_size': 50, 'resize_size': [256, 256], 'learning_rate': 0.001, 'threshold': 0.2, 'input_channels': 3, 'n_classes': 1, 'seed': 1, 'execution_mode': 'train', 'log_dir': 'logs/unetplus/CrackSeg9k/1'}
+Experiment Configurations: {'mlflow': None, 'experiment': 'jawa_CrackSeg9k', 'algorithm': 'unetplus', 'data_path': 'data/CrackSeg9k/train', 'test_path': 'data/CrackSeg9k/test', 'save_path': 'models/', 'model_name': 'unetplus', 'validation_split': 0.2, 'epochs': 40, 'batch_size': 8, 'resize_size': [256, 256], 'learning_rate': 0.001, 'threshold': 0.2, 'input_channels': 3, 'n_classes': 1, 'seed': 1, 'execution_mode': 'train', 'preprocessing': False, 'log_dir': 'logs/unetplus/CrackSeg9k/1'}
 Dataset sizes: {'train': 7332, 'val': 1467, 'test': 1827}
+Final Training Loss: 0.23902809987357268, Dice: 0.06630913517675781, IoU: 0.75905829140211, CL IoU: 0.594096228541243
+Final Validation Loss: 0.24828870505418466, Dice: 0.06547343281398872, IoU: 0.7467299210636512, CL IoU: 0.5745191590293593
+Test Loss: 0.2453, Dice: 0.1216, IoU: 0.7045, CL IoU: 0.5591
+Test Accuracy: 0.9728, Precision: 0.5343, Recall: 0.6079, F1-Score: 0.5531
+Model info: logs/unetplus/CrackSeg9k/1/model_info.json
+Model size: 141242.00390625 KB
