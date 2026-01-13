@@ -467,56 +467,125 @@ def plot_gate_residual_maps(pcnet, x, save_dir):
 # 4. GRADIENT-BASED SALIENCY ("CIRCUIT SALIENCY")
 # ---------------------------------------------------------
 
-def plot_input_saliencies(pcnet, x, save_dir):
+import os
+import numpy as np
+import matplotlib.pyplot as plt
+
+
+def plot_input_saliencies(
+    pcnet,
+    x,
+    save_dir,
+    n_rows=3,
+    vmax_percentile=99.0,
+    use_log=True
+):
     """
-    Compute ∂ log p(x) / ∂ x and always reshape to (H, W) safely.
-    Works even if gradient is flattened or has unexpected dims.
+    Rows  : different images in batch
+    Col 0: input image
+    Col 1..C: saliency maps per channel
     """
+    import torch
+
     os.makedirs(save_dir, exist_ok=True)
 
+    # -------- Forward & backward --------
     x = x.clone().detach().requires_grad_(True)
-
     out = pcnet.evaluate(x)
-    loss = out.sum()
-    loss.backward()
+    out.sum().backward()
 
     grad = x.grad.detach().cpu().numpy()
+    inp = x.detach().cpu().numpy()
 
-    # --- Normalize shape: always obtain (C, H, W) ---
+    # -------- Normalize shapes → (B, C, H, W) --------
     if grad.ndim == 4:
-        # (1,C,H,W)
-        grad = grad[0]
-    elif grad.ndim == 3:
-        # (C,H,W)
         pass
-    elif grad.ndim == 2:
-        # (C, H*W) → reshape
-        C, HW = grad.shape
-        H = W = int(np.sqrt(HW))
-        grad = grad.reshape(C, H, W)
-    elif grad.ndim == 1:
-        # (H*W,) → assume C=1
-        HW = grad.shape[0]
-        H = W = int(np.sqrt(HW))
-        grad = grad.reshape(1, H, W)
+    elif grad.ndim == 3:
+        grad = grad[None, ...]
+        inp = inp[None, ...]
     else:
-        print(f"[WARN] Unexpected gradient shape: {grad.shape}")
-        return
+        raise ValueError(f"Unexpected input shape: {grad.shape}")
 
-    C, H, W = grad.shape
+    B, C, H, W = grad.shape
+    R = min(n_rows, B)
 
-    fig, axs = plt.subplots(1, C, figsize=(5*C, 4))
+    sal = np.abs(grad[:R])
 
-    if C == 1:
-        axs = [axs]
+    if use_log:
+        sal = np.log1p(sal)
 
+    # Robust shared scale (avoid black rows)
+    vmax = np.percentile(sal, vmax_percentile)
+    vmin = 0.0
+
+    # -------- Figure layout --------
+    n_cols = C + 1  # input + saliency channels
+    fig, axs = plt.subplots(
+        nrows=R,
+        ncols=n_cols,
+        figsize=(4 * n_cols, 3.2 * R),
+        constrained_layout=True
+    )
+
+    # Ensure 2D axes array
+    if R == 1:
+        axs = axs.reshape(1, n_cols)
+
+    last_im = None
+
+    for r in range(R):
+
+        # ----- Column 0: input image -----
+        img = inp[r]
+
+        # If grayscale, collapse channel
+        if img.shape[0] == 1:
+            img_show = img[0]
+            axs[r, 0].imshow(img_show, cmap="gray")
+        else:
+            # assume CHW → HWC
+            img_show = np.transpose(img, (1, 2, 0))
+            axs[r, 0].imshow(img_show)
+
+        axs[r, 0].axis("off")
+
+        # ----- Saliency columns -----
+        for c in range(C):
+            last_im = axs[r, c + 1].imshow(
+                sal[r, c],
+                cmap="inferno",
+                vmin=vmin,
+                vmax=vmax
+            )
+            axs[r, c + 1].axis("off")
+
+        # Row label
+        axs[r, 0].set_ylabel(f"Image {r}", fontsize=20)
+
+    # -------- Column titles (first row only) --------
+    axs[0, 0].set_title("Input image", fontsize=20)
     for c in range(C):
-        im = axs[c].imshow(np.abs(grad[c]), cmap="inferno")
-        axs[c].set_title(f"Saliency channel {c}")
-        axs[c].axis("off")
-        fig.colorbar(im, ax=axs[c], fraction=0.046, pad=0.04)
-    plt.savefig(f"{save_dir}/input_saliencies.pdf", bbox_inches='tight')
+        axs[0, c + 1].set_title(f"Saliency ch {c}", fontsize=20)
+
+    # -------- Single shared colorbar --------
+    cbar = fig.colorbar(
+        last_im,
+        ax=axs[:, 1:],  # exclude input column
+        location="right",
+        shrink=0.95,
+        pad=0.02
+    )
+    cbar.set_label(
+        r"$|\partial \log p(x) / \partial x|$" + (" (log)" if use_log else ""),
+        fontsize=20
+    )
+
+    plt.savefig(
+        os.path.join(save_dir, "input_plus_saliencies.pdf"),
+        bbox_inches="tight"
+    )
     plt.close()
+
 
 
 # ---------------------------------------------------------
@@ -1406,49 +1475,49 @@ if __name__ == "__main__":
     image_path = "data/crackseg9k_split/DeepCrack/test/images/"
     mask_path = "data/crackseg9k_split/DeepCrack/test/masks/"
     data = CrackDataset(image_path, mask_path, resize_size=(256, 256))
-    m = pickle.load(open("logs/pcnet_ge/AEL/76/pcnet-ge.pkl", "rb"))
+    m = pickle.load(open("logs/pcnet_ge/100/DeepCrack/3/pcnet-ge.pkl", "rb"))
     print(m)
     # m = MultiPCNet(base_pcnet_cls=PCNet, n_experts=5)
     rand_img = np.random.randint(0, len(data), 3)
     x = torch.stack([data[i][0] for i in rand_img], dim=0)
 
-    # generate_all_pcnet_plots(m, x, save_root="plots")
+    generate_all_pcnet_plots(m, x, save_root="plots")
 
-    # pareto_file = "logs/Paretofront.csv"
-    # plot_pareto_front(pareto_file, save_path="plots/pareto_front.pdf")
-    # plot_efficiency_barplot(pareto_file, save_path="plots/efficiency_barplot.pdf")
-    # # Comparison between the models
-    models_dict = {
-        "AEL":{
-            "model":"logs/pcnet_ge/100/AEL/3/pcnet-ge.pkl",
-            "image_path":"data/crackseg9k_split/AEL/test/images/",
-            "mask_path":"data/crackseg9k_split/AEL/test/masks/"
-        },
-        "CRACK500":{
-            "model":"logs/pcnet_ge/100/CRACK500/1/pcnet-ge.pkl",
-            "image_path":"data/crackseg9k_split/CRACK500/test/images/",
-            "mask_path":"data/crackseg9k_split/CRACK500/test/masks/"
-        },
-        "DeepCrack":{
-            "model":"logs/pcnet_ge/100/DeepCrack/3/pcnet-ge.pkl",
-            "image_path":"data/crackseg9k_split/DeepCrack/test/images/",
-            "mask_path":"data/crackseg9k_split/DeepCrack/test/masks/"
-        },
-        "GAPS384":{
-            "model":"logs/pcnet_ge/100/GAPS384/1/pcnet-ge.pkl",
-            "image_path":"data/crackseg9k_split/GAPS384/test/images/",
-            "mask_path":"data/crackseg9k_split/GAPS384/test/masks/"
-        },
-        "cracktree200":{
-            "model":"logs/pcnet_ge/100/cracktree200/3/pcnet-ge.pkl",
-            "image_path":"data/crackseg9k_split/cracktree200/test/images/",
-            "mask_path":"data/crackseg9k_split/cracktree200/test/masks/"
-        },
-        "CrackSeg9k":{
-            "model":"logs/pcnet_ge/100/CrackSeg9k/5/pcnet-ge.pkl",
-            "image_path":"data/CrackSeg9k/test/images/",
-            "mask_path":"data/CrackSeg9k/test/masks/"
-        }
-    }
+    pareto_file = "logs/Paretofront.csv"
+    plot_pareto_front(pareto_file, save_path="plots/pareto_front.pdf")
+    plot_efficiency_barplot(pareto_file, save_path="plots/efficiency_barplot.pdf")
+    # Comparison between the models
+    # models_dict = {
+    #     "AEL":{
+    #         "model":"logs/pcnet_ge/100/AEL/3/pcnet-ge.pkl",
+    #         "image_path":"data/crackseg9k_split/AEL/test/images/",
+    #         "mask_path":"data/crackseg9k_split/AEL/test/masks/"
+    #     },
+    #     "CRACK500":{
+    #         "model":"logs/pcnet_ge/100/CRACK500/1/pcnet-ge.pkl",
+    #         "image_path":"data/crackseg9k_split/CRACK500/test/images/",
+    #         "mask_path":"data/crackseg9k_split/CRACK500/test/masks/"
+    #     },
+    #     "DeepCrack":{
+    #         "model":"logs/pcnet_ge/100/DeepCrack/3/pcnet-ge.pkl",
+    #         "image_path":"data/crackseg9k_split/DeepCrack/test/images/",
+    #         "mask_path":"data/crackseg9k_split/DeepCrack/test/masks/"
+    #     },
+    #     "GAPS384":{
+    #         "model":"logs/pcnet_ge/100/GAPS384/1/pcnet-ge.pkl",
+    #         "image_path":"data/crackseg9k_split/GAPS384/test/images/",
+    #         "mask_path":"data/crackseg9k_split/GAPS384/test/masks/"
+    #     },
+    #     "cracktree200":{
+    #         "model":"logs/pcnet_ge/100/cracktree200/3/pcnet-ge.pkl",
+    #         "image_path":"data/crackseg9k_split/cracktree200/test/images/",
+    #         "mask_path":"data/crackseg9k_split/cracktree200/test/masks/"
+    #     },
+    #     "CrackSeg9k":{
+    #         "model":"logs/pcnet_ge/100/CrackSeg9k/5/pcnet-ge.pkl",
+    #         "image_path":"data/CrackSeg9k/test/images/",
+    #         "mask_path":"data/CrackSeg9k/test/masks/"
+    #     }
+    # }
     
-    plot_top2_by_cliou_per_dataset(models_dict, save_path="plots/comparison.pdf", resize_size=(256, 256), n_test=20, tau=4, seed=None, device=None)
+    # plot_top2_by_cliou_per_dataset(models_dict, save_path="plots/comparison.pdf", resize_size=(256, 256), n_test=20, tau=4, seed=None, device=None)

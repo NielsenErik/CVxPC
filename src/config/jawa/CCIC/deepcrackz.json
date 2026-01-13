@@ -7,7 +7,7 @@
     "save_path": "models/",
     "model_name": "deepcrackz",
     "validation_split": 0.2,
-    "epochs": 80,
+    "epochs": 40,
     "batch_size": 8,
     "resize_size": [
         256,
