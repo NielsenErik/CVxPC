@@ -1,0 +1,8 @@
+Experiment Configurations: {'mlflow': None, 'experiment': 'jawa_cracktree200', 'algorithm': 'deepcrackz', 'data_path': 'data/crackseg9k_split/cracktree200/train', 'test_path': 'data/crackseg9k_split/cracktree200/test', 'save_path': 'models/', 'model_name': 'deepcrackz', 'validation_split': 0.2, 'epochs': 80, 'batch_size': 8, 'resize_size': [256, 256], 'learning_rate': 0.001, 'threshold': 0.2, 'input_channels': 3, 'n_classes': 1, 'seed': 1, 'execution_mode': 'train', 'preprocessing': False, 'log_dir': 'logs/deepcrackz/cracktree200/1'}
+Dataset sizes: {'train': 140, 'val': 28, 'test': 35}
+Final Training Loss: 0.3599663930279868, Dice: 0.5535156343664441, IoU: 0.4965597561427525, CL IoU: 0.0
+Final Validation Loss: 0.3629469573497772, Dice: 0.5438479781150818, IoU: 0.49637341499328613, CL IoU: 0.0
+Test Loss: 0.3616, Dice: 0.5458, IoU: 0.4967, CL IoU: 0.0000
+Test Accuracy: 0.9933, Precision: 0.0000, Recall: 0.0000, F1-Score: 0.0000
+Model info: logs/deepcrackz/cracktree200/1/model_info.json
+Model size: 120722.69921875 KB
