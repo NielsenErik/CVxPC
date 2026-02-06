@@ -1,8 +1,0 @@
-Experiment Configurations: {'mlflow': None, 'experiment': 'jawa_AEL', 'algorithm': 'crackformer', 'data_path': 'data/crackseg9k_split/AEL/train', 'test_path': 'data/crackseg9k_split/AEL/test', 'save_path': 'models/', 'model_name': 'crackformer', 'validation_split': 0.2, 'sample_size': 0.75, 'epochs': 80, 'batch_size': 8, 'resize_size': [256, 256], 'learning_rate': 0.001, 'threshold': 0.2, 'input_channels': 3, 'n_classes': 1, 'seed': 75, 'execution_mode': 'train', 'preprocessing': False, 'log_dir': 'logs/crackformer/AEL/75'}
-Dataset sizes: {'train': 118, 'val': 24, 'test': 39}
-Final Training Loss: 0.12275065543750922, Dice: 0.0018479640615017463, IoU: 0.9567044228315353, CL IoU: 0.9122086117664973
-Final Validation Loss: 0.25156669815381366, Dice: 0.0015067546240364511, IoU: 0.7891971270243326, CL IoU: 0.6309268673261007
-Test Loss: 0.2083, Dice: 0.0015, IoU: 0.8510, CL IoU: 0.7695
-Test Accuracy: 0.9850, Precision: 0.8104, Recall: 0.8565, F1-Score: 0.8323
-Model info: logs/crackformer/AEL/75/model_info.json
-Model size: 19381.60546875 KB

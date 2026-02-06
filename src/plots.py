@@ -77,11 +77,10 @@ def safe_graphviz_layout(G, prog="dot"):
 def plot_pcnet_topology(model, save_path="pcnet_topology.pdf"):
     """
     Draw the PCNet (or MultiPCNet) topology using networkx.
-    Works on systems WITHOUT pygraphviz.
+    Input nodes are now labeled sequentially (X_1, X_2, ...).
     """
 
     def add_subgraph(G, pcnet, prefix=""):
-        # Softer, readable colors
         color_map = {
             "InputNode": "#a6cee3",
             "SumNode": "#1f78b4",
@@ -92,9 +91,8 @@ def plot_pcnet_topology(model, save_path="pcnet_topology.pdf"):
             "SelectorNode": "#cab2d6",
         }
 
-        # Short symbolic labels
+        # Symbolic labels for operations
         label_map = {
-            "InputNode": r"$x_i$",
             "SumNode": r"$\Sigma$",
             "ProductNode": r"$\Pi$",
             "GateNode": r"$G$",
@@ -103,17 +101,28 @@ def plot_pcnet_topology(model, save_path="pcnet_topology.pdf"):
             "SelectorNode": r"$S$",
         }
 
+        # Initialize input counter for this subgraph
+        input_counter = 1
+
         for n in pcnet.get_nodes():
             t = n.__class__.__name__
-            G.add_node(prefix + str(id(n)),
-                       label=label_map.get(t, t),
+            node_id = prefix + str(id(n))
+            
+            # Determine label
+            if t == "InputNode":
+                label = r"$X_{" + str(input_counter) + r"}$"
+                input_counter += 1
+            else:
+                label = label_map.get(t, t)
+
+            G.add_node(node_id,
+                       label=label,
                        color=color_map.get(t, "#d3d3d3"))
 
         for parent, child in pcnet.get_edges():
             G.add_edge(prefix + str(id(child)), prefix + str(id(parent)))
-        for u, v in G.edges():
-            G.edges[u, v]["attr"] = 0.1   # shorter edges (default ~1.0)
-
+            
+    # ... [Rest of the function remains the same]
     G = nx.DiGraph()
 
     if hasattr(model, "experts"):
@@ -135,14 +144,13 @@ def plot_pcnet_topology(model, save_path="pcnet_topology.pdf"):
         labels=node_labels,
         node_color=node_colors,
         node_size=15000,
-        font_size=25,
+        font_size=50,
         font_weight="bold",
         edge_color="gray",
         arrowsize=25,
     )
     plt.savefig(save_path, bbox_inches="tight")
     plt.close()
-
 
 
 def compute_node_activation(pcnet, x):
@@ -482,14 +490,62 @@ def plot_input_saliencies(
 ):
     """
     Rows  : different images in batch
-    Col 0: input image
-    Col 1..C: saliency maps per channel
+    Col 0 : input image
+    Col 1..C : saliency maps per channel
+    Col C+1 : FINAL SEGMENTATION (hard 0/1, white bg / black crack)
+    + one global colorbar on the far right (for saliency only)
+
+    Plot settings aligned with plot_distribution_flow_paths:
+      - global right-side colorbar axis via fig.add_axes
+      - tight layout with rect to reserve colorbar space
     """
+    import os
+    import numpy as np
     import torch
+    import matplotlib.pyplot as plt
 
     os.makedirs(save_dir, exist_ok=True)
 
-    # -------- Forward & backward --------
+    # ----------------------------
+    # Helper: output -> bg mask (1=white background, 0=black crack)
+    # Mirrors plot_distribution_flow_paths behavior.
+    # ----------------------------
+    def _to_final_class_mask(a_np: np.ndarray) -> np.ndarray:
+        """
+        Accepts classifier output (logits or probs), returns (H,W) mask:
+          1 = background (white)
+          0 = crack (black)
+        """
+        a = np.asarray(a_np)
+
+        # squeeze batch if present
+        if a.ndim >= 1 and a.shape[0] == 1:
+            a = np.squeeze(a, axis=0)
+
+        # Multi-class: (C,H,W) with C>1
+        if a.ndim == 3 and a.shape[0] > 1:
+            cls = np.argmax(a, axis=0)  # (H,W)
+            # assume crack is class 1 if available, else any non-zero is crack
+            crack = (cls == 1) if a.shape[0] > 1 else (cls != 0)
+            bg = (~crack).astype(np.float32)  # 1 bg, 0 crack
+            return bg
+
+        # Binary: (1,H,W) or (H,W)
+        if a.ndim == 3 and a.shape[0] == 1:
+            a = a[0]
+        if a.ndim == 2:
+            finite = a[np.isfinite(a)]
+            if finite.size > 0 and finite.min() >= 0.0 and finite.max() <= 1.0:
+                crack = a > 0.5   # probs
+            else:
+                crack = a > 0.0   # logits
+            bg = (~crack).astype(np.float32)
+            return bg
+
+        # Fallback
+        return np.ones((1, 1), dtype=np.float32)
+
+    # -------- Forward & backward (saliency) --------
     x = x.clone().detach().requires_grad_(True)
     out = pcnet.evaluate(x)
     out.sum().backward()
@@ -497,57 +553,55 @@ def plot_input_saliencies(
     grad = x.grad.detach().cpu().numpy()
     inp = x.detach().cpu().numpy()
 
+    # -------- Forward only (for final segmentation) --------
+    with torch.no_grad():
+        out_pred = pcnet.evaluate(x.detach())
+    out_pred_np = out_pred.detach().cpu().numpy() if isinstance(out_pred, torch.Tensor) else np.asarray(out_pred)
+
     # -------- Normalize shapes → (B, C, H, W) --------
-    if grad.ndim == 4:
-        pass
-    elif grad.ndim == 3:
+    if grad.ndim == 3:
         grad = grad[None, ...]
         inp = inp[None, ...]
-    else:
+    elif grad.ndim != 4:
         raise ValueError(f"Unexpected input shape: {grad.shape}")
 
     B, C, H, W = grad.shape
     R = min(n_rows, B)
 
     sal = np.abs(grad[:R])
-
     if use_log:
         sal = np.log1p(sal)
 
-    # Robust shared scale (avoid black rows)
     vmax = np.percentile(sal, vmax_percentile)
     vmin = 0.0
 
-    # -------- Figure layout --------
-    n_cols = C + 1  # input + saliency channels
-    fig, axs = plt.subplots(
-        nrows=R,
-        ncols=n_cols,
-        figsize=(4 * n_cols, 3.2 * R),
-        constrained_layout=True
-    )
+    # Build hard final masks (bg=1 white, crack=0 black)
+    final_bg_masks = []
+    for r in range(R):
+        final_bg_masks.append(_to_final_class_mask(out_pred_np[r:r+1]))
+    final_bg_masks = np.stack(final_bg_masks, axis=0)  # (R,H,W)
 
-    # Ensure 2D axes array
+    # -------- Figure layout (match storyboard settings) --------
+    n_cols = C + 2  # input + saliency channels + final seg
+    fig, axs = plt.subplots(R, n_cols, figsize=(3 * n_cols, 3 * R))
+
     if R == 1:
         axs = axs.reshape(1, n_cols)
+
+    # Reserve space for the global colorbar on the right (same approach)
+    fig.subplots_adjust(right=0.92)
 
     last_im = None
 
     for r in range(R):
-
         # ----- Column 0: input image -----
         img = inp[r]
-
-        # If grayscale, collapse channel
         if img.shape[0] == 1:
-            img_show = img[0]
-            axs[r, 0].imshow(img_show, cmap="gray")
+            axs[r, 0].imshow(img[0], cmap="gray")
         else:
-            # assume CHW → HWC
-            img_show = np.transpose(img, (1, 2, 0))
-            axs[r, 0].imshow(img_show)
-
+            axs[r, 0].imshow(np.transpose(img, (1, 2, 0)))
         axs[r, 0].axis("off")
+        axs[r, 0].set_ylabel(f"Image {r}", fontsize=20)
 
         # ----- Saliency columns -----
         for c in range(C):
@@ -559,32 +613,36 @@ def plot_input_saliencies(
             )
             axs[r, c + 1].axis("off")
 
-        # Row label
-        axs[r, 0].set_ylabel(f"Image {r}", fontsize=20)
+        # ----- Final segmentation (HARD 0/1, white bg / black crack) -----
+        axs[r, -1].imshow(final_bg_masks[r], cmap="gray", vmin=0, vmax=1)
+        axs[r, -1].axis("off")
 
     # -------- Column titles (first row only) --------
-    axs[0, 0].set_title("Input image", fontsize=20)
+    axs[0, 0].set_title("Input", fontsize=20)
     for c in range(C):
         axs[0, c + 1].set_title(f"Saliency ch {c}", fontsize=20)
+    axs[0, -1].set_title("Classification", fontsize=20)
 
-    # -------- Single shared colorbar --------
-    cbar = fig.colorbar(
-        last_im,
-        ax=axs[:, 1:],  # exclude input column
-        location="right",
-        shrink=0.95,
-        pad=0.02
-    )
-    cbar.set_label(
-        r"$|\partial \log p(x) / \partial x|$" + (" (log)" if use_log else ""),
-        fontsize=20
-    )
+    # -------- One global colorbar (saliency only), same as storyboard --------
+    if last_im is not None:
+        cbar_ax = fig.add_axes([0.945, 0.15, 0.010, 0.7])
+        cbar = fig.colorbar(last_im, cax=cbar_ax)
+        cbar.set_label(
+            r"$|\partial \log p(x) / \partial x|$" + (" (log)" if use_log else ""),
+            fontsize=20
+        )
+
+    # Tight layout like storyboard (keep right strip for cbar)
+    plt.tight_layout(rect=[0, 0, 0.93, 1])
 
     plt.savefig(
-        os.path.join(save_dir, "input_plus_saliencies.pdf"),
-        bbox_inches="tight"
+        os.path.join(save_dir, "input_saliencies_segmentation.pdf"),
+        dpi=300
     )
     plt.close()
+
+
+
 
 
 
@@ -1023,83 +1081,195 @@ def visualize_node(node, x_batch, folder, idx):
     else:
         plot_generic_node_panel(node, x_batch, save_path)
 
-def plot_pareto_front(csv_path, save_path):
-    import pandas as pd
-    import numpy as np
-    import matplotlib.pyplot as plt
+import os
+import numpy as np
+import pandas as pd
+import matplotlib.pyplot as plt
 
+def plot_evolutionary_results(root_dir, y_limits=None):
+    """
+    Plots evolutionary results in a 2x3 grid of subplots.
+    
+    Args:
+        root_dir (str): Path to the results directory.
+        y_limits (dict): Optional. A dictionary mapping dataset names to 
+                         tuples (ymin, ymax). e.g., {'AEL': (0.5, 1.0)}
+    """
+    data_summary = {}
+    # Define order to ensure consistent subplot placement
+    datasets_order = ['AEL', 'Crack500', 'DeepCrack', 'GAPS384', 'CrackSeg9k', 'cracktree200']
+
+    # 1. Walk through the directory structure
+    for dataset_name in datasets_order:
+        dataset_path = os.path.join(root_dir, dataset_name)
+        if not os.path.isdir(dataset_path):
+            continue
+        
+        all_runs_fitness = []
+        for run_folder in os.listdir(dataset_path):
+            run_path = os.path.join(dataset_path, run_folder, "evolution_report.txt")
+            if os.path.exists(run_path):
+                try:
+                    df = pd.read_csv(run_path, sep=',', skiprows=1, header=None)
+                    # Clean generation index and get fitness column (Index 5)
+                    df[0] = df[0].astype(str).str.extract(r'\]?(\d+)$').astype(int)
+                    all_runs_fitness.append(df[5].values)
+                except Exception as e:
+                    print(f"Error reading {run_path}: {e}")
+
+        if all_runs_fitness:
+            data_summary[dataset_name] = np.array(all_runs_fitness)
+
+    # 2. Plotting - 2 rows, 3 columns
+    fig, axes = plt.subplots(2, 3, figsize=(18, 10))
+    axes = axes.flatten()  # Flatten to iterate easily with a single index
+
+    for i, dataset_name in enumerate(datasets_order):
+        if dataset_name not in data_summary:
+            axes[i].set_visible(False) # Hide empty subplots if dataset missing
+            continue
+            
+        ax = axes[i]
+        fitness_matrix = data_summary[dataset_name]
+        
+        # Calculate mean and std
+        mean_fitness = np.mean(fitness_matrix, axis=0)
+        std_fitness = np.std(fitness_matrix, axis=0)
+        generations = np.arange(1, len(mean_fitness) + 1)
+
+        # Plot on the specific axis
+        line, = ax.plot(generations, mean_fitness, label='Mean Fitness', color='#1f77b4', linewidth=2)
+        ax.fill_between(generations, 
+                         mean_fitness - std_fitness, 
+                         mean_fitness + std_fitness, 
+                         alpha=0.2, 
+                         color=line.get_color())
+
+        # Y-Axis Range Control
+        if y_limits and dataset_name in y_limits:
+            ax.set_ylim(y_limits[dataset_name])
+        
+        # Styling each subplot
+        ax.set_title(f'Dataset: {dataset_name}', fontsize=14, fontweight='bold')
+        ax.set_xlabel('Generation')
+        ax.set_ylabel('Best Fitness (clIoU)')
+        ax.grid(True, linestyle='--', alpha=0.6)
+        ax.legend(loc='lower right')
+
+    plt.tight_layout()
+    plt.savefig(os.path.join(root_dir, 'evolutionary_fitness_subplots.pdf'), bbox_inches='tight')
+    plt.show()
+
+# Example usage:
+# custom_limits = {
+#     'AEL': (0.2, 0.8),
+#     'GAPS384': (0.0, 0.5),
+#     'DeepCrack': (0.4, 1.0)
+# }
+# plot_evolutionary_results("./results", y_limits=custom_limits)
+
+import matplotlib.pyplot as plt
+import pandas as pd
+import numpy as np
+
+def plot_pareto_front(csv_path, save_path):
     # ----------------------------------------------------
-    # Load data
+    # Load and Clean Data
     # ----------------------------------------------------
     df = pd.read_csv(csv_path)
-
-    df = df[['Model', 'Dataset', 'CLIoU', 'nParams']]
-    df = df.dropna(subset=['CLIoU', 'nParams'])
-
+    df = df[['Model', 'Dataset', 'clIoU', 'nParams']].dropna()
     df['nParams'] = pd.to_numeric(df['nParams'])
-    df['CLIoU']   = pd.to_numeric(df['CLIoU'])
+    df['clIoU']   = pd.to_numeric(df['clIoU'])
 
     # ----------------------------------------------------
-    # COLOR SETUP BY DATASET
+    # MAPPINGS (Color for Dataset, Marker for Model)
     # ----------------------------------------------------
     datasets = df['Dataset'].unique()
-    colors   = plt.cm.tab10(np.linspace(0, 1, len(datasets)))
-    color_map = {ds: colors[i] for i, ds in enumerate(datasets)}
+    color_map = {ds: plt.cm.tab10(i / len(datasets)) for i, ds in enumerate(datasets)}
 
-    # Different markers for models
-    ModelMarkers = ['o', 's', 'D', '^', 'v', '<', '>', 'P', 'X', '*']
-    model_list = df['Model'].unique()
-    model_markers = {m: ModelMarkers[i % len(ModelMarkers)] for i, m in enumerate(model_list)}
+    models = df['Model'].unique()
+    # List of distinct markers
+    all_markers = ['o', 's', '^', 'D', 'v', 'p', '*', 'X', 'P', '<', '>']
+    marker_map = {model: all_markers[i % len(all_markers)] for i, model in enumerate(models)}
 
     # ----------------------------------------------------
-    # PLOT 1: Pareto scatter plot (NO LINES)
+    # Broken x-axis setup
     # ----------------------------------------------------
-    plt.figure(figsize=(6, 4))
+    fig, (ax1, ax2) = plt.subplots(
+        1, 2, sharey=True, figsize=(12, 7),
+        gridspec_kw={"wspace": 0.08}
+    )
 
-    # ---- Dataset-wise scatter ----
-    for ds in datasets:
-        subset = df[df['Dataset'] == ds]
+    # Adjust limits as per your data requirements
+    ax1.set_ylim(0, 1.05)      
+    ax1.set_xlim(30, 40)      # Example range for small models
+    ax2.set_xlim(1e6, 5e7)     # Example range for large models
 
-        plt.scatter(
-            subset['nParams'], subset['CLIoU'],
-            color=color_map[ds], s=80, alpha=0.85
-        )
-
-        # Text labels
-        for _, r in subset.iterrows():
-            plt.text(
-                r['nParams'], r['CLIoU'],
-                r['Model'], fontsize=8,
-                color=color_map[ds], alpha=0.8
+    # ----------------------------------------------------
+    # Scatter Plotting (No Pareto Dominance)
+    # ----------------------------------------------------
+    for _, row in df.iterrows():
+        ds_color = color_map[row['Dataset']]
+        m_style  = marker_map[row['Model']]
+        
+        for ax in (ax1, ax2):
+            ax.scatter(
+                row['nParams'], row['clIoU'],
+                color=ds_color, marker=m_style, 
+                s=100, alpha=0.8, edgecolors='white', linewidth=0.5
             )
 
-    # ---- Dataset-wise Pareto points (dots only) ----
-    for ds in datasets:
-        subset = df[df['Dataset'] == ds].sort_values("nParams")
+    # ----------------------------------------------------
+    # Cosmetics & Axis Break
+    # ----------------------------------------------------
+    for ax in (ax1, ax2):
+        ax.grid(True, which="both", linestyle="--", alpha=0.3)
+    
+    ax1.set_ylabel("clIoU", fontsize=13)
+    fig.text(0.5, 0.04, 'Number of Parameters', ha='center', fontsize=13)
 
-        pareto = []
-        best_ciou = -np.inf
+    # Draw the break marks (diagonal lines)
+    d = .015
+    kwargs = dict(color="k", clip_on=False, linewidth=1)
+    ax1.plot((1-d, 1+d), (-d, +d), transform=ax1.transAxes, **kwargs)
+    ax1.plot((1-d, 1+d), (1-d, 1+d), transform=ax1.transAxes, **kwargs)
+    ax2.plot((-d, +d), (-d, +d), transform=ax2.transAxes, **kwargs)
+    ax2.plot((-d, +d), (1-d, 1+d), transform=ax2.transAxes, **kwargs)
 
-        for _, row in subset.iterrows():
-            if row['CLIoU'] > best_ciou:
-                pareto.append(row)
-                best_ciou = row['CLIoU']
+    # ----------------------------------------------------
+    # TWO-PART LEGEND (Dataset and Model)
+    # ----------------------------------------------------
+    # 1. Dataset Legend (Colors)
+    ds_handles = [
+        plt.Line2D([0], [0], marker='o', color='w', label=ds,
+                   markerfacecolor=color_map[ds], markersize=10)
+        for ds in datasets
+    ]
+    
+    # 2. Model Legend (Shapes) - Using grey to keep focus on shape
+    model_handles = [
+        plt.Line2D([0], [0], marker=marker_map[m], color='w', label=m,
+                   markerfacecolor='grey', markersize=10)
+        for m in models
+    ]
 
-        pareto_df = pd.DataFrame(pareto)
+    # Combine handles and place below
+    all_handles = ds_handles + [plt.Line2D([0], [0], color='none', label='')] + model_handles
+    
+    fig.legend(
+        handles=all_handles,
+        loc="lower center",
+        bbox_to_anchor=(0.5, -0.15), 
+        ncol=5,
+        frameon=True,
+        fontsize=10
+    )
 
-        plt.scatter(
-            pareto_df['nParams'], pareto_df['CLIoU'],
-            color=color_map[ds], edgecolor="black",
-            s=150, marker="o", linewidth=1.5
-        )
-
-    plt.xscale("log")
-    plt.xlabel("Number of Parameters (log-scale)", fontsize=13)
-    plt.ylabel("CLIoU", fontsize=13)
-    plt.title("Pareto Scatter Plot per Dataset (No Lines)", fontsize=15)
-    plt.grid(True, which="both", linestyle="--", alpha=0.3)
-    plt.legend(datasets, title="Dataset")
-    plt.savefig(save_path.replace(".pdf", "_pareto_front.pdf"), bbox_inches='tight')
+    # ----------------------------------------------------
+    # Save
+    # ----------------------------------------------------
+    print(f"Saving Pareto front plot to {save_path}")
+    plt.savefig(save_path, bbox_inches='tight')
 
     
 def plot_efficiency_barplot(csv_path, save_path):
@@ -1110,8 +1280,8 @@ def plot_efficiency_barplot(csv_path, save_path):
     # Load data
     df = pd.read_csv(csv_path)
 
-    df = df[['Model', 'Dataset', 'CLIoU', 'nParams']]
-    df = df.dropna(subset=['CLIoU', 'nParams'])
+    df = df[['Model', 'Dataset', 'clIoU', 'nParams']]
+    df = df.dropna(subset=['clIoU', 'nParams'])
 
     # Compute efficiency
     df['Efficiency'] = df['CLIoU'] / (df['nParams'] / 1e6)
@@ -1143,7 +1313,7 @@ def plot_efficiency_barplot(csv_path, save_path):
 
     plt.tight_layout()
     plt.savefig(save_path, bbox_inches='tight')
-    plt.show()
+    plt.close()
 
 
 import os
@@ -1409,67 +1579,73 @@ def generate_all_pcnet_plots(model, x, save_root="pcnet_plots"):
 
 if __name__ == "__main__":
 
-    # import os
-    # import random
-    # import matplotlib.pyplot as plt
-    # from PIL import Image
+    import os
+    import random
+    import matplotlib.pyplot as plt
+    from PIL import Image
 
-    # # Root directory containing all datasets
-    # ROOT_DIR = "data/crackseg9k_split"
+    # Root directory containing all datasets
+    ROOT_DIR = "data/crackseg9k_split"
 
-    # # Dataset names in required order
-    # DATASETS = ["AEL", "CRACK500", "DeepCrack", "GAPS384", "cracktree200"]
+    # Dataset names in required order
+    DATASETS = ["AEL", "Crack500", "DeepCrack", "GAPS384", "cracktree200", "CrackSeg9k"]
 
-    # NUM_IMAGES = 4  # images per dataset
+    NUM_IMAGES = 4  # images per dataset
 
-    # fig, axes = plt.subplots(
-    #     nrows=len(DATASETS),
-    #     ncols=NUM_IMAGES,
-    #     figsize=(8,10),
-    #     gridspec_kw={"wspace": 0.05, "hspace": 0.05}
-    # )
+    fig, axes = plt.subplots(
+        nrows=len(DATASETS),
+        ncols=NUM_IMAGES,
+        figsize=(10, 12), 
+        gridspec_kw={"wspace": 0.02, "hspace": 0.02}
+    )
 
-    # for row, dataset in enumerate(DATASETS):
-    #     images_dir = os.path.join(ROOT_DIR, dataset, "train", "images")
+    for row, dataset in enumerate(DATASETS):
+        images_dir = os.path.join(ROOT_DIR, dataset, "train", "images")
         
-    #     image_files = [
-    #         f for f in os.listdir(images_dir)
-    #         if f.lower().endswith((".png", ".jpg", ".jpeg"))
-    #     ]
+        # Get image files
+        try:
+            image_files = [
+                f for f in os.listdir(images_dir)
+                if f.lower().endswith((".png", ".jpg", ".jpeg"))
+            ]
+            selected_images = random.sample(image_files, NUM_IMAGES)
+        except (FileNotFoundError, ValueError):
+            # Fallback if directory is missing or empty
+            selected_images = [None] * NUM_IMAGES
 
-    #     # Randomly select 4 different images
-    #     selected_images = random.sample(image_files, NUM_IMAGES)
-
-    #     for col, img_name in enumerate(selected_images):
-    #         img_path = os.path.join(images_dir, img_name)
-    #         img = Image.open(img_path)
-    #         img = img.resize((512, 512))
-    #         ax = axes[row, col]
-    #         # Set dataset name as y-axis title (only once per row)
-    #         ax.imshow(img)
-    #         ax.axis("off")
-    # for row, dataset in enumerate(DATASETS):
-    #     y = 1 - (row + 0.5) / len(DATASETS)
-    #     fig.text(
-    #         0.045, y, dataset,      # ← CLOSE to images
-    #         va="center",
-    #         ha="right",
-    #         fontsize=13,
-    #         rotation=90
-    #     )
-
-    # plt.subplots_adjust(
-    #     left=0.05,   # ← minimal space, labels still fit
-    #     right=0.999,
-    #     top=0.98,
-    #     bottom=0.05,
-    # )
-
+        for col, img_name in enumerate(selected_images):
+            ax = axes[row, col]
             
+            if img_name:
+                img_path = os.path.join(images_dir, img_name)
+                img = Image.open(img_path).resize((512, 512))
+                ax.imshow(img)
+            
+            # Remove ticks and spines for all images
+            ax.set_xticks([])
+            ax.set_yticks([])
+            for spine in ax.spines.values():
+                spine.set_visible(False)
 
-    # plt.savefig("plots/dataset_samples.pdf", bbox_inches="tight", pad_inches=0.1)
-    # exit()
+            # Apply label ONLY to the first column
+            if col == 0:
+                ax.set_ylabel(dataset, fontsize=14, fontweight='bold', rotation=90)
+                # Center the label vertically (0.5) and push it left (-0.1)
+                ax.yaxis.set_label_coords(-0.15, 0.5)
+                # Ensure the y-label is actually rendered
+                ax.yaxis.set_visible(True)
 
+    # Adjust layout to make room for labels on the left
+    plt.tight_layout()
+    plt.subplots_adjust(left=0.1) 
+
+    # Save the result
+    os.makedirs("plots", exist_ok=True)
+    plt.savefig("plots/dataset_samples.pdf", bbox_inches="tight")
+    exit()
+    root = "logs/pcnet_ge/100"
+    # 
+    plot_evolutionary_results(root)
 
 
     image_path = "data/crackseg9k_split/DeepCrack/test/images/"
@@ -1484,7 +1660,7 @@ if __name__ == "__main__":
     generate_all_pcnet_plots(m, x, save_root="plots")
 
     pareto_file = "logs/Paretofront.csv"
-    plot_pareto_front(pareto_file, save_path="plots/pareto_front.pdf")
+    plot_pareto_front(pareto_file, save_path="plots/pareto_front_symbols.pdf")
     plot_efficiency_barplot(pareto_file, save_path="plots/efficiency_barplot.pdf")
     # Comparison between the models
     # models_dict = {
@@ -1493,10 +1669,10 @@ if __name__ == "__main__":
     #         "image_path":"data/crackseg9k_split/AEL/test/images/",
     #         "mask_path":"data/crackseg9k_split/AEL/test/masks/"
     #     },
-    #     "CRACK500":{
-    #         "model":"logs/pcnet_ge/100/CRACK500/1/pcnet-ge.pkl",
-    #         "image_path":"data/crackseg9k_split/CRACK500/test/images/",
-    #         "mask_path":"data/crackseg9k_split/CRACK500/test/masks/"
+    #     "Crack500":{
+    #         "model":"logs/pcnet_ge/100/Crack500/1/pcnet-ge.pkl",
+    #         "image_path":"data/crackseg9k_split/Crack500/test/images/",
+    #         "mask_path":"data/crackseg9k_split/Crack500/test/masks/"
     #     },
     #     "DeepCrack":{
     #         "model":"logs/pcnet_ge/100/DeepCrack/3/pcnet-ge.pkl",

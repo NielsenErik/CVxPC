@@ -1,0 +1,8 @@
+Experiment Configurations: {'mlflow': None, 'experiment': 'jawa_CrackSeg9k', 'algorithm': 'deepcrackz', 'data_path': 'data/CrackSeg9k/train', 'test_path': 'data/CrackSeg9k/test', 'save_path': 'models/', 'model_name': 'deepcrackz', 'validation_split': 0.2, 'epochs': 40, 'batch_size': 8, 'resize_size': [256, 256], 'learning_rate': 0.001, 'threshold': 0.2, 'input_channels': 3, 'n_classes': 1, 'seed': 1, 'execution_mode': 'train', 'preprocessing': False, 'log_dir': 'logs/deepcrackz/CrackSeg9k/1'}
+Dataset sizes: {'train': 7332, 'val': 1467, 'test': 1827}
+Final Training Loss: 0.24803203157573045, Dice: 0.0651960432781947, IoU: 0.7479991125150988, CL IoU: 0.5796406732755396
+Final Validation Loss: 0.25859224399470765, Dice: 0.055558517980819525, IoU: 0.7346843490781991, CL IoU: 0.5593658961841593
+Test Loss: 0.2557, Dice: 0.1038, IoU: 0.6961, CL IoU: 0.5449
+Test Accuracy: 0.9715, Precision: 0.5145, Recall: 0.6102, F1-Score: 0.5444
+Model info: logs/deepcrackz/CrackSeg9k/1/model_info.json
+Model size: 120722.69921875 KB
