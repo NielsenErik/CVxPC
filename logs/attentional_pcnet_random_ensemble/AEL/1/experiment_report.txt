@@ -1,0 +1,6 @@
+Experiment Configurations: {'mlflow': None, 'experiment': 'crack_segmentation', 'algorithm': 'attentional_pcnet_random_ensemble', 'n_models': 5, 'embed_dim': 8, 'device': 'cpu', 'n_cpus': 0, 'data_path': 'data/crackseg9k_split/AEL/train', 'test_path': 'data/crackseg9k_split/AEL/test', 'save_path': 'models/', 'validation_split': 0.2, 'epochs': 30, 'batch_size': 16, 'resize_size': [256, 256], 'input_channels': 3, 'n_classes': 2, 'max_depth': 5, 'max_branching': 3, 'lambda_pc': 0.05, 'learning_rate_ae': 0.0001, 'execution_mode': 'train', 'learning_rate': 0.01, 'seed': 1, 'preprocessing': False, 'log_dir': 'logs/attentional_pcnet_random_ensemble/AEL/1', 'model_name': 'attentional_pcnet_random_ensemble'}
+Dataset sizes: {'train': 158, 'val': 32, 'test': 39}
+Test Loss: -1.2571, Dice: 0.2388, IoU: 0.1362, CL IoU: 0.1362
+Test Accuracy: 0.7628, Precision: 0.1416, Recall: 0.7734, F1-Score: 0.2388
+Test Loss: -1.2571, Dice: 0.2388, IoU: 0.1362, CL IoU: 0.1362
+Test Accuracy: 0.7628, Precision: 0.1416, Recall: 0.7734, F1-Score: 0.2388

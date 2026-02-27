@@ -1,0 +1,4 @@
+Experiment Configurations: {'mlflow': None, 'experiment': 'crack_segmentation', 'algorithm': 'pcnet', 'device': 'cpu', 'n_cpus': 10, 'data_path': 'data/crackseg9k_split/CRACK500/train', 'test_path': 'data/crackseg9k_split/CRACK500/test', 'save_path': 'models/', 'validation_split': 0.2, 'feature_extractor': 'cv_modules', 'epochs': 20, 'batch_size': 16, 'resize_size': [128, 128], 'input_channels': 3, 'n_classes': 2, 'max_depth': 5, 'max_branching': 3, 'seed': 1, 'filter_sizes': [15, 21], 'n_cv_modules ': 64, 'n_filters': 4, 'execution_mode': 'train', 'preprocessing': False, 'log_dir': 'logs/pcnet/CRACK500/1'}
+Dataset sizes: {'train': 2500, 'val': 500, 'test': 626}
+Test Loss: -1.2769, Dice: 0.3369, IoU: 0.2043, CL IoU: 0.2043
+Test Accuracy: 0.9204, Precision: 0.3535, Recall: 0.3323, F1-Score: 0.3369

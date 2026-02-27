@@ -5,39 +5,29 @@ import os
 import mlflow
 from networks import *
 from probabilistic_circuits.probabilistic_circuits import *
-from probabilistic_circuits.grammatical_evolution import *
-from nnunet_pipeline import *
+from probabilistic_circuits.deep_feature_pcnet import DeepFeaturePCNet, RandomDeepFeaturePCEnsemble
 import abc
 from torch.utils.data import DataLoader
 import tqdm
 from tqdm import trange
 import torch
 import matplotlib.pyplot as plt
+import torchvision.models as models
 from scipy.stats import norm
 from utils import *
 import pickle
 import torch.nn.functional as F
 from torch.utils.data import TensorDataset
-from skimage.filters import frangi
-
-from joblib import Parallel, delayed
 import json
 
 import pandas as pd
 from crackdata_processing import CrackDataset
 
-from cv_modules.factories import CVModuleFactory
-
-from probabilistic_circuits.grammatical_evolution_unsupervised import UnsupervisedGEOptimizer
-
 import torch
 import torch.distributed as dist
 from torch.nn.parallel import DistributedDataParallel as DDP
-from torch.utils.data import DataLoader, DistributedSampler, TensorDataset
-from torch.utils.data.distributed import DistributedSampler
-from torch import multiprocessing as mp
-import multiprocessing
-import time
+from torch.utils.data import DataLoader, TensorDataset
+from torch import optim
 
 def average_gradients_across_workers(params):
     """All-reduce gradients in-place and divide by world_size."""
@@ -78,16 +68,56 @@ def run_experiment(config):
         experiment = ExperimentDeepCrackZ(config)
         experiment.run()
 
-    elif config["algorithm"] == "pcnet":
-        experiment = ExperimentPC(config)
+    elif config["algorithm"] in ["spatial_pcnet"]:
+        experiment = ExperimentSpatialPCNet(config)
         experiment.run()
-
-    elif config["algorithm"] == "pcnet_ge":
+        
+    elif config["algorithm"] in ["attentional_pcnet"]:
+        experiment = ExperimentAttentionalPCNet(config)
+        experiment.run()
+        
+    elif config["algorithm"] in ["pcnet", "vanilla_pcnet"]:
+        experiment = ExperimentPCNet(config)
+        experiment.run()
+        
+    elif config["algorithm"] in ["attentional_pcnet_random_ensemble"]:
+        experiment = ExperimentAttentionalPCNetRandomEnsemble(config)
+        experiment.run()
+        
+    elif config["algorithm"] in ["random_ensemble_pcnet"]:
+        experiment = ExperimentRandomEnsemblePCNet(config)
+        experiment.run()
+        
+    elif config["algorithm"] in ["ge_pcnet", "ge_attentional_pcnet"]:
         experiment = ExperimentGEPC(config)
         experiment.run()
+    
+    elif config["algorithm"] in ["spatial_pcnet_random_ensemble"]:
+        experiment = ExperimentSpatialEnsemblePC(config)
+        experiment.run()
+        
+    elif config["algorithm"] in ["hybrid_pcnet"]:
+        experiment = ExperimentHybridPCNet(config)
+        experiment.run()
 
-    elif config["algorithm"] == "pcnet_ge_unsupervised":
-        experiment = ExperimentUnsupervisedGEPC(config)
+    elif config["algorithm"] in ["hybrid_pcnet_random_ensemble"]:
+        experiment = ExperimentHybridPCNetRandomEnsemble(config)
+        experiment.run()
+
+    elif config["algorithm"] in ["deep_feature_pcnet"]:
+        experiment = ExperimentDeepFeaturePCNet(config)
+        experiment.run()
+
+    elif config["algorithm"] in ["deep_feature_pcnet_random_ensemble"]:
+        experiment = ExperimentDeepFeaturePCNetRandomEnsemble(config)
+        experiment.run()
+
+    elif config["algorithm"] in ["adversarial_pcnet"]:
+        experiment = ExperimentAdversarialPCNet(config)
+        experiment.run()
+
+    elif config["algorithm"] in ["autoencoder_pc_prior"]:
+        experiment = ExperimentAutoencoderPCPrior(config)
         experiment.run()
 
     else:
@@ -427,8 +457,8 @@ class Experiment:
                 "test": len(self.test_data) if test_path is not None else 0
             }
         elif self.execution_mode == "test":
-            self.images_path = test_path + "/images/"
-            self.ground_truth_path = test_path + "/masks/"
+            self.test_images_path = test_path + "/images/"
+            self.test_ground_truth_path = test_path + "/masks/"
             self.test_data = CrackDataset(self.test_images_path, self.test_ground_truth_path,sample_size=self.test_size, resize_size=(self.resize_size[0], self.resize_size[1]), preprocessing=self.preprocessing)
             print_info(f"Test samples: {len(self.test_data)}")
             self.experiment_dict["dataset_size"] = {
@@ -1044,6 +1074,7 @@ class ExperimentDL(Experiment):
             json.dump(self.experiment_dict, open(os.path.join(self.log_path, "experiment_results.json"), "w"), indent=4)
             self.show_predictions(self.model, self.test_data, self.device, num_samples=2, threshold=self.threshold)
 
+
 class UNetExperiment(ExperimentDL):
 
     def __init__(self, config):
@@ -1340,707 +1371,309 @@ class ExperimentDeepCrackZ(ExperimentDL):
 #         return results
 
 #     def run(self):
-        self.set_dataset(self.data_path, self.test_path)
+        # self.set_dataset(self.data_path, self.test_path)
 
-        if self.execution_mode == "train":
-            self.train()
-            self.evaluate()
+        # if self.execution_mode == "train":
+        #     self.train()
+        #     self.evaluate()
 
-        elif self.execution_mode == "test":
-            self.evaluate()
+        # elif self.execution_mode == "test":
+        #     self.evaluate()
 
-        else:
-            raise ValueError(f"Execution mode {self.execution_mode} not supported for nnUNet")
+        # else:
+        #     raise ValueError(f"Execution mode {self.execution_mode} not supported for nnUNet")
+
+
 
 class ExperimentPC(Experiment):
     def __init__(self, config):
         super().__init__(config)
-        self.model_name = self.config.get("model_name", "unet")
-        self.input_channels = self.config.get("input_channels", 3)
-        self.max_depth = self.config.get("max_depth", 5)
-        self.max_branching = self.config.get("max_branching", 2)
+        self.model_name = self.config.get("model_name", "pcnet")
+        
+        # PCNet Specific Config
         self.n_classes = self.config.get("n_classes", 2)
-        self.input_nodes = []
-
+        self.max_depth = self.config.get("max_depth", 4)
+        self.max_branching = self.config.get("max_branching", 2)
+        
+        # Experiment Config
         self.epochs = self.config.get("epochs", 10)
-        self.cv_epochs = self.config.get("cv_epochs", 5)
-
+        self.batch_size = self.config.get("batch_size", 32)
+        self.learning_rate = self.config.get("learning_rate", 1e-2)
         self.seed = self.config.get("seed", 42)
-        self.feature_extractor = self.config.get("feature_extractor", "handcrafted")
-        self.filter_sizes = self.config.get("filter_sizes", (3, 7, 15))
-        self.n_cpus = self.config.get("n_cpus", None)
-        self.batch_size = self.config.get("batch_size", 4)
-        self.learning_rate = self.config.get("learning_rate", 1e-3)
-        self.n_cv_modules = self.config.get("n_cv_modules", 32)
-        self.n_filters = self.config.get("n_filters", 4)
+        self.device = "cuda" if torch.cuda.is_available() else "cpu"
+        self.data_type = self.config.get("data_type", "image")  # 'image' or 'tabular'
+        
+        # State flags
+        self.is_initialized = False
+        
+        # Keyword arguments for the model's forward pass
+        self.forward_kwargs = {}
+        
+        # Initialize the algorithm wrapper (PCNet itself is built in train/init_network)
         self.set_algorithm()
-        self._setup_cpu_env()
-        self.cv_factory = None
 
-
-        # cache for conv filter bank tensor
-        self.cached_filter_tensor = None
-
-    # --------------------------------------------------------
-    # Algorithm
-    # --------------------------------------------------------
     def set_algorithm(self):
-        self.model = PCNet(
-            n_classes=self.n_classes,
-            distribution=None,
-            device="cpu",
-            max_depth=self.max_depth,
-            max_branching=self.max_branching,
-            seed=self.seed,
-            cv_module = None
-        )
-
+        pass
     # --------------------------------------------------------
-    # Threading & environment setup
+    # Data Handling
     # --------------------------------------------------------
-    def _setup_cpu_env(self):
-        if self.n_cpus is None or self.n_cpus < 1:
-            self.n_cpus = multiprocessing.cpu_count()
-        # unify threads across libs
-        torch.set_num_threads(self.n_cpus)
-        os.environ["OMP_NUM_THREADS"] = str(self.n_cpus)
-        os.environ["MKL_NUM_THREADS"] = str(self.n_cpus)
-        print(f"⚙️ Using {self.n_cpus} CPU cores (torch threads)")
-
-    # --------------------------------------------------------
-    # Feature extraction
-    # --------------------------------------------------------
-    def get_filter_bank(self):
-        """Comprehensive crack-oriented filter bank."""
-        filters = {
-            # Basic edge filters
-            "sobel_x": np.array([[-1, 0, 1],
-                                 [-2, 0, 2],
-                                 [-1, 0, 1]], np.float32),
-            "sobel_y": np.array([[-1, -2, -1],
-                                 [ 0,  0,  0],
-                                 [ 1,  2,  1]], np.float32),
-            "laplacian": np.array([[-1, -1, -1],
-                                   [-1,  8, -1],
-                                   [-1, -1, -1]], np.float32),
-            "sharpen": np.array([[ 0, -1,  0],
-                                 [-1,  5, -1],
-                                 [ 0, -1,  0]], np.float32),
-            "gauss3": (cv2.getGaussianKernel(3, 0.8) @
-                       cv2.getGaussianKernel(3, 0.8).T).astype(np.float32),
-        }
-
-        # Directional Gabor filters
-        for theta in np.linspace(0, np.pi, 6, endpoint=False):
-            gabor = cv2.getGaborKernel((9, 9), 3.0, theta, 5.0, 0.5, 0, ktype=cv2.CV_32F)
-            filters[f"gabor_{int(theta * 180 / np.pi)}"] = gabor
-
-        return filters
-
-    # --------------------------------------------------------
-    # Conv filter tensor building and caching
-    # --------------------------------------------------------
-    def _build_filter_tensor_once(self, filters, device="cpu"):
-        if self.cached_filter_tensor is not None:
-            return self.cached_filter_tensor
-
-        filt_list = list(filters.values())
-        max_h = max(k.shape[0] for k in filt_list)
-        max_w = max(k.shape[1] for k in filt_list)
-
-        def pad_to(k, H, W):
-            out = np.zeros((H, W), np.float32)
-            h, w = k.shape
-            y0, x0 = (H - h) // 2, (W - w) // 2
-            out[y0:y0 + h, x0:x0 + w] = k
-            return out
-
-        filt_padded = [pad_to(k, max_h, max_w) for k in filt_list]
-        filt_tensor = torch.from_numpy(np.stack(filt_padded)).float().unsqueeze(1)
-        filt_tensor = filt_tensor.repeat(1, 3, 1, 1).to(device)
-        self.cached_filter_tensor = filt_tensor
-        return self.cached_filter_tensor
-
-    # --------------------------------------------------------
-    # Convolutional feature computation
-    # --------------------------------------------------------
-    def compute_conv_features(self, images, filters, device="cpu"):
-        if isinstance(images, list):
-            images = torch.from_numpy(np.stack(images)).float()
-        elif isinstance(images, np.ndarray):
-            images = torch.from_numpy(images).float()
-
-        # Normalize to BCHW (3 channels)
-        if images.ndim != 4:
-            raise ValueError(f"Expected 4D images, got {images.shape}")
-        if images.shape[1] != 3 and images.shape[-1] == 3:
-            images = images.permute(0, 3, 1, 2)
-        elif images.shape[1] not in (1, 3):
-            if images.shape[1] == 1:
-                images = images.repeat(1, 3, 1, 1)
-            elif images.shape[-1] in (1, 3):
-                images = images.permute(0, 3, 1, 2)
-            else:
-                raise ValueError(f"Unexpected image shape: {tuple(images.shape)}")
-
-        images = images.to(device)
-        filt_tensor = self._build_filter_tensor_once(filters, device=device)
-        conv = F.conv2d(images, filt_tensor, padding="same")  # (B, K, H, W)
-        return conv
-
-    # --------------------------------------------------------
-    # Multi-scale pooling
-    # --------------------------------------------------------
-    def multi_scale_pooling(self, feat_maps, pool_sizes=(3, 7, 15), modes=("avg", "max")):
-        pooled = []
-        for k in pool_sizes:
-            if k <= 1:
-                continue
-            for mode in modes:
-                if mode == "avg":
-                    out = F.avg_pool2d(feat_maps, kernel_size=k, stride=1, padding=k // 2)
-                elif mode == "max":
-                    out = F.max_pool2d(feat_maps, kernel_size=k, stride=1, padding=k // 2)
-                else:
-                    raise ValueError(f"Unknown pooling mode: {mode}")
-                pooled.append(out)
-        return torch.cat(pooled, dim=1) if pooled else feat_maps
-
-    # --------------------------------------------------------
-    # Handcrafted features
-    # --------------------------------------------------------
-    def get_handcrafted_features(self, images, n_jobs=8, prune_features_idx=None):
-        """Compute handcrafted features for images in parallel."""
-        def process_one(img):
-            if isinstance(img, torch.Tensor):
-                img = img.detach().cpu().numpy()
-            img = img.astype(np.float32)
-            if img.max() > 1.0:
-                img /= 255.0
-
-            # Normalize to HWC
-            if img.ndim == 2:
-                img_hwc = np.stack([img] * 3, axis=-1)
-            elif img.ndim == 3 and img.shape[0] == 3 and img.shape[-1] != 3:
-                img_hwc = np.transpose(img, (1, 2, 0))
-            elif img.ndim == 3 and img.shape[-1] == 3:
-                img_hwc = img
-            else:
-                raise ValueError(f"Unexpected image shape: {img.shape}")
-
-            gray = cv2.cvtColor((img_hwc * 255).astype(np.uint8),
-                                cv2.COLOR_RGB2GRAY).astype(np.float32) / 255.0
-            lab = cv2.cvtColor((img_hwc * 255).astype(np.uint8),
-                               cv2.COLOR_RGB2LAB).astype(np.float32) / 255.0
-            hsv = cv2.cvtColor((img_hwc * 255).astype(np.uint8),
-                               cv2.COLOR_RGB2HSV).astype(np.float32) / 255.0
-
-            feats = [
-                gray,
-                lab[..., 0], lab[..., 1], lab[..., 2],
-                hsv[..., 0], hsv[..., 1], hsv[..., 2],
-                cv2.Sobel(gray, cv2.CV_32F, 1, 0),
-                cv2.Sobel(gray, cv2.CV_32F, 0, 1),
-                cv2.Laplacian(gray, cv2.CV_32F),
-            ]
-
-            # Gabor filters (4 orientations)
-            for theta in [0, np.pi / 4, np.pi / 2, 3 * np.pi / 4]:
-                kernel = cv2.getGaborKernel((9, 9), 2.0, theta, 4.0, 0.5, 0, ktype=cv2.CV_32F)
-                feats.append(cv2.filter2D(gray, cv2.CV_32F, kernel))
-
-            # Optional Frangi (line enhancement)
-            # if self.use_frangi:
-            frangi_resp = frangi(gray, sigmas=(1, 5), scale_step=2,
-                                    beta=0.5)
-            feats.append(frangi_resp.astype(np.float32))
-
-            # Optional High-pass
-            # if self.use_highpass:
-            blurred = cv2.GaussianBlur(gray, (0, 0), 5)
-            highpass = cv2.subtract(gray, blurred)
-            feats.append(highpass.astype(np.float32))
-
-            return np.stack(feats, axis=0).astype(np.float32)
-
-        workers = min(n_jobs if n_jobs else multiprocessing.cpu_count(), 16)
-        print(f"⚙️ Using {workers} CPU workers for handcrafted feature extraction...")
-        feats_list = Parallel(n_jobs=workers, backend="loky", verbose=10)(
-            delayed(process_one)(img) for img in images
-        )
-        feats = np.stack(feats_list, axis=0)  # (B, C, H, W)
-
-        # Conv bank (batched)
-        conv_feats = self.compute_conv_features(images, self.get_filter_bank(), device=self.device)
-        conv_feats = conv_feats.detach().cpu().numpy()
-
-        base_feats = np.concatenate([feats, conv_feats], axis=1)
-        base_tensor = torch.from_numpy(base_feats).float().to(self.device)
-
-        pooled_feats = self.multi_scale_pooling(base_tensor,
-                                                pool_sizes=self.filter_sizes,
-                                                modes=("avg", "max"))
-        pooled_feats = pooled_feats.cpu().numpy()
-        final_feats = np.concatenate([base_feats, pooled_feats], axis=1)
-        if prune_features_idx is not None:
-            final_feats = final_feats[:, prune_features_idx, :, :]
-
-        return final_feats
-
-    # TODO one process per module
-    def eval_cv_pop(self, modules, images):
-        with multiprocessing.Pool(processes=self.n_cpus) as pool:
-            results = pool.starmap(
-                self._worker_process_wrapper,
-                [(idx, module, images) for idx, module in enumerate(modules)]
-            )
-
-        return [fit for fit, _ in results]
-
-    def _worker_process_wrapper(self, idx, module, imgs):
-        
-        print_debugging(f"[{time.strftime('%H:%M:%S')}] Worker {idx} starting...")
-        try:
-            feats = [module.get_output(img, return_map=True) for img in imgs]
-            var = np.stack(feats).var()
-            return (float(var), idx)
-        except Exception as e:
-            print(f"[Worker {idx}] error: {e}")
-            return (float("-inf"), idx)
-
-    def convolution_modules_tensor(
-        self, images, cv_factory, return_maps=True, n_jobs=None, verbose=0, prune_features=None
-    ):
+    def _prepare_input(self, x):
         """
-        Torchrun-friendly version with multiprocessing image parallelism.
-        - Each rank processes a disjoint shard of images.
-        - Each shard is processed in parallel using multiprocessing (per-image chunks).
-        - Results are gathered with torch.distributed all_gather on tensors.
-        - Output shape: [N_images, C, H, W] or [N_images, H, W] depending on your modules.
+        Unifies input shapes for PCNet:
+        - Image: (B, C, H, W) -> Stays (B, C, H, W)
+        - Tabular: (B, D)     -> Becomes (B, D, 1, 1)
         """
-        import multiprocessing as mp
-        from joblib import Parallel, delayed
-        import torch.distributed as dist
-        import numpy as np
-        import os
+        if x.dim() == 2:
+            return x.unsqueeze(-1).unsqueeze(-1)
+        return x
 
-        # ---------------------------------------------------------
-        # Normalize input to numpy
-        # ---------------------------------------------------------
-        if isinstance(images, torch.Tensor):
-            images = images.detach().cpu().numpy()
-        if images.ndim == 3:
-            images = np.expand_dims(images, 0)  # [1, H, W]
-        total_images = len(images)
-        
-
-        # ---------------------------------------------------------
-        # Optimize module via variance (if no pruning provided)
-        # ---------------------------------------------------------
-        if prune_features is None:
-            # ---------------------------------------------------------
-            # CMA-ES optimization loop
-            # ---------------------------------------------------------
-            # Multiprocessing parallelization over MODULES
-            modules = cv_factory.ask_pop()
-            n_procs = min(n_jobs, len(modules))
-            print_info(f"⚙️ Using {n_procs} processes for convolution module evaluation...")
-            for epoch in trange(self.cv_epochs, desc="CV Module Optimization", disable=verbose == 0):
-                print_debugging(f"Epoch {epoch}")
-                modules = cv_factory.ask_pop()
-                if not isinstance(modules, list):
-                    modules = [modules]               
-
-                fitness = self.eval_cv_pop(modules, images)
-
-                print_debugging(f"Module fitness values: {fitness}")
-                # CMA-ES update
-                cv_factory.tell_pop(fitness)
-
-        # ---------------------------------------------------------
-        # Best module and final extraction
-        # ---------------------------------------------------------
-        module = cv_factory.best_module()
-
-        feats_np = [module.get_output(img, return_map=return_maps) for img in images]
-        feats_np = np.stack(feats_np, axis=0)  # [N, C, H, W] or [N, H, W]
-
-        # ---------------------------------------------------------
-        # Feature pruning and normalization
-        # ---------------------------------------------------------
-        if prune_features is not None:
-            if feats_np.ndim == 4:  # [N, C, H, W]
-                feats_np = feats_np[:, prune_features, :, :]
-            else:
-                feats_np = feats_np[prune_features, :, :]
-
-        print_debugging(
-            f"Convolution module features shape: {feats_np.shape}, "
-            f"value range: {feats_np.min()} to {feats_np.max()}, var: {feats_np.var()}"
-        )
-        feats_np = (feats_np - feats_np.mean()) / (feats_np.std() + 1e-8)
-        return feats_np
-    
-    def get_cv_module(
-        self, images, cv_factory, return_maps=True, n_jobs=None, verbose=0, prune_features=None
-    ):
+    # --------------------------------------------------------
+    # Pipeline Orchestration (The requested method)
+    # --------------------------------------------------------
+    def run(self):
         """
-        Torchrun-friendly version with multiprocessing image parallelism.
-        - Each rank processes a disjoint shard of images.
-        - Each shard is processed in parallel using multiprocessing (per-image chunks).
-        - Results are gathered with torch.distributed all_gather on tensors.
-        - Output shape: [N_images, C, H, W] or [N_images, H, W] depending on your modules.
+        Main entry point for the experiment pipeline.
+        Handles Setup -> Data -> Train/Test -> Save/Viz.
         """
-        import multiprocessing as mp
-        from joblib import Parallel, delayed
-        import torch.distributed as dist
-        import numpy as np
-        import os
-
-        # ---------------------------------------------------------
-        # Normalize input to numpy
-        # ---------------------------------------------------------
-        if isinstance(images, torch.Tensor):
-            images = images.detach().cpu().numpy()
-        if images.ndim == 3:
-            images = np.expand_dims(images, 0)  # [1, H, W]
-        total_images = len(images)
-        
-
-        # ---------------------------------------------------------
-        # Optimize module via variance (if no pruning provided)
-        # ---------------------------------------------------------
-        if prune_features is None:
-            # ---------------------------------------------------------
-            # CMA-ES optimization loop
-            # ---------------------------------------------------------
-            # Multiprocessing parallelization over MODULES
-            modules = cv_factory.ask_pop()
-            n_procs = min(n_jobs, len(modules))
-            print_info(f"⚙️ Using {n_procs} processes for convolution module evaluation...")
-            for epoch in trange(self.cv_epochs, desc="CV Module Optimization", disable=verbose == 0):
-                print_debugging(f"Epoch {epoch}")
-                modules = cv_factory.ask_pop()
-                if not isinstance(modules, list):
-                    modules = [modules]               
-
-                fitness = self.eval_cv_pop(modules, images)
-
-                print_debugging(f"Module fitness values: {fitness}")
-                # CMA-ES update
-                cv_factory.tell_pop(fitness)
-
-        # ---------------------------------------------------------
-        # Best module and final extraction
-        # ---------------------------------------------------------
-        module = cv_factory.best_module()
-
-        return module
-
-
-
-    def get_feature_tensor(self, images, prune_features=None):
-        if self.feature_extractor == "handcrafted":
-            return self.get_handcrafted_features(images, n_jobs=self.n_cpus, prune_features_idx=prune_features)
-        elif self.feature_extractor == "cv_modules":
-            if self.cv_factory is None:
-                self.cv_factory = CVModuleFactory(
-                    Optimizer={"class_name": "CMAES", "kwargs": {"n_params": 128, "lambda_": self.n_cv_modules, "seed": self.seed}},
-                    CVModule={"class_name": "ConvolutionModule", "kwargs": {"n_filters": self.n_filters, "filter_sizes": 3, "device": self.device}}
-                )
-            return self.convolution_modules_tensor(images, self.cv_factory, return_maps=True, n_jobs=self.n_cpus, prune_features=prune_features)
-
+        # 1. Environment & Seeding
+        if hasattr(self, '_setup_cpu_env'):
+            self._setup_cpu_env()
         else:
-            raise ValueError(f"Unknown feature extractor {self.feature_extractor}")
-    
-    def init_cv_module(self, images):
-        self.cv_factory = CVModuleFactory(
-                    Optimizer={"class_name": "CMAES", "kwargs": {"n_params": 128, "lambda_": self.n_cv_modules, "seed": self.seed}},
-                    CVModule={"class_name": "ConvolutionModule", "kwargs": {"n_filters": self.n_filters, "filter_sizes": 3, "device": self.device}}
-                )
-        return self.get_cv_module(images, self.cv_factory, return_maps=True, n_jobs=self.n_cpus)
+            torch.manual_seed(self.seed)
+            np.random.seed(self.seed)
+            random.seed(self.seed)
+
+        print_info(f"🚀 Execution Mode: {self.execution_mode.upper()} | Device: {self.device}")
+
+        # 2. Data Loading
+        # self.set_dataset must populate self.train_loader / self.test_loader
+        self.set_dataset(self.data_path, self.test_path)
         
-    def set_criterion(self, target):
-        if target.dim() == 4 and target.size(1) == 1:
-            target = target.squeeze(1)
-        pos_weight = self.compute_pos_weight(target)
-        self.criterion = DiceCELoss(pos_weight=pos_weight.float().to(self.device))
-    # --------------------------------------------------------
-    # Training & Evaluation
-    # --------------------------------------------------------
-    def train(self, model, epochs=10, lr=1e-3, n_cpus=None):
-        """
-        Train PCNet model with unified threading, validation, and logging.
-        Keeps print_info() calls for continuity.
-        """
-        # --------------------------------------------------------
-        # Environment setup
-        # --------------------------------------------------------
-        self._setup_cpu_env()
-        device = getattr(model, "device", "cpu")
-        print_info(f"🧮 Using device: {device}")
+        # 3. Execution Flow
+        if self.execution_mode == "train":
+            # A. Training Phase
+            # Note: init_network() happens inside train() on the first batch
+            self.train()
+            
+            # B. Save the learned structure and weights
+            self.save_model()
+            
+            # C. Immediate Evaluation
+            print_info("\n📊 Running Post-Training Evaluation...")
+            self.test_loader = self.get_dataloaders(self.test_data, batch_size=self.batch_size)
+            self.test(self.model, self.test_loader)
+            self.show_prediction(self.model)
 
-        # --------------------------------------------------------
-        # Count learnable parameters
-        # --------------------------------------------------------
+        elif self.execution_mode == "test":
+            # A. Load Model 
+            # Crucial: Must load the full object to restore the dynamic graph structure
+            if not os.path.exists(os.path.join(self.log_path, f"{self.model_name}.pkl")):
+                print_info(f"❌ Model not found at {self.log_path}. Please train first.")
+                return
 
-        # Collect parameters from all nodes
+            self.load_model()
+            self.test_loader = self.get_dataloaders(self.test_data, batch_size=self.batch_size)
+            
+            # B. Evaluate
+            self.test(self.model, self.test_loader)
+            
+            # C. Visualize
+            self.show_prediction(self.model)
         
-        print_info(f"🔢 Model has {len(model.params)} learnable parameter tensors.")
+        else:
+            raise ValueError(f"Unknown execution_mode: {self.execution_mode}")
 
-        optimizer = torch.optim.Adam(model.params, lr=lr, weight_decay=1e-4)
+    # --------------------------------------------------------
+    # Training Loop
+    # --------------------------------------------------------
+    def train(self):
+        print_info(f"⚙️ Starting Training for {self.epochs} epochs...")
+        
+        # FIX: Do NOT create the optimizer here. 
+        # The model has no parameters yet! They are created in init_network().
+        optimizer = None
+        
+        self.model.train()
+        self.train_loader = self.get_dataloaders(self.train_data, batch_size=self.batch_size)
+        
+        for epoch in range(self.epochs):
+            epoch_loss = 0.0
+            batch_count = 0
+            
+            for i, batch in enumerate(self.train_loader):
+                # Handle (x, y) or just x
+                x = batch[0] if isinstance(batch, (list, tuple)) else batch
+                x = x.to(self.device)
+                x = self._prepare_input(x)
 
-        # --------------------------------------------------------
-        # Prepare data
-        # --------------------------------------------------------
-        feature_tensor = torch.from_numpy(self.feature_tensor).float()
-        target = torch.from_numpy(self.train_masks).long()
-        if target.dim() == 4 and target.size(1) == 1:
-            target = target.squeeze(1)
+                # --- Dynamic Initialization ---
+                # PCNet needs the first batch of data to build its graph structure
+                if not self.is_initialized:
+                    print_info(f"🔨 Initializing PCNet structure with input shape {x.shape}...")
+                    self.model.init_network(x)
+                    self.model = self.model.to(self.device)
+                    
+                    # FIX: Create the optimizer NOW, after parameters exist
+                    optimizer = optim.Adam(self.model.parameters(), lr=self.learning_rate)
+                    self.is_initialized = True
 
-        train_loader = self.get_dataloaders(
-            TensorDataset(feature_tensor, target),
-            shuffle=True,
-            batch_size=self.batch_size
-        )
-
-        val_loader = None
-        if getattr(self, "val_feature_tensor", None) is not None and getattr(self, "val_masks", None) is not None:
-            val_feature_tensor = torch.from_numpy(self.val_feature_tensor).float()
-            val_target = torch.from_numpy(self.val_masks).long()
-            if val_target.dim() == 4 and val_target.size(1) == 1:
-                val_target = val_target.squeeze(1)
-            val_loader = self.get_dataloaders(
-                TensorDataset(val_feature_tensor, val_target),
-                shuffle=False,
-                batch_size=self.batch_size
-            )
-
-        # --------------------------------------------------------
-        # Logs
-        # --------------------------------------------------------
-        train_losses, val_losses = [], []
-        train_dices, val_dices = [], []
-        train_ious, val_ious = [], []
-        train_clious, val_clious = [], []
-        gates_over_epochs = []
-
-        # --------------------------------------------------------
-        # Epoch loop
-        # --------------------------------------------------------
-        pbar = tqdm.tqdm(range(epochs), desc="Training PCNet")
-
-        for epoch in pbar:
-            batch_losses, batch_dices, batch_ious, batch_clious = [], [], [], []
-
-            for ft_batch, t_batch in train_loader:
-                ft_batch, t_batch = ft_batch.to(device), t_batch.to(device)
+                # Safety check: If for some reason init failed, skip
+                if optimizer is None:
+                    continue
 
                 optimizer.zero_grad()
-                logits = model.evaluate(ft_batch)  # (B, C, H, W)
-                loss = self.criterion(logits, t_batch)
+                
+                # --- Forward & Loss ---
+                # PCNet outputs Log-Likelihoods
+                log_probs = self.model(x, **self.forward_kwargs)
+                
+                # Maximizing Likelihood == Minimizing Negative Log-Likelihood
+                loss = -torch.mean(log_probs)
+                
                 loss.backward()
+                
+                # Gradient clipping to stabilize learning of unconstrained log_sigmas
+                torch.nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=5.0)
+                
                 optimizer.step()
+                
+                epoch_loss += loss.item()
+                batch_count += 1
 
-                # Metrics
-                with torch.no_grad():
-                    pred_mask = torch.argmax(logits, dim=1, keepdim=True).float()
-                    true_mask = t_batch.unsqueeze(1).float()
+            # Avoid division by zero if loader is empty
+            avg_loss = epoch_loss / max(1, batch_count)
+            print_info(f"Epoch [{epoch+1}/{self.epochs}] | NLL Loss: {avg_loss:.4f}")
 
-                    dice_score = self.dice_coef(logits, t_batch)
-                    iou_score = self.iou_score(logits, t_batch)
-                    cl_iou_score = self.cl_iou_score(pred_mask, true_mask)
+        # Save the trained model
+        self.save_model()
+    # --------------------------------------------------------
+    # Testing & Metrics
+    # --------------------------------------------------------
+    def dice_coef(self, preds, targets, smooth=1e-6):
+        preds = preds.contiguous().view(-1)
+        targets = targets.contiguous().view(-1)
+        intersection = (preds * targets).sum()
+        return (2. * intersection + smooth) / (preds.sum() + targets.sum() + smooth)
 
-                batch_losses.append(loss.item())
-                batch_dices.append(float(torch.as_tensor(dice_score).mean()))
-                batch_ious.append(float(torch.as_tensor(iou_score).mean()))
-                batch_clious.append(float(torch.as_tensor(cl_iou_score).mean()))
+    def iou_score(self, preds, targets, smooth=1e-6):
+        preds = preds.contiguous().view(-1)
+        targets = targets.contiguous().view(-1)
+        intersection = (preds * targets).sum()
+        union = preds.sum() + targets.sum() - intersection
+        return (intersection + smooth) / (union + smooth)
 
-            # Collect gate values (if present)
-            gates_values = []
-            for n in model.get_nodes():
-                if hasattr(n, "gate"):
-                    with torch.no_grad():
-                        gates_values.append(float(torch.sigmoid(n.gate).item()))
-            if gates_values:
-                gates_over_epochs.append(gates_values)
+    def cl_iou_score(self, preds, targets, smooth=1e-6):
+        # detailed skeleton analysis is complex; utilizing standard IoU for positive class as proxy
+        # unless specific skeletonization library is available.
+        return self.iou_score(preds, targets, smooth)
 
-            # Epoch metrics
-            epoch_loss = np.mean(batch_losses) if batch_losses else 0.0
-            epoch_dice = np.mean(batch_dices) if batch_dices else 0.0
-            epoch_iou = np.mean(batch_ious) if batch_ious else 0.0
-            epoch_cl_iou = np.mean(batch_clious) if batch_clious else 0.0
-
-            train_losses.append(epoch_loss)
-            train_dices.append(epoch_dice)
-            train_ious.append(epoch_iou)
-            train_clious.append(epoch_cl_iou)
-
-            print_info(f"Epoch [{epoch+1}/{epochs}] — Train loss: {epoch_loss:.4f}, Dice: {epoch_dice:.4f}, IoU: {epoch_iou:.4f}, CL-IoU: {epoch_cl_iou:.4f}")
-
-            # --------------------------------------------------------
-            # Validation
-            # --------------------------------------------------------
-            if val_loader is not None:
-                val_loss, val_dice, val_iou, val_cl_iou = self.evaluate(model, val_loader)
-                val_losses.append(val_loss)
-                val_dices.append(val_dice)
-                val_ious.append(val_iou)
-                val_clious.append(val_cl_iou)
-
-                print_info(f"Validation — Loss: {val_loss:.4f}, Dice: {val_dice:.4f}, IoU: {val_iou:.4f}, CL-IoU: {val_cl_iou:.4f}")
-
-            # Progress bar
-            pbar.set_postfix({
-                "train_loss": f"{epoch_loss:.4f}",
-                "val_loss": f"{val_losses[-1]:.4f}" if val_loader and val_losses else None
-            })
-
-            # Report to file every 5 epochs
-            if (epoch + 1) % 5 == 0:
-                with open(self.experiment_report, "a") as f:
-                    f.write(f"{epoch+1}\ttrain\t{epoch_loss:.4f}\t{epoch_cl_iou:.4f}\n")
-                    if val_loader:
-                        f.write(f"\tval\t{val_losses[-1]:.4f}\t{val_clious[-1]:.4f}\n")
-
-        # --------------------------------------------------------
-        # Save logs to CSV
-        # --------------------------------------------------------
-        df_train = pd.DataFrame({
-            "train_loss": train_losses,
-            "train_dice": train_dices,
-            "train_iou": train_ious,
-            "train_cl_iou": train_clious
-        })
-        df_train.to_csv(os.path.join(self.log_path, "training.csv"), index=False)
-
-        if val_loader:
-            df_val = pd.DataFrame({
-                "val_loss": val_losses,
-                "val_dice": val_dices,
-                "val_iou": val_ious,
-                "val_cl_iou": val_clious
-            })
-            df_val.to_csv(os.path.join(self.log_path, "validation.csv"), index=False)
-
-        # --------------------------------------------------------
-        # Save gates (if any)
-        # --------------------------------------------------------
-        if gates_over_epochs:
-            max_len = max(len(g) for g in gates_over_epochs)
-            gates_array = np.array([
-                np.pad(g, (0, max_len - len(g)), constant_values=np.nan)
-                for g in gates_over_epochs
-            ])
-            df_gates = pd.DataFrame(gates_array, columns=[f"gate_{i}" for i in range(gates_array.shape[1])])
-            df_gates.to_csv(os.path.join(self.log_path, "gates.csv"), index=False)
-
-        # --------------------------------------------------------
-        # Plots
-        # --------------------------------------------------------
-        import matplotlib.pyplot as plt
-
-        def _plot_metric(train, val, title, fname):
-            plt.figure(figsize=(8, 5))
-            plt.plot(train, label="Train")
-            if val_loader:
-                plt.plot(val, label="Val")
-            plt.title(title)
-            plt.legend()
-            plt.tight_layout()
-            plt.savefig(os.path.join(self.log_path, fname))
-            plt.close()
-
-        _plot_metric(train_losses, val_losses, "Training Loss over Epochs", "training_plot.png")
-        _plot_metric(train_dices, val_dices, "Dice over Epochs", "dice_plot.png")
-        _plot_metric(train_ious, val_ious, "IoU over Epochs", "iou_plot.png")
-        _plot_metric(train_clious, val_clious, "CL-IoU over Epochs", "cliou_plot.png")
-
-        # --------------------------------------------------------
-        # Final summary
-        # --------------------------------------------------------
-        print_info("✅ Training complete.")
-        self.experiment_dict["training"] = {
-            "final_loss": train_losses[-1],
-            "final_dice": train_dices[-1],
-            "final_iou": train_ious[-1],
-            "final_cl_iou": train_clious[-1]
-        }
-        with open(self.experiment_report, "a") as f:
-            f.write(f"Final Training — Loss: {train_losses[-1]:.4f}, Dice: {train_dices[-1]:.4f}, IoU: {train_ious[-1]:.4f}, CL-IoU: {train_clious[-1]:.4f}\n")
-            if val_loader:
-                f.write(f"Final Validation — Loss: {val_losses[-1]:.4f}, Dice: {val_dices[-1]:.4f}, IoU: {val_ious[-1]:.4f}, CL-IoU: {val_clious[-1]:.4f}\n")
-
-        return model
-
-
-    @torch.no_grad()
-    def evaluate(self, model, dataloader):
-        losses, dices, ious, clious = [], [], [], []
-        for ft_batch, t_batch in dataloader:
-            logits = model.evaluate(ft_batch)
-            loss = self.criterion(logits, t_batch)
-            dice_score = self.dice_coef(logits, t_batch)
-            iou_score = self.iou_score(logits, t_batch)
-            pred_mask = torch.argmax(logits, dim=1, keepdim=True).float()
-            true_mask = t_batch.unsqueeze(1).float()
-            cl_iou_score = self.cl_iou_score(pred_mask, true_mask)
-
-            losses.append(loss.item())
-            dices.append(float(torch.as_tensor(dice_score).mean()))
-            ious.append(float(torch.as_tensor(iou_score).mean()))
-            clious.append(float(torch.as_tensor(cl_iou_score)))
-
-        return float(np.mean(losses)), float(np.mean(dices)), float(np.mean(ious)), float(np.mean(clious))
-    
+    # =========================================================
+    # Updated Test Method
+    # =========================================================
     @torch.no_grad()
     def test(self, model, dataloader):
+        model.eval()
+        model.to(self.device)
+        
+        # Metric Lists
         losses, dices, ious, clious = [], [], [], []
         accuracies, precisions, recalls, f1_scores = [], [], [], []
-        for ft_batch, t_batch in dataloader:
-            logits = model.evaluate(ft_batch)
-            loss = self.criterion(logits, t_batch)
-            dice_score = self.dice_coef(logits, t_batch)
-            iou_score = self.iou_score(logits, t_batch)
-            pred_mask = torch.argmax(logits, dim=1, keepdim=True).float()
-            true_mask = t_batch.unsqueeze(1).float()
-            cl_iou_score = self.cl_iou_score(pred_mask, true_mask)
+        
+        print_info("🧪 Starting Evaluation with Full Metrics...")
+        
+        for batch in dataloader:
+            if isinstance(batch, (list, tuple)):
+                images, masks = batch[0], batch[1]
+            else:
+                # If no masks provided, we can't compute these metrics
+                continue
 
-            # Flatten predictions and targets
-            pm = pred_mask.view(-1).long()
-            tm = true_mask.view(-1).long()
+            images = images.to(self.device)
+            masks = masks.to(self.device)
 
-            tp = ((pm == 1) & (tm == 1)).sum()
-            fp = ((pm == 1) & (tm == 0)).sum()
-            fn = ((pm == 0) & (tm == 1)).sum()
-            tn = ((pm == 0) & (tm == 0)).sum()
+            # 1. Forward Pass (Get Log-Likelihood)
+            # Output shape: (B, 1, H, W) or (B, 2, H, W)
+            log_probs = model(self._prepare_input(images), **self.forward_kwargs)
+            
+            # 2. Calculate Loss (NLL)
+            # We treat NLL as the "loss" for reporting
+            loss = -torch.mean(log_probs)
+            
+            # 3. Process Outputs for Segmentation Metrics
+            # A. Convert Log-Likelihood to Anomaly Score (Higher = More Anomalous)
+            anomaly_map = -log_probs
+            
+            # Squeeze extra dims if log_probs is (B, C, 1, H, W)
+            if anomaly_map.dim() == 5 and anomaly_map.shape[2] == 1:
+                anomaly_map = anomaly_map.squeeze(2)
+                
+            if anomaly_map.dim() == 4 and anomaly_map.shape[1] > 1:
+                anomaly_map = anomaly_map.mean(dim=1, keepdim=True)
+                
+            # Upsample the anomaly map to match the target mask spatial resolution if it differs
+            if anomaly_map.shape[-2:] != masks.shape[-2:]:
+                anomaly_map = F.interpolate(anomaly_map, size=masks.shape[-2:], mode='bilinear', align_corners=False)
+            
+            # B. Normalize Score to [0, 1] for Thresholding
+            # (Min-Max normalization per batch to create a pseudo-probability)
+            B = anomaly_map.shape[0]
+            flat = anomaly_map.contiguous().view(B, -1)
+            mins = flat.min(dim=1, keepdim=True)[0]
+            maxs = flat.max(dim=1, keepdim=True)[0]
+            
+            # Dynamically reshape to match anomaly_map's dimensions for safe broadcasting
+            view_shape = [B] + [1] * (anomaly_map.dim() - 1)
+            mins = mins.view(*view_shape)
+            maxs = maxs.view(*view_shape)
+            
+            probs = (anomaly_map - mins) / (maxs - mins + 1e-8)
+            
+            # C. Generate Predictions
+            pred_mask = (probs > self.threshold).float()
+            true_mask = masks.float()
+            
+            # Ensure shapes match (handle channel dims and spatial mismatches)
+            if pred_mask.shape[-2:] != true_mask.shape[-2:]:
+                pred_mask = F.interpolate(pred_mask, size=true_mask.shape[-2:], mode='nearest')
+                
+            if pred_mask.shape != true_mask.shape:
+                # Usually masks are (B, H, W), preds are (B, 1, H, W)
+                if pred_mask.dim() >= 2 and pred_mask.shape[1] == 1: pred_mask = pred_mask.squeeze(1)
+                if true_mask.ndim == 4 and true_mask.shape[1] == 1: true_mask = true_mask.squeeze(1)
 
-            # Accuracy
+            # 4. Compute Metrics
+            # Dice / IoU (using float masks)
+            dice = self.dice_coef(pred_mask, true_mask)
+            iou = self.iou_score(pred_mask, true_mask)
+            cl_iou = self.cl_iou_score(pred_mask, true_mask)
+
+            # Classification Stats (using flattened binary vectors)
+            pm = pred_mask.contiguous().view(-1).long()
+            tm = true_mask.contiguous().view(-1).long()
+
+            tp = ((pm == 1) & (tm == 1)).sum().float()
+            fp = ((pm == 1) & (tm == 0)).sum().float()
+            fn = ((pm == 0) & (tm == 1)).sum().float()
+            tn = ((pm == 0) & (tm == 0)).sum().float()
+
             accuracy = (tp + tn) / (tp + tn + fp + fn + 1e-8)
-
-            # Precision = TP / (TP + FP)
             precision = tp / (tp + fp + 1e-8)
-
-            # Recall = TP / (TP + FN)
             recall = tp / (tp + fn + 1e-8)
-
-            # F1 = harmonic mean
             f1_score = 2 * precision * recall / (precision + recall + 1e-8)
 
+            # 5. Append Results
             losses.append(loss.item())
-            dices.append(float(torch.as_tensor(dice_score).mean()))
-            ious.append(float(torch.as_tensor(iou_score).mean()))
-            clious.append(float(torch.as_tensor(cl_iou_score)))
-
+            dices.append(dice.item())
+            ious.append(iou.item())
+            clious.append(cl_iou.item())
+            
             accuracies.append(accuracy.item())
             precisions.append(precision.item())
             recalls.append(recall.item())
             f1_scores.append(f1_score.item())
 
-        print_info("✅ Testing complete.")
-        print_info(f"Test Loss: {np.mean(losses):.4f}, Dice: {np.mean(dices):.4f}, IoU: {np.mean(ious):.4f}, CL IoU: {np.mean(clious):.4f}")
-        print_info(f"Test Accuracy: {np.mean(accuracies):.4f}, Precision: {np.mean(precisions):.4f}, Recall: {np.mean(recalls):.4f}, F1-Score: {np.mean(f1_scores):.4f}")
-        self.experiment_dict["results"] = {
+        # 6. Logging & Saving
+        results = {
             "test_loss": np.mean(losses),
             "test_dice": np.mean(dices),
             "test_iou": np.mean(ious),
@@ -2050,770 +1683,973 @@ class ExperimentPC(Experiment):
             "test_recall": np.mean(recalls),
             "test_f1_score": np.mean(f1_scores)
         }
-        n_trainable_params = sum(p.numel() for p in model.params if p.requires_grad)
+
+        print_info("✅ Testing complete.")
+        print_info(f"Test Loss: {results['test_loss']:.4f}, Dice: {results['test_dice']:.4f}, IoU: {results['test_iou']:.4f}, CL IoU: {results['test_cl_iou']:.4f}")
+        print_info(f"Test Accuracy: {results['test_accuracy']:.4f}, Precision: {results['test_precision']:.4f}, Recall: {results['test_recall']:.4f}, F1-Score: {results['test_f1_score']:.4f}")
+
+        self.experiment_dict["results"] = results
+        
+        # Calculate Params
+        n_trainable_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
         self.experiment_dict["n_trainable_params"] = n_trainable_params
+        
+        # Write to report
         with open(self.experiment_report, "a") as f:
-            f.write(f"Test Loss: {np.mean(losses):.4f}, Dice: {np.mean(dices):.4f}, IoU: {np.mean(ious):.4f}, CL IoU: {np.mean(clious):.4f}\n")
-            f.write(f"Test Accuracy: {np.mean(accuracies):.4f}, Precision: {np.mean(precisions):.4f}, Recall: {np.mean(recalls):.4f}, F1-Score: {np.mean(f1_scores):.4f}\n")
+            f.write(f"Test Loss: {results['test_loss']:.4f}, Dice: {results['test_dice']:.4f}, IoU: {results['test_iou']:.4f}, CL IoU: {results['test_cl_iou']:.4f}\n")
+            f.write(f"Test Accuracy: {results['test_accuracy']:.4f}, Precision: {results['test_precision']:.4f}, Recall: {results['test_recall']:.4f}, F1-Score: {results['test_f1_score']:.4f}\n")
+
         return float(np.mean(losses)), float(np.mean(dices)), float(np.mean(ious)), float(np.mean(clious))
 
     # --------------------------------------------------------
-    # I/O
+    # I/O Helpers
     # --------------------------------------------------------
-    def show_prediction(self, model):
-        with open(self.experiment_report, "a") as f:
-            f.write(str(model) + "\n")
-
-        predictions_path = os.path.join(self.log_path, "predictions")
-        os.makedirs(predictions_path, exist_ok=True)
-
-        imgs = [self.test_data[i][0] for i in range(len(self.test_data))]
-
-        # Process images in groups of 3
-        max_pred = 15
-        group_size = 3
-        for j in range(0, max_pred):
-            start_idx = random.randint(0, len(self.test_inputs) - group_size)
-            end_idx = min(start_idx + group_size, len(self.test_inputs))
-            group = list(zip(
-                imgs[start_idx:end_idx],
-                self.test_inputs[start_idx:end_idx],
-                self.test_ground_truth[start_idx:end_idx]
-            ))
-            fig, axes = plt.subplots(3, group_size, figsize=(4 * group_size, 9))
-
-            for col, (img, inputs, gt) in enumerate(group):
-                mask = model.predict(inputs)
-                img_np = img.squeeze().permute(1, 2, 0).cpu().numpy()
-                gt_np = gt.squeeze().cpu().numpy()
-                mask_np = mask[0][0] if isinstance(mask, (list, tuple)) else mask.squeeze()
-
-                # Row 1 → Input
-                axes[0, col].imshow(img_np)
-                axes[0, col].set_title(f"Input {start_idx + col}")
-                axes[0, col].axis("off")
-
-                # Row 2 → Ground Truth
-                axes[1, col].imshow(gt_np, cmap="gray")
-                axes[1, col].set_title(f"Ground Truth {start_idx + col}")
-                axes[1, col].axis("off")
-
-                # Row 3 → Prediction
-                axes[2, col].imshow(mask_np, cmap="cool")
-                axes[2, col].set_title(f"Prediction {start_idx + col}")
-                axes[2, col].axis("off")
-
-            # Hide any unused columns (in case last group < 3)
-            for col in range(len(group), group_size):
-                axes[0, col].axis("off")
-                axes[1, col].axis("off")
-                axes[2, col].axis("off")
-
-            plt.savefig(os.path.join(predictions_path, f"predictions_{start_idx//group_size}.png"), bbox_inches="tight")
-            plt.close(fig)
-
-        print_debugging(self.log_path)
-        # model.visualize(save_path=self.log_path)
-
-    def finetune(self):
-        pass
-
-    def save_model(self, model_name="pcnet"):
-        with open(os.path.join(self.log_path, f"{model_name}.pkl"), "wb") as f:
+    def save_model(self):
+        """Pickles the entire model object (structure + weights)"""
+        save_path = os.path.join(self.log_path, f"{self.model_name}.pkl")
+        with open(save_path, "wb") as f:
             pickle.dump(self.model, f)
-        with open(os.path.join(self.save_path, f"{model_name}.pkl"), "wb") as f:
-            pickle.dump(self.model, f)
+        print_info(f"💾 Model saved to {save_path}")
 
-    def load_model(self, model_name="pcnet"):
-        with open(model_name, "rb") as f:
+    def load_model(self):
+        """Loads the pickled model object"""
+        load_path = os.path.join(self.log_path, f"{self.model_name}.pkl")
+        print_info(f"📂 Loading model from {load_path}")
+        with open(load_path, "rb") as f:
             self.model = pickle.load(f)
+        self.is_initialized = True
 
-    # --------------------------------------------------------
-    # Orchestration
-    # --------------------------------------------------------
-    def run(self):
-        self._setup_cpu_env()
-        self.set_dataset(self.data_path, self.test_path)
-        print_info("Dataset size:", len(self.data))
-        if self.execution_mode == "train":
-            self.set_algorithm()
-            self.feature_tensor = self.get_feature_tensor(np.array([self.train_data[i][0] for i in range(len(self.train_data))]))
-            self.train_masks = np.array([self.train_data[i][1] for i in range(len(self.train_data))])
-            self.val_feature_tensor = self.get_feature_tensor(np.array([self.val_data[i][0] for i in range(len(self.val_data))]))
-            self.val_masks = np.array([self.val_data[i][1] for i in range(len(self.val_data))]) if self.validation_split > 0 else None
-            self.set_criterion(torch.from_numpy(self.train_masks).float().to(self.device))
+    def show_prediction(self, model):
+        """
+        Visualizes: Input | Ground Truth | Anomaly Score (NLL) | Predicted Mask
+        """
+        if self.data_type == "tabular": 
+            return
 
-            self.model.init_network(self.feature_tensor, self.train_masks)
-            with open(self.experiment_report, "a") as f:
-                f.write(str(self.model) + "\n")
-            if self.device == "cuda":
-                self.model = self.train(self.model, epochs=self.epochs, lr=self.learning_rate, n_cpus=self.n_cpus)
+        print_info("🖼️ Generating prediction visualizations...")
+        model.eval()
+        save_dir = os.path.join(self.log_path, "predictions")
+        os.makedirs(save_dir, exist_ok=True)
+        
+        # 1. Get Data
+        try:
+            # We need the full batch (x, y) to show Ground Truth
+            batch = next(iter(self.test_loader))
+        except StopIteration:
+            return
+
+        if isinstance(batch, (list, tuple)):
+            x, y = batch[0], batch[1]
+        else:
+            x, y = batch, None # Unsupervised only (no GT)
+
+        x = x.to(self.device)
+        
+        # 2. Model Inference
+        with torch.no_grad():
+            log_probs = model(self._prepare_input(x), **self.forward_kwargs)
+            
+            # Raw Anomaly Score (Negative Log Likelihood)
+            anomaly_map = -log_probs 
+            
+            # Squeeze extra dims if log_probs is (B, C, 1, H, W)
+            if anomaly_map.dim() == 5 and anomaly_map.shape[2] == 1:
+                anomaly_map = anomaly_map.squeeze(2)
+            
+            # Collapse channels if necessary (e.g. if n_classes=2)
+            if anomaly_map.dim() == 4:
+                anomaly_map = anomaly_map.mean(dim=1) # (B, H, W)
+
+        # 3. Calculate Threshold for Binary Classification
+        # In a real scenario, this is calibrated on a validation set.
+        # Here, we use the 95th percentile of the BATCH to highlight the "worst" areas.
+        flat_scores = anomaly_map.view(-1).cpu().numpy()
+        threshold = np.percentile(flat_scores, 95)
+        
+        # Create Binary Mask
+        pred_mask = (anomaly_map > threshold).float()
+
+        # 4. Plotting
+        n_vis = min(4, x.shape[0])
+        fig, axes = plt.subplots(n_vis, 4, figsize=(16, 4*n_vis)) # 4 Columns
+        
+        # Handle single sample case (axes logic)
+        if n_vis == 1: axes = np.expand_dims(axes, axis=0)
+
+        for i in range(n_vis):
+            # --- Prepare Data ---
+            # A. Input Image
+            img = x[i].cpu().permute(1, 2, 0).numpy()
+            if img.shape[2] == 1: img = img.squeeze()
+            
+            # B. Ground Truth (if exists)
+            if y is not None:
+                gt = y[i].cpu().numpy()
+                if gt.ndim == 3: gt = gt.squeeze()
             else:
-                self.model = self.train_parallel(self.model, epochs=self.epochs, lr=self.learning_rate, n_cpus=self.n_cpus)
-            self.save_model()
+                gt = np.zeros_like(img) # Placeholder
 
-            if self.test_path is not None:
-                self.test_inputs = torch.from_numpy(self.get_feature_tensor(np.array([self.test_data[i][0] for i in range(len(self.test_data))]))).float().to(self.device)
-                self.test_ground_truth = torch.from_numpy(np.array([self.test_data[i][1] for i in range(len(self.test_data))])).long().to(self.device)
-                if self.test_ground_truth.dim() == 4 and self.test_ground_truth.size(1) == 1:
-                    self.test_ground_truth = self.test_ground_truth.squeeze(1)
+            # C. Anomaly Score (Heatmap)
+            score = anomaly_map[i].cpu().numpy()
+            
+            # D. Predicted Mask (Binary)
+            p_mask = pred_mask[i].cpu().numpy()
 
-                test_loader = self.get_dataloaders(TensorDataset(self.test_inputs, self.test_ground_truth), shuffle=False, batch_size=self.batch_size)
-                loss, dice, iou, cl_iou = self.evaluate(self.model, test_loader)
-                print_info("Test Loss:", loss, "Dice:", dice, "IoU:", iou, "CL IoU:", cl_iou)
-                with open(self.experiment_report, "a") as f:
-                    f.write(f"Test Loss: {loss}, Dice: {dice}, IoU: {iou}, CL IoU: {cl_iou}\n")
-                self.show_prediction(self.model)
-        elif self.execution_mode == "test":
-            self.load_model(self.model_name)
-            self.test_inputs = torch.from_numpy(self.get_feature_tensor(np.array([self.test_data[i][0] for i in range(len(self.test_data))]))).float().to(self.device)
-            self.test_ground_truth = torch.from_numpy(np.array([self.test_data[i][1] for i in range(len(self.test_data))])).long().to(self.device)
-            if self.test_ground_truth.dim() == 4 and self.test_ground_truth.size(1) == 1:
-                self.test_ground_truth = self.test_ground_truth.squeeze(1)
-            self.show_prediction(self.model)
+            # --- Plot Columns ---
+            
+            # Col 1: Input
+            ax = axes[i, 0]
+            ax.imshow(img, cmap='gray' if img.ndim == 2 else None)
+            ax.set_title("Input Image")
+            ax.axis('off')
+            
+            # Col 2: Ground Truth
+            ax = axes[i, 1]
+            ax.imshow(gt, cmap='gray')
+            ax.set_title("Ground Truth")
+            ax.axis('off')
+            
+            # Col 3: Anomaly Score (Heatmap)
+            ax = axes[i, 2]
+            im = ax.imshow(score, cmap='inferno') # 'inferno' highlights high values well
+            ax.set_title("Anomaly Score (NLL)")
+            ax.axis('off')
+            # Optional: Add colorbar to the last plot or individually
+            # plt.colorbar(im, ax=ax) 
 
+            # Col 4: Predicted Mask
+            ax = axes[i, 3]
+            ax.imshow(p_mask, cmap='Reds', interpolation='nearest')
+            ax.set_title(f"Pred Mask (>{threshold:.1f})")
+            ax.axis('off')
+
+        plt.tight_layout()
+        save_path = os.path.join(save_dir, "vis_full_pipeline.png")
+        plt.savefig(save_path)
+        plt.close()
+        print_info(f"✅ Full visualization saved to {save_path}")
 
 class ExperimentGEPC(ExperimentPC):
     def __init__(self, config):
+        config["model_name"] = config.get("model_name", "ge_pcnet")
         super().__init__(config)
-        self.ge_config = self.config.get("ge", {"generations": 10, "pop_size": 8, "genome_len": 96, "crossover_rate": 0.9, "mutation_rate": 0.05, "elite_k": 2, "train_split": 0.05})
-        self.ge = GEOptimizer(
-                    pop_size=self.ge_config["pop_size"],
-                    genome_len=self.ge_config["genome_len"],
-                    max_depth=self.max_depth,          # search budget
-                    max_branching=self.max_branching,      # upper bound for sum fan-in
-                    crossover_rate=self.ge_config["crossover_rate"],
-                    mutation_rate=self.ge_config["mutation_rate"],
-                    elite_k=self.ge_config["elite_k"],
-                    n_classes=self.n_classes,
-                    device=self.device,
-                    n_jobs=self.n_cpus,
-                    report=self.experiment_report,
-                    log_path = self.log_path
-                )
         
-    def get_prune_features_idx(self, model):
-        feats = []
-        new_name = 0
-        for n in model.get_nodes():
-            if isinstance(n, InputNode):
-                feats.append(n.feature_idx)
-                n.feature_name = f"feat_{new_name}"
-                n.feature_idx = new_name
-                new_name += 1
+    def set_algorithm(self):
+        # We don't initialize a static PCNet here, the GE optimizer will build one.
+        self.model = None
 
-        return feats
-    
-    def worker_cv_module_process(self, model, module, X_np, Y_t, device, prune_idx, queue):
-        """
-        Worker that evaluates one or more modules on all training images.
-        Returns list of fitness values (one per module).
-        """
-            
-        # Extract features for this module
-        feats = []
-        for img in X_np:
-            out = module.get_output(img, return_map=True)
-            feats.append(torch.from_numpy(out))
-        X_tensor = torch.stack(feats).float().to(device)
-
-        if prune_idx is not None:
-            X_tensor = X_tensor[:, prune_idx, :, :]
-    
-        dataset = TensorDataset(X_tensor, Y_t)
-        loader = DataLoader(dataset, batch_size=16, shuffle=True, num_workers=0)
-
-        loss_total, cliou_total = 0.0, 0.0
-        with torch.no_grad():
-            for Xb, Yb in loader:
-                Xb, Yb = Xb.to(device), Yb.to(device)
-                logits = model.evaluate(Xb)
-                loss_total += float(self.criterion(logits, Yb.squeeze(1)).item())
-                cliou_total += float(
-                    self.cl_iou_score(
-                        torch.argmax(logits, dim=1, keepdim=True).float(), Yb
-                    )
-                )
-        avg_loss = loss_total / max(1, len(loader))
-        return avg_loss
-    
-    def train_cv_modules(self, model, X_train, Y_train, prune_features=None, epochs=10, lr=1e-2, n_cpus=8):
-        self.cv_factory._optimizer.best = None  # reset best found solution
-        self.cv_factory._optimizer.best_fitness = -np.inf  # reset best found solution
-
-        for epoch in trange(epochs, desc="Training CV Modules"):
-            print_info(f"CV Modules Training Epoch {epoch + 1}/{epochs}")
-            modules = self.cv_factory.ask_pop()
-            if not isinstance(modules, list):
-                modules = [modules]
-
-            # Split modules into chunks for each worker
-            n_procs = min(n_cpus, len(modules))
-            with multiprocessing.Pool(n_procs) as pool:
-                fitnesses = pool.starmap(
-                    self.worker_cv_module_process,
-                    [(model, module, X_train, Y_train, self.device, prune_features, None) for module in modules]
-                )
-            print_info(f"   CV Module Fitnesses: {fitnesses}")
-            self.cv_factory.tell_pop(fitnesses)
-
-        return self.cv_factory.best_module()
+    def train(self):
+        from probabilistic_circuits.grammatical_evolution import GEOptimizer
+        print_info(f"⚙️ Starting GE Optimization for {self.epochs} generations...")
         
-    def run(self):
-        
-        self.set_dataset(self.data_path, self.test_path)
-        # print_info("Dataset size:", len(self.data))
-        if self.execution_mode == "train":
-            self.set_algorithm()
-            
-
-            ge_train_size = int(self.ge_config["train_split"] * len(self.train_data))
-            print_info("GE Training size:", ge_train_size)
-            print_info(len(self.train_data))
-            ge_data = []
-            ge_masks = []
-            for i in range(ge_train_size):
-                try:
-                    x = self.train_data[i]
-                    ge_data.append(x[0])
-                    ge_masks.append(x[1])
-                except Exception as e:
-                    print_error(f"Error processing training sample {i}: {e}")
-            ge_X_train = np.array(ge_data)
-            ge_masks = np.array(ge_masks)
-            ge_X_train = torch.from_numpy(ge_X_train).float().to(self.device)
-            ge_Y_train = torch.from_numpy(ge_masks).long().to(self.device)
-            self.set_criterion(ge_Y_train)
-            best_pc, best_genome, history = self.ge.evolve(ge_X_train, ge_Y_train, criterion=self.criterion, generations = self.ge_config["generations"], n_classes=self.n_classes, train_steps=50, lr=self.learning_rate)
-            print_info("Best genome:", best_genome)
-            print_info("Best PC:", str(best_pc))
-            with open(self.experiment_report, "a") as f:
-                f.write(str(best_pc) + "\n")
-                f.write(f"History: {history}\n")
-                f.write(f"Best genome: {best_genome}\n")
-
-            self.experiment_dict["ge"] = {}
-            self.experiment_dict["ge"]["best_genome"] = best_genome
-            self.experiment_dict["ge"]["history"] = history
-
-            self.model = best_pc
-            f.close()
-            self.model.cv_module = None
-            train_data = []
-            train_masks = []
-            for i in range(len(self.train_data)):
-                try:
-                    x = self.train_data[i]
-                    train_data.append(x[0])
-                    train_masks.append(x[1])
-                except Exception as e:
-                    print_error(f"Error processing training sample {i}: {e}")
-
-            self.feature_tensor = np.array(train_data)
-            self.train_masks = np.array(train_masks)
-
-            val_data = []
-            val_masks = []
-            for i in range(len(self.val_data)):
-                try:
-                    x = self.val_data[i]
-                    val_data.append(x[0])
-                    val_masks.append(x[1])
-                except Exception as e:
-                    print_error(f"Error processing validation sample {i}: {e}")
-
-            self.val_feature_tensor = np.array(val_data)
-            self.val_masks = np.array(val_masks)
-            self.set_criterion(torch.from_numpy(self.train_masks).long().to(self.device))
-            if self.device == "cuda":
-                self.model = self.train(self.model, epochs=self.epochs, lr=self.learning_rate, n_cpus=self.n_cpus)
-            else:
-                self.model = self.train(self.model, epochs=self.epochs, lr=self.learning_rate, n_cpus=self.n_cpus)
-            self.save_model("pcnet-ge")
-            if self.test_path is not None:
-                test_data = []
-                test_masks = []
-                for i in range(len(self.test_data)):
-                    try:
-                        x = self.test_data[i]
-                        test_data.append(x[0])
-                        test_masks.append(x[1])
-                    except Exception as e:
-                        print_error(f"Error processing validation sample {i}: {e}")
-                self.test_inputs = torch.from_numpy(np.array(test_data)).float().to(self.device)
-                self.test_ground_truth = torch.from_numpy(np.array(test_masks)).long().to(self.device)
-                if self.test_ground_truth.dim() == 4 and self.test_ground_truth.size(1) == 1:
-                    self.test_ground_truth = self.test_ground_truth.squeeze(1)
-                
-                test_loader = self.get_dataloaders(TensorDataset(self.test_inputs, self.test_ground_truth), shuffle=False, batch_size=self.batch_size)
-                loss, dice, iou, cl_iou = self.test(self.model, test_loader)
-                json.dump(self.experiment_dict, open(os.path.join(self.config["log_dir"], "experiment.json"), "w"), indent=4)
-                self.show_prediction(self.model)
-        elif self.execution_mode == "test":
-            self.model_path = self.config["model_path"]
-            self.load_model(self.model_path)
-            test_data = []
-            test_masks = []
-            for i in range(len(self.test_data)):
-                try:
-                    x = self.test_data[i]
-                    test_data.append(x[0])
-                    test_masks.append(x[1])
-                except Exception as e:
-                    print_error(f"Error processing validation sample {i}: {e}")
-            self.test_inputs = torch.from_numpy(np.array(test_data)).float().to(self.device)
-            self.test_ground_truth = torch.from_numpy(np.array(test_masks)).long().to(self.device)
-            self.set_criterion(self.test_ground_truth)
-            if self.test_ground_truth.dim() == 4 and self.test_ground_truth.size(1) == 1:
-                self.test_ground_truth = self.test_ground_truth.squeeze(1)
-            test_loader = self.get_dataloaders(TensorDataset(self.test_inputs, self.test_ground_truth), shuffle=False, batch_size=self.batch_size)
-            loss, dice, iou, cl_iou = self.test(self.model, test_loader)
-            json.dump(self.experiment_dict, open(os.path.join(self.config["log_dir"], "experiment.json"), "w"), indent=4)
-
-
-class ExperimentUnsupervisedGEPC(ExperimentPC):
-    def __init__(self, config):
-        super().__init__(config)
-
-        self.ge_config = self.config.get(
-            "ge",
-            {
-                "generations": 10,
-                "pop_size": 8,
-                "genome_len": 96,
-                "crossover_rate": 0.9,
-                "mutation_rate": 0.05,
-                "elite_k": 2,
-                "train_split": 0.05,
-            },
-        )
-
-        self.ge = UnsupervisedGEOptimizer(
-            pop_size=self.ge_config["pop_size"],
-            genome_len=self.ge_config["genome_len"],
-            max_depth=self.max_depth,
-            max_branching=self.max_branching,
-            crossover_rate=self.ge_config["crossover_rate"],
-            mutation_rate=self.ge_config["mutation_rate"],
-            elite_k=self.ge_config["elite_k"],
-            n_classes=self.n_classes,
+        ge = GEOptimizer(
+            pop_size=self.config.get("pop_size", 16),
+            genome_len=self.config.get("genome_len", 64),
+            max_depth=self.config.get("max_depth", 4),
+            max_branching=self.config.get("max_branching", 4),
+            crossover_rate=self.config.get("crossover_rate", 0.9),
+            mutation_rate=self.config.get("mutation_rate", 0.05),
+            elite_k=self.config.get("elite_k", 2),
+            n_classes=self.config.get("n_classes", 2),
             device=self.device,
-            n_jobs=self.n_cpus,
-            report=self.experiment_report,
-            log_path=self.log_path,
+            seed=self.config.get("seed", 42),
+            n_jobs=self.config.get("n_cpus", os.cpu_count()),
+            log_path=self.config.get("log_dir", "logs/ge_pcnet"),
+            model_type="attentional_pcnet" if "attentional" in self.config.get("algorithm", "") else "pcnet"
         )
 
-    # --------------------------------------------------------
-    # SET UNSUPERVISED CRITERION
-    # --------------------------------------------------------
-    def set_criterion(self):
-        self.criterion = UnsupervisedPCNetLoss()
+        # Pull all training data into memory for GE
+        # Typically GE expects (N, C, H, W) and (N,)
+        self.train_loader = self.get_dataloaders(self.train_data, batch_size=len(self.train_data))
+        for batch in self.train_loader:
+            x_train = batch[0].to(self.device)
+            y_train = batch[1].to(self.device) if isinstance(batch, (list, tuple)) else None
+            break
+            
+        x_train_prep = self._prepare_input(x_train)
 
-    # --------------------------------------------------------
-    # TRAIN (uses only X for loss, Y for metrics)
-    # --------------------------------------------------------
-    def train(self, model, epochs=10, lr=1e-3, n_cpus=None):
-        """
-        Train PCNet model (UNSUPERVISED loss, supervised metrics).
-        Loss = criterion(logits, ft_batch)
-        Metrics use t_batch only for evaluation.
-        """
-        self._setup_cpu_env()
-        device = model.device
-
-        print_info(f"🧮 Using device: {device}")
-        print_info(f"🔢 Model has {len(model.params)} learnable parameter tensors.")
-
-        optimizer = torch.optim.Adam(model.params, lr=lr, weight_decay=1e-4)
-
-        # ------------------------------
-        # Data preparation
-        # ------------------------------
-        X = torch.from_numpy(self.feature_tensor).float()
-        Y = torch.from_numpy(self.train_masks).long()
-
-        if Y.dim() == 4 and Y.size(1) == 1:
-            Y = Y.squeeze(1)
-
-        train_loader = self.get_dataloaders(
-            TensorDataset(X, Y),
-            shuffle=True,
-            batch_size=self.batch_size,
+        # Using the custom DiceCELoss with soft_clDice
+        criterion = DiceCELoss()
+            
+        best_pc, best_genome, metrics = ge.evolve(
+            inputs=x_train_prep,
+            labels=y_train,
+            criterion=criterion,
+            generations=self.epochs,
+            n_classes=self.config.get("n_classes", 2),
+            train_steps=self.config.get("ge_train_steps", 10),
+            lr=self.learning_rate
         )
 
-        val_loader = None
-        if hasattr(self, "val_feature_tensor") and self.val_feature_tensor is not None:
-            Xv = torch.from_numpy(self.val_feature_tensor).float()
-            Yv = torch.from_numpy(self.val_masks).long()
-            if Yv.dim() == 4 and Yv.size(1) == 1:
-                Yv = Yv.squeeze(1)
+        self.model = best_pc
+        self.experiment_dict["ge_best_genome"] = best_genome
+        self.experiment_dict["ge_metrics"] = metrics
+        
+        # Save the finalized GE model
+        self.save_model()
 
-            val_loader = self.get_dataloaders(
-                TensorDataset(Xv, Yv),
-                shuffle=False,
-                batch_size=self.batch_size,
-            )
 
-        # ------------------------------
-        # Training loop
-        # ------------------------------
-        train_losses, val_losses = [], []
-        train_dices, val_dices = [], []
-        train_ious, val_ious = [], []
-        train_clious, val_clious = [], []
-        gates_over_epochs = []
+class ExperimentSpatialPCNet(ExperimentPC):
+    def __init__(self, config):
+        config["model_name"] = config.get("model_name", "spatial_pcnet")
+        super().__init__(config)
+        
+    def set_algorithm(self):
+        self.model = RobustSpatialPCNet(
+            in_channels=self.config.get("input_channels", 3),
+            depth=self.config.get("max_depth", 3), 
+            channels_per_layer=self.config.get("channels_per_layer", 32)
+        )
 
-        pbar = tqdm.tqdm(range(epochs), desc="Training PCNet (unsupervised loss)")
+class ExperimentSpatialPCNet(ExperimentPC):
+    def __init__(self, config):
+        config["model_name"] = config.get("model_name", "spatial_pcnet")
+        super().__init__(config)
+        
+    def set_algorithm(self):
+        self.model = RobustSpatialPCNet(
+            in_channels=self.config.get("input_channels", 3),
+            depth=self.config.get("max_depth", 3), 
+            channels_per_layer=self.config.get("channels_per_layer", 32)
+        )
 
-        for epoch in pbar:
-            batch_losses, batch_dices, batch_ious, batch_clious = [], [], [], []
+class ExperimentPCNet(ExperimentPC):
+    def __init__(self, config):
+        config["model_name"] = config.get("model_name", "vanilla_pcnet")
+        super().__init__(config)
+        
+    def set_algorithm(self):
+        self.model = PCNet(
+            n_classes=self.config.get("n_classes", 2),
+            max_depth=self.config.get("max_depth", 4),
+            max_branching=self.config.get("max_branching", 3),
+            seed=self.config.get("seed", 42)
+        )
 
-            for ft_batch, t_batch in train_loader:
-                ft_batch = ft_batch.to(device)
-                t_batch = t_batch.to(device)
+class ExperimentRandomEnsemblePCNet(ExperimentPC):
+    def __init__(self, config):
+        config["model_name"] = config.get("model_name", "random_ensemble_pcnet")
+        self.n_models = config.get("n_models", 10)
+        super().__init__(config)
 
-                optimizer.zero_grad()
+    def set_algorithm(self):
+        self.model = RandomPCEnsemble(
+            n_models=self.n_models,
+            device=self.device,
+            n_classes=self.config.get("n_classes", 2),
+            max_depth=self.config.get("max_depth", 4),
+            max_branching=self.config.get("max_branching", 3),
+            seed=self.config.get("seed", 42)
+        )
+        
 
-                logits = model.evaluate(ft_batch)
-                # UNSUPERVISED loss
-                loss = self.criterion(logits, ft_batch)
-                loss.backward()
-                optimizer.step()
+class ExperimentHybridPCNet(ExperimentPC):
+    def __init__(self, config):
+        config["model_name"] = config.get("model_name", "hybrid_pcnet")
+        super().__init__(config)
+        self.refine_quantile = self.config.get("refine_quantile", 0.15)
+        self.forward_kwargs = {"refine_quantile": self.refine_quantile}
+        
+    def set_algorithm(self):
+        self.model = HybridPCNet(
+            in_channels=self.config.get("input_channels", 3),
+            spatial_mixtures=self.config.get("spatial_mixtures", 5),
+            spatial_depth=self.config.get("spatial_depth", 3),
+            max_depth=self.config.get("max_depth", 4),
+            channels_per_layer=self.config.get("channels_per_layer", 32)
+        )
+
+class ExperimentSpatialPCNetRandomEnsemble(ExperimentPC):
+    def __init__(self, config):
+        config["model_name"] = config.get("model_name", "spatial_pc_ensemble")
+        self.n_models = config.get("n_models", 10)
+        super().__init__(config)
+
+    def set_algorithm(self):
+        self.model = RandomSpatialPCEnsemble(
+            n_models=self.n_models,
+            device=self.device,
+            input_channels=self.config.get("input_channels", 3),
+            n_mixtures=self.config.get("n_mixtures", 10),
+            max_depth=self.max_depth,
+            channels_per_layer=self.config.get("channels_per_layer", 32)
+        )
+        
+class ExperimentHybridPCNetRandomEnsemble(ExperimentPC):
+    def __init__(self, config):
+        config["model_name"] = config.get("model_name", "hybrid_pc_ensemble")
+        self.n_models = config.get("n_models", 5)
+        self.refine_quantile = config.get("refine_quantile", 0.15)
+        self.forward_kwargs = {"refine_quantile": self.refine_quantile}
+        super().__init__(config)
+        
+    def set_algorithm(self):
+        self.model = RandomHybridPCEnsemble(
+            n_models=self.n_models,
+            device=self.device,
+            input_channels=self.config.get("input_channels", 3),
+            spatial_mixtures=self.config.get("spatial_mixtures", 5),
+            spatial_depth=self.config.get("spatial_depth", 3),
+            max_depth=self.config.get("max_depth", 4),
+            channels_per_layer=self.config.get("channels_per_layer", 32)
+        )
+
+class ExperimentDeepFeaturePCNet(ExperimentPC):
+    """
+    Experiment running Latent Density Estimation with DeepFeaturePCNet.
+    Uses a pretrained ResNet18 (frozen) as the spatial feature extractor.
+    """
+    def __init__(self, config):
+        self.device_str = config.get("device", "cpu")
+        self.target_device = torch.device(self.device_str)
+        super().__init__(config)
+        self.learning_rate = self.config.get("learning_rate", 1e-3)
+        
+    def set_algorithm(self):
+        # Initialize a basic frozen feature extractor
+        # Using a pretrained ResNet18, taking features from the backbone (layer2) to retain spatial dimensions
+        resnet = models.resnet18(pretrained=True)
+        # Sequence up to layer2 will output (B, 128, H/8, W/8)
+        feature_extractor = nn.Sequential(*list(resnet.children())[:6])
+        
+        self.model = DeepFeaturePCNet(
+            feature_extractor=feature_extractor,
+            spatial_mixtures=self.config.get("n_mixtures", 10),
+            spatial_depth=self.config.get("max_depth", 3),
+            channels_per_layer=self.config.get("channels_per_layer", 32)
+        )
+        self.model_name = "deep_feature_pcnet"
+        
+    def init_model(self):
+        print_info(f"🔨 Initializing DeepFeaturePCNet structure with input shape {self.X.shape}...")
+        self.model.init_network(self.X)
+
+    def show_predictions(self, model, dataset, device, num_samples=3, threshold=0.5):
+        """
+        Custom prediction visualization for DeepFeaturePCNet.
+        Handles spatial interpolation from the latent space back to ground-truth space.
+        """
+        print_info("🖼️ Saving DeepFeaturePCNet predictions grids...")
+        model.eval()
+        predictions_dir = os.path.join(self.log_path, "predictions")
+        os.makedirs(predictions_dir, exist_ok=True)
+
+        total_samples = len(dataset)
+        num_groups = total_samples // num_samples
+        max_pred = 15
+        for j in range(num_groups):
+            if j > max_pred:
+                print(f"Saved {max_pred} prediction grids.")
+                break
+            import matplotlib.pyplot as plt
+            fig, axes = plt.subplots(3, num_samples, figsize=(4 * num_samples, 9))
+
+            for i in range(num_samples):
+                idx = j * num_samples + i
+                if idx >= total_samples:
+                    for row in range(3): axes[row, i].axis("off")
+                    continue
+
+                img, gt = dataset[idx]
+                img = img.unsqueeze(0).to(device)
+                gt_np = gt.squeeze().cpu().numpy()
 
                 with torch.no_grad():
-                    pred_mask = torch.argmax(logits, 1, keepdim=True).float()
-                    print_debugging(pred_mask.unique(return_counts=True))
-                    true_mask = t_batch.unsqueeze(1).float()
+                    pred_log_prob = model(img).cpu()
+                    
+                # Up-interpolate latent probability map
+                if pred_log_prob.shape[-2:] != gt.shape[-2:]:
+                    pred_log_prob = torch.nn.functional.interpolate(pred_log_prob, size=gt.shape[-2:], mode='bilinear', align_corners=False)
+                    
+                pred = pred_log_prob.squeeze()
+                anomaly_map = -pred
+                
+                # Normalize inside batch [0, 1]
+                amin, amax = anomaly_map.min(), anomaly_map.max()
+                prob = ((anomaly_map - amin) / (amax - amin + 1e-8)).numpy()
+                pred_mask = (prob > threshold).astype("uint8")
 
-                    dice_score = self.dice_coef(logits, t_batch)
-                    iou_score = self.iou_score(logits, t_batch)
-                    cl_iou_score = self.cl_iou_score(pred_mask, true_mask)
+                img_np = img.squeeze().permute(1, 2, 0).cpu().numpy()
+                axes[0, i].imshow(img_np)
+                axes[0, i].set_title(f"Input {idx}")
+                axes[0, i].axis("off")
+                axes[1, i].imshow(gt_np, cmap="gray")
+                axes[1, i].set_title(f"Ground Truth {idx}")
+                axes[1, i].axis("off")
+                axes[2, i].imshow(pred_mask, cmap="cool")
+                axes[2, i].set_title(f"Prediction {idx}")
+                axes[2, i].axis("off")
+            plt.savefig(os.path.join(predictions_dir, f"predictions_grid_{j}.png"), bbox_inches="tight")
+            plt.close(fig)
 
-                batch_losses.append(loss.item())
-                batch_dices.append(float(dice_score))
-                batch_ious.append(float(iou_score))
-                batch_clious.append(float(cl_iou_score))
-
-            epoch_loss = np.mean(batch_losses)
-            epoch_dice = np.mean(batch_dices)
-            epoch_iou = np.mean(batch_ious)
-            epoch_cl_iou = np.mean(batch_clious)
-
-            train_losses.append(epoch_loss)
-            train_dices.append(epoch_dice)
-            train_ious.append(epoch_iou)
-            train_clious.append(epoch_cl_iou)
-
-            print_info(f"Epoch {epoch+1}: Loss={epoch_loss:.4f}, Dice={epoch_dice:.4f}")
-
-            if val_loader is not None:
-                val_loss, val_dice, val_iou, val_cl_iou = self.evaluate(model, val_loader)
-                val_losses.append(val_loss)
-                val_dices.append(val_dice)
-                val_ious.append(val_iou)
-                val_clious.append(val_cl_iou)
-
-                print_info(f"Validation Loss={val_loss:.4f}, Dice={val_dice:.4f}")
-
-            pbar.set_postfix({"loss": epoch_loss})
-
-        # Save CSV logs, plots, etc. (unchanged)
-        # super()._finalize_training_logs(
-        #     train_losses, train_dices, train_ious, train_clious,
-        #     val_losses, val_dices, val_ious, val_clious, gates_over_epochs
-        # )
-
-        print_info("✅ Training complete.")
-        return model
-    
-    @torch.no_grad()
-    def evaluate(self, model, dataloader):
-        losses, dices, ious, clious = [], [], [], []
-
-        for ft_batch, t_batch in dataloader:
-            ft_batch = ft_batch.to(self.device).float()    # PCNet expects float features
-            t_batch = t_batch.to(self.device).long()       # masks for metrics only
-
-            # -------------------------------------------------------
-            # Forward pass (PCNet requires evaluate(), not model(x))
-            # -------------------------------------------------------
-            logits = model.evaluate(ft_batch)   # (B, C, H, W) in log-space
-
-            # -------------------------------------------------------
-            # Unsupervised loss uses **features**, NOT labels
-            # -------------------------------------------------------
-            loss = self.criterion(logits, ft_batch)
-            losses.append(loss.item())
-
-            # -------------------------------------------------------
-            # Supervised metrics for monitoring only
-            # -------------------------------------------------------
-            dice_score = self.dice_coef(logits, t_batch)
-            iou_score  = self.iou_score(logits, t_batch)
-
-            pred_mask = torch.argmax(logits, dim=1, keepdim=True).float()
-            true_mask = t_batch.unsqueeze(1).float()
-
-            cl_iou_score = self.cl_iou_score(pred_mask, true_mask)
-
-            dices.append(float(dice_score))
-            ious.append(float(iou_score))
-            clious.append(float(cl_iou_score))
-
-        return (
-            float(np.mean(losses)),
-            float(np.mean(dices)),
-            float(np.mean(ious)),
-            float(np.mean(clious)),
+class ExperimentDeepFeaturePCNetRandomEnsemble(ExperimentPC):
+    """
+    Experiment running Latent Density Estimation with RandomDeepFeaturePCEnsemble.
+    """
+    def __init__(self, config):
+        self.n_models = config.get("n_models", 10)
+        self.device_str = config.get("device", "cpu")
+        self.target_device = torch.device(self.device_str)
+        super().__init__(config)
+        
+        # DeepFeaturePCNet receives unnormalized latent tensor features; applying a slower stable LR
+        self.learning_rate = self.config.get("learning_rate", 1e-3)
+        
+    def set_algorithm(self):
+        # Freeze a feature extractor
+        resnet = models.resnet18(pretrained=True)
+        feature_extractor = nn.Sequential(*list(resnet.children())[:6])
+        
+        # Initialize the ensemble wrapper
+        self.model = RandomDeepFeaturePCEnsemble(
+            feature_extractor=feature_extractor,
+            n_models=self.n_models,
+            device=self.device_str,
+            n_mixtures=self.config.get("n_mixtures", 10),
+            max_depth=self.config.get("max_depth", 3),
+            channels_per_layer=self.config.get("channels_per_layer", 32)
         )
+        self.model_name = "deep_feature_pc_ensemble"
+
+    def init_model(self):
+        print_info(f"🔨 Initializing DeepFeaturePCNet Ensemble structure on {self.device_str}...")
+        self.model.init_network(self.X)
+
+    def show_predictions(self, model, dataset, device, num_samples=3, threshold=0.5):
+        """
+        Custom prediction visualization for DeepFeaturePCNet Ensemble.
+        Handles spatial interpolation from the latent space back to ground-truth space.
+        """
+        print_info("🖼️ Saving DeepFeaturePCNet Ensemble predictions grids...")
+        model.eval()
+        predictions_dir = os.path.join(self.log_path, "predictions")
+        os.makedirs(predictions_dir, exist_ok=True)
+
+        total_samples = len(dataset)
+        num_groups = total_samples // num_samples
+        max_pred = 15
+        for j in range(num_groups):
+            if j > max_pred:
+                break
+            import matplotlib.pyplot as plt
+            fig, axes = plt.subplots(3, num_samples, figsize=(4 * num_samples, 9))
+
+            for i in range(num_samples):
+                idx = j * num_samples + i
+                if idx >= total_samples:
+                    for row in range(3): axes[row, i].axis("off")
+                    continue
+
+                img, gt = dataset[idx]
+                img = img.unsqueeze(0).to(device)
+                gt_np = gt.squeeze().cpu().numpy()
+
+                with torch.no_grad():
+                    pred_log_prob = model(img).cpu()
+                    
+                if pred_log_prob.shape[-2:] != gt.shape[-2:]:
+                    pred_log_prob = torch.nn.functional.interpolate(pred_log_prob, size=gt.shape[-2:], mode='bilinear', align_corners=False)
+                    
+                pred = pred_log_prob.squeeze()
+                anomaly_map = -pred
+                amin, amax = anomaly_map.min(), anomaly_map.max()
+                prob = ((anomaly_map - amin) / (amax - amin + 1e-8)).numpy()
+                pred_mask = (prob > threshold).astype("uint8")
+
+                img_np = img.squeeze().permute(1, 2, 0).cpu().numpy()
+                axes[0, i].imshow(img_np)
+                axes[0, i].axis("off")
+                axes[1, i].imshow(gt_np, cmap="gray")
+                axes[1, i].axis("off")
+                axes[2, i].imshow(pred_mask, cmap="cool")
+                axes[2, i].axis("off")
+            plt.savefig(os.path.join(predictions_dir, f"predictions_grid_{j}.png"), bbox_inches="tight")
+            plt.close(fig)
+
+
+class ExperimentAdversarialPCNet(ExperimentPC):
+    """
+    Experiment running PCNet as a GAN Critic against an Unconditional Generator.
+    """
+    def __init__(self, config):
+        self.device_str = config.get("device", "cpu")
+        self.target_device = torch.device(self.device_str)
+        self.latent_dim = config.get("latent_dim", 100)
+        self.learning_rate_g = config.get("learning_rate_g", 1e-4)
+        self.learning_rate_d = config.get("learning_rate_d", 1e-4)
+        super().__init__(config)
+        
+    def set_algorithm(self):
+        # PCNet Critic
+        self.model = RobustSpatialPCNet(
+            in_channels=self.config.get("input_channels", 3),
+            depth=self.config.get("max_depth", 5),
+            channels_per_layer=self.config.get("channels_per_layer", 32)
+        )
+        self.model_name = "adversarial_pcnet"
+        
+        # Generator
+        from networks import DCGANGenerator
+        self.generator = DCGANGenerator(
+            latent_dim=self.latent_dim,
+            out_channels=self.config.get("input_channels", 3),
+            ngf=64
+        ).to(self.target_device)
+        from networks import init_weights
+        self.generator.apply(init_weights)
+        
+    def init_model(self):
+        print_info(f"🔨 Initializing Adversarial PCNet structure with input shape {self.X.shape}...")
+        self.model.init_network(self.X)
+        self.model = self.model.to(self.target_device)
+
+    def train(self):
+        print_info(f"⚙️ Starting Adversarial Training for {self.epochs} epochs...")
+        import torch.optim as optim
+        
+        optimizer_G = optim.Adam(self.generator.parameters(), lr=self.learning_rate_g, betas=(0.5, 0.999))
+        optimizer_D = None
+        
+        self.model.train()
+        self.generator.train()
+        self.train_loader = self.get_dataloaders(self.train_data, batch_size=self.batch_size)
+        
+        for epoch in range(self.epochs):
+            epoch_loss_d = 0.0
+            epoch_loss_g = 0.0
+            batch_count = 0
+            
+            for i, batch in enumerate(self.train_loader):
+                x_real = batch[0] if isinstance(batch, (list, tuple)) else batch
+                x_real = x_real.to(self.target_device)
+                
+                # Dynamic Initialization
+                if not self.is_initialized:
+                    self.X = x_real
+                    self.init_model()
+                    optimizer_D = optim.Adam(self.model.parameters(), lr=self.learning_rate_d)
+                    self.is_initialized = True
+                    
+                if optimizer_D is None:
+                    continue
+
+                B = x_real.size(0)
+                
+                # -------------------
+                # 1. Train Critic (D)
+                # -------------------
+                optimizer_D.zero_grad()
+                
+                # Real Log-Likelihood
+                log_prob_real = self.model(x_real)
+                
+                # Fake Log-Likelihood
+                z = torch.randn(B, self.latent_dim, 1, 1, device=self.target_device)
+                x_fake = self.generator(z)
+                log_prob_fake = self.model(x_fake.detach())
+                
+                # Loss = -(mean(log P(real)) - mean(log P(fake)))
+                # Prevent pure -inf
+                loss_D = -torch.mean(log_prob_real) + torch.mean(log_prob_fake)
+                
+                loss_D.backward()
+                torch.nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=5.0)
+                optimizer_D.step()
+
+                # ---------------------
+                # 2. Train Generator (G)
+                # ---------------------
+                optimizer_G.zero_grad()
+                
+                z = torch.randn(B, self.latent_dim, 1, 1, device=self.target_device)
+                x_fake = self.generator(z)
+                log_prob_fake_for_G = self.model(x_fake)
+                
+                # Maximize fake log_prob => minimize -fake log_prob
+                loss_G = -torch.mean(log_prob_fake_for_G)
+                
+                loss_G.backward()
+                optimizer_G.step()
+                
+                epoch_loss_d += loss_D.item()
+                epoch_loss_g += loss_G.item()
+                batch_count += 1
+                
+            avg_loss_d = epoch_loss_d / max(1, batch_count)
+            avg_loss_g = epoch_loss_g / max(1, batch_count)
+            print_info(f"Epoch [{epoch+1}/{self.epochs}] | D Loss: {avg_loss_d:.4f} | G Loss: {avg_loss_g:.4f}")
+
+        # Save models
+        self.save_model()
+        torch.save({
+            'generator_state_dict': self.generator.state_dict(),
+            'optimizer_G_state_dict': optimizer_G.state_dict(),
+        }, os.path.join(self.log_path, f"{self.model_name}_generator.pkl"))
+
+    def show_predictions(self, model, dataset, device, num_samples=3, threshold=0.5):
+        import matplotlib.pyplot as plt
+        self.generator.eval()
+        fig, axes = plt.subplots(1, num_samples, figsize=(4 * num_samples, 4))
+        
+        # In case we only do 1 sample, we wrap axes in a list
+        if num_samples == 1:
+            axes = [axes]
+            
+        with torch.no_grad():
+            z = torch.randn(num_samples, self.latent_dim, 1, 1, device=self.target_device)
+            fakes = self.generator(z).cpu().numpy()
+            
+            for i in range(num_samples):
+                # fakes are Tanh [-1, 1], convert to [0, 1] for imshow
+                fake_img = (fakes[i].transpose(1, 2, 0) * 0.5) + 0.5
+                axes[i].imshow(fake_img)
+                axes[i].set_title(f"Generated {i}")
+                axes[i].axis("off")
+                
+        predictions_dir = os.path.join(self.log_path, "predictions")
+        os.makedirs(predictions_dir, exist_ok=True)
+        plt.savefig(os.path.join(predictions_dir, "generated_samples.png"), bbox_inches="tight")
+        plt.close(fig)
+
+
+class ExperimentAutoencoderPCPrior(ExperimentPC):
+    """
+    Experiment running an Autoencoder (UNet) trained with MSE + NLL Prior from a Frozen DeepFeaturePCNet.
+    """
+    def __init__(self, config):
+        self.device_str = config.get("device", "cpu")
+        self.target_device = torch.device(self.device_str)
+        super().__init__(config)
+        self.lambda_pc = self.config.get("lambda_pc", 0.05)
+        self.learning_rate_ae = self.config.get("learning_rate_ae", 1e-4)
+        
+    def set_algorithm(self):
+        # PCNet Prior components
+        resnet = models.resnet18(pretrained=True)
+        self.feature_extractor = nn.Sequential(*list(resnet.children())[:6]).to(self.target_device)
+        
+        # Dynamically determine the out_channels and safe depth of the feature extractor
+        dummy_x = torch.zeros(1, self.config.get("input_channels", 3), 128, 128).to(self.target_device)
+        with torch.no_grad():
+            dummy_z = self.feature_extractor(dummy_x)
+            
+        import math
+        spatial_H, spatial_W = dummy_z.shape[2], dummy_z.shape[3]
+        safe_depth = int(math.log2(min(spatial_H, spatial_W)))
+        requested_depth = self.config.get("max_depth", 3)
+        actual_depth = min(requested_depth, safe_depth)
+            
+        self.pc_prior = RobustSpatialPCNet(
+            in_channels=dummy_z.shape[1],
+            depth=actual_depth,
+            channels_per_layer=self.config.get("channels_per_layer", 32)
+        ).to(self.target_device)
+        self.model_name = "autoencoder_pc_prior"
+        
+        # Autoencoder
+        from networks import define_G
+        self.autoencoder = define_G(
+            input_nc=self.config.get("input_channels", 3),
+            output_nc=self.config.get("input_channels", 3),
+            ngf=64, 
+            netG='unet_128', 
+            norm='batch', 
+            init_type='normal', 
+            gpu_ids=[self.target_device.index] if self.target_device.type == 'cuda' else []
+        ).to(self.target_device)
+        
+    def init_model(self):
+        print_info(f"🔨 Initializing PCNet Prior structure and statistics with {self.X.shape[0]} normal samples...")
+        with torch.no_grad():
+            z = self.feature_extractor(self.X)
+            self.pc_prior.init_network(z)
+            self.pc_prior = self.pc_prior.to(self.target_device)
+        
+        # Freeze the Prior
+        for param in self.feature_extractor.parameters():
+            param.requires_grad = False
+        for param in self.pc_prior.parameters():
+            param.requires_grad = False
+            
+        self.feature_extractor.eval()
+        self.pc_prior.eval()
+
+    def train(self):
+        print_info(f"⚙️ Starting Autoencoder Training with PCNet Prior for {self.epochs} epochs...")
+        import torch.optim as optim
+        import torch.nn.functional as F
+        
+        optimizer = optim.Adam(self.autoencoder.parameters(), lr=self.learning_rate_ae)
+        
+        self.train_loader = self.get_dataloaders(self.train_data, batch_size=self.batch_size)
+        
+        for epoch in range(self.epochs):
+            epoch_loss = 0.0
+            epoch_mse = 0.0
+            epoch_nll = 0.0
+            batch_count = 0
+            
+            for i, batch in enumerate(self.train_loader):
+                x_real = batch[0] if isinstance(batch, (list, tuple)) else batch
+                x_real = x_real.to(self.target_device)
+                
+                # Dynamic Initialization
+                if not self.is_initialized:
+                    self.X = x_real
+                    self.init_model()
+                    self.is_initialized = True
+
+                self.autoencoder.train()
+                optimizer.zero_grad()
+                
+                # 1. Reconstruct images
+                x_hat = self.autoencoder(x_real)
+                
+                # 2. MSE Loss
+                mse_loss = F.mse_loss(x_hat, x_real)
+                
+                # 3. PCNet Prior Loss
+                # We need to extract features then evaluate density
+                z_hat = self.feature_extractor(x_hat)
+                log_prob = self.pc_prior(z_hat)
+                nll_loss = -torch.mean(log_prob)
+                
+                # 4. Total Loss
+                total_loss = mse_loss + (self.lambda_pc * nll_loss)
+                
+                total_loss.backward()
+                torch.nn.utils.clip_grad_norm_(self.autoencoder.parameters(), max_norm=5.0)
+                optimizer.step()
+                
+                epoch_loss += total_loss.item()
+                epoch_mse += mse_loss.item()
+                epoch_nll += nll_loss.item()
+                batch_count += 1
+                
+            avg_loss = epoch_loss / max(1, batch_count)
+            avg_mse = epoch_mse / max(1, batch_count)
+            avg_nll = epoch_nll / max(1, batch_count)
+            print_info(f"Epoch [{epoch+1}/{self.epochs}] | Total Loss: {avg_loss:.4f} | MSE: {avg_mse:.4f} | NLL: {avg_nll:.4f}")
+
+        self.save_model()
+        torch.save(self.autoencoder.state_dict(), os.path.join(self.log_path, f"{self.model_name}_autoencoder.pkl"))
+
+    def show_prediction(self, model=None, dataset=None, device=None, num_samples=3, threshold=0.5):
+        if dataset is None: dataset = self.test_data
+        if device is None: device = self.target_device
+        if dataset is None or len(dataset) == 0: return
+
+        import matplotlib.pyplot as plt
+        self.autoencoder.eval()
+        self.feature_extractor.eval()
+        self.pc_prior.eval()
+        
+        predictions_dir = os.path.join(self.log_path, "predictions")
+        os.makedirs(predictions_dir, exist_ok=True)
+
+        total_samples = len(dataset)
+        num_groups = total_samples // num_samples
+        if num_groups == 0 and total_samples > 0:
+            num_groups = 1
+            num_samples = total_samples
+        max_pred = 15
+        
+        for j in range(num_groups):
+            if j > max_pred:
+                break
+            fig, axes = plt.subplots(4, num_samples, figsize=(4 * num_samples, 12))
+            
+            for i in range(num_samples):
+                idx = j * num_samples + i
+                if idx >= total_samples:
+                    for row in range(4): axes[row, i].axis("off")
+                    continue
+
+                img, gt = dataset[idx]
+                img = img.unsqueeze(0).to(device)
+                gt_np = gt.squeeze().cpu().numpy()
+
+                with torch.no_grad():
+                    reconstructed = self.autoencoder(img)
+                    z_hat = self.feature_extractor(reconstructed)
+                    pred_log_prob = self.pc_prior(z_hat).cpu()
+                    
+                if pred_log_prob.shape[-2:] != gt.shape[-2:]:
+                    pred_log_prob = torch.nn.functional.interpolate(pred_log_prob, size=gt.shape[-2:], mode='bilinear', align_corners=False)
+                    
+                pred = pred_log_prob.squeeze()
+                anomaly_map = -pred
+                amin, amax = anomaly_map.min(), anomaly_map.max()
+                prob = ((anomaly_map - amin) / (amax - amin + 1e-8)).numpy()
+                pred_mask = (prob > threshold).astype("uint8")
+
+                img_np = img.squeeze().permute(1, 2, 0).cpu().numpy()
+                rec_np = reconstructed.squeeze().permute(1, 2, 0).cpu().numpy()
+                
+                # Denormalize autoencoder tanh output to [0,1] for display if needed
+                # Assuming images are already reasonably scaled or autoencoder outputs same scale.
+                # If images were min-max scaled, the AE output is too.
+
+                axes[0, i].imshow(img_np)
+                axes[0, i].set_title(f"Input {idx}")
+                axes[0, i].axis("off")
+                
+                axes[1, i].imshow(rec_np)
+                axes[1, i].set_title(f"Reconstructed {idx}")
+                axes[1, i].axis("off")
+                
+                axes[2, i].imshow(gt_np, cmap="gray")
+                axes[2, i].set_title(f"Ground Truth {idx}")
+                axes[2, i].axis("off")
+                
+                axes[3, i].imshow(pred_mask, cmap="cool")
+                axes[3, i].set_title(f"Prior Anomaly Map {idx}")
+                axes[3, i].axis("off")
+                
+            plt.savefig(os.path.join(predictions_dir, f"predictions_grid_{j}.png"), bbox_inches="tight")
+            plt.close(fig)
 
     @torch.no_grad()
     def test(self, model, dataloader):
-        losses, dices, ious, clious = [], [], [], []
+        self.autoencoder.eval()
+        self.feature_extractor.eval()
+        self.pc_prior.eval()
+        
+        # Metric Lists
+        losses, msels, nllls = [], [], []
+        dices, ious, clious = [], [], []
         accuracies, precisions, recalls, f1_scores = [], [], [], []
+        
+        print_info("🧪 Starting Evaluation for Autoencoder PC Prior...")
+        
+        for batch in dataloader:
+            if isinstance(batch, (list, tuple)):
+                images, masks = batch[0], batch[1]
+            else:
+                continue
 
-        for ft_batch, t_batch in dataloader:
-            ft_batch = ft_batch.to(self.device).float()   # features for loss
-            t_batch = t_batch.to(self.device).long()      # masks for metrics
+            images = images.to(self.target_device)
+            masks = masks.to(self.target_device)
 
-            # ---------------------------------------------------------
-            # Forward pass
-            # ---------------------------------------------------------
-            logits = model.evaluate(ft_batch)
+            reconstructed = self.autoencoder(images)
+            
+            # Loss: MSE + Prior NLL
+            import torch.nn.functional as F
+            mse_loss = F.mse_loss(reconstructed, images)
+            
+            z_hat = self.feature_extractor(reconstructed)
+            log_prob = self.pc_prior(z_hat)
+            nll_loss = -torch.mean(log_prob)
+            loss = mse_loss + (self.lambda_pc * nll_loss)
 
-            # ---------------------------------------------------------
-            # UNSUPERVISED LOSS (depends ONLY on images)
-            # ---------------------------------------------------------
-            loss = self.criterion(logits, ft_batch)
-            losses.append(loss.item())
+            anomaly_map = -log_prob
+            if anomaly_map.dim() == 4 and anomaly_map.shape[1] > 1:
+                anomaly_map = anomaly_map.mean(dim=1, keepdim=True)
+                
+            if anomaly_map.shape[-2:] != masks.shape[-2:]:
+                anomaly_map = F.interpolate(anomaly_map, size=masks.shape[-2:], mode='bilinear', align_corners=False)
+            
+            B = anomaly_map.shape[0]
+            flat = anomaly_map.view(B, -1)
+            mins = flat.min(dim=1, keepdim=True)[0].view(B, 1, 1, 1)
+            maxs = flat.max(dim=1, keepdim=True)[0].view(B, 1, 1, 1)
+            probs = (anomaly_map - mins) / (maxs - mins + 1e-8)
+            
+            pred_mask = (probs > self.threshold).float()
+            true_mask = masks.float()
+            
+            if pred_mask.shape[-2:] != true_mask.shape[-2:]:
+                pred_mask = F.interpolate(pred_mask, size=true_mask.shape[-2:], mode='nearest')
+                
+            if pred_mask.shape != true_mask.shape:
+                if pred_mask.shape[1] == 1: pred_mask = pred_mask.squeeze(1)
+                if true_mask.ndim == 4 and true_mask.shape[1] == 1: true_mask = true_mask.squeeze(1)
 
-            # ---------------------------------------------------------
-            # SUPERVISED METRICS (compare vs. masks)
-            # ---------------------------------------------------------
-            dice_score = self.dice_coef(logits, t_batch)
-            iou_score = self.iou_score(logits, t_batch)
+            dice = self.dice_coef(pred_mask, true_mask)
+            iou = self.iou_score(pred_mask, true_mask)
+            cl_iou = self.cl_iou_score(pred_mask, true_mask)
 
-            pred_mask = torch.argmax(logits, dim=1, keepdim=True).float()
-            true_mask = t_batch.unsqueeze(1).float()
-
-            cl_iou_score = self.cl_iou_score(pred_mask, true_mask)
-
-            dices.append(float(dice_score))
-            ious.append(float(iou_score))
-            clious.append(float(cl_iou_score))
-
-            # ---------------------------------------------------------
-            # Classification metrics per pixel
-            # ---------------------------------------------------------
-            pm = pred_mask.view(-1).long()
-            tm = true_mask.view(-1).long()
-
-            tp = ((pm == 1) & (tm == 1)).sum()
-            fp = ((pm == 1) & (tm == 0)).sum()
-            fn = ((pm == 0) & (tm == 1)).sum()
-            tn = ((pm == 0) & (tm == 0)).sum()
+            pm = pred_mask.contiguous().view(-1).long()
+            tm = true_mask.contiguous().view(-1).long()
+            tp = ((pm == 1) & (tm == 1)).sum().float()
+            fp = ((pm == 1) & (tm == 0)).sum().float()
+            fn = ((pm == 0) & (tm == 1)).sum().float()
+            tn = ((pm == 0) & (tm == 0)).sum().float()
 
             accuracy = (tp + tn) / (tp + tn + fp + fn + 1e-8)
             precision = tp / (tp + fp + 1e-8)
             recall = tp / (tp + fn + 1e-8)
-            f1_score = (2 * precision * recall) / (precision + recall + 1e-8)
+            f1_score = 2 * precision * recall / (precision + recall + 1e-8)
 
-            accuracies.append(float(accuracy))
-            precisions.append(float(precision))
-            recalls.append(float(recall))
-            f1_scores.append(float(f1_score))
-
-        # ---------------------------------------------------------
-        # Aggregate results
-        # ---------------------------------------------------------
-        mean_loss = float(np.mean(losses))
-        mean_dice = float(np.mean(dices))
-        mean_iou = float(np.mean(ious))
-        mean_cl_iou = float(np.mean(clious))
-        mean_acc = float(np.mean(accuracies))
-        mean_prec = float(np.mean(precisions))
-        mean_rec = float(np.mean(recalls))
-        mean_f1 = float(np.mean(f1_scores))
-
-        # ---------------------------------------------------------
-        # Print nicely
-        # ---------------------------------------------------------
-        print_info("✅ Testing complete.")
-        print_info(
-            f"Test Loss: {mean_loss:.4f}, Dice: {mean_dice:.4f}, IoU: {mean_iou:.4f}, "
-            f"CL-IoU: {mean_cl_iou:.4f}"
-        )
-        print_info(
-            f"Test Accuracy: {mean_acc:.4f}, Precision: {mean_prec:.4f}, "
-            f"Recall: {mean_rec:.4f}, F1-Score: {mean_f1:.4f}"
-        )
-
-        # ---------------------------------------------------------
-        # Save to experiment_dict
-        # ---------------------------------------------------------
-        self.experiment_dict["results"] = {
-            "test_loss": mean_loss,
-            "test_dice": mean_dice,
-            "test_iou": mean_iou,
-            "test_cl_iou": mean_cl_iou,
-            "test_accuracy": mean_acc,
-            "test_precision": mean_prec,
-            "test_recall": mean_rec,
-            "test_f1_score": mean_f1,
+            losses.append(loss.item())
+            msels.append(mse_loss.item())
+            nllls.append(nll_loss.item())
+            dices.append(dice.item())
+            ious.append(iou.item())
+            clious.append(cl_iou.item())
+            
+            accuracies.append(accuracy.item())
+            precisions.append(precision.item())
+            recalls.append(recall.item())
+            f1_scores.append(f1_score.item())
+        results = {
+            "test_loss": np.mean(losses),
+            "test_mse": np.mean(msels),
+            "test_nll": np.mean(nllls),
+            "test_dice": np.mean(dices),
+            "test_iou": np.mean(ious),
+            "test_cl_iou": np.mean(clious),
+            "test_accuracy": np.mean(accuracies),
+            "test_precision": np.mean(precisions),
+            "test_recall": np.mean(recalls),
+            "test_f1_score": np.mean(f1_scores)
         }
+        print_info("✅ Testing complete.")
+        print_info(f"Test Loss: {results['test_loss']:.4f} (MSE: {results['test_mse']:.4f}, NLL: {results['test_nll']:.4f})")
+        print_info(f"Test Dice: {results['test_dice']:.4f}, IoU: {results['test_iou']:.4f}, CL IoU: {results['test_cl_iou']:.4f}")
+        print_info(f"Test Accuracy: {results['test_accuracy']:.4f}, Precision: {results['test_precision']:.4f}, Recall: {results['test_recall']:.4f}, F1-Score: {results['test_f1_score']:.4f}")
 
-        # ---------------------------------------------------------
-        # Also save #params info
-        # ---------------------------------------------------------
-        n_trainable_params = sum(
-            p.numel() for p in model.params if p.requires_grad
-        )
-        self.experiment_dict["n_trainable_params"] = n_trainable_params
-
-        # ---------------------------------------------------------
-        # Log to file
-        # ---------------------------------------------------------
+        self.experiment_dict["results"] = results
+        
         with open(self.experiment_report, "a") as f:
-            f.write(
-                f"Test Loss: {mean_loss:.4f}, Dice: {mean_dice:.4f}, IoU: {mean_iou:.4f}, "
-                f"CL-IoU: {mean_cl_iou:.4f}\n"
-            )
-            f.write(
-                f"Accuracy: {mean_acc:.4f}, Precision: {mean_prec:.4f}, "
-                f"Recall: {mean_rec:.4f}, F1: {mean_f1:.4f}\n"
-            )
+            f.write(f"Test Loss: {results['test_loss']:.4f}, Dice: {results['test_dice']:.4f}, IoU: {results['test_iou']:.4f}, CL IoU: {results['test_cl_iou']:.4f}\n")
+            f.write(f"Test Accuracy: {results['test_accuracy']:.4f}, Precision: {results['test_precision']:.4f}, Recall: {results['test_recall']:.4f}, F1-Score: {results['test_f1_score']:.4f}\n")
 
-        return mean_loss, mean_dice, mean_iou, mean_cl_iou
+        return float(np.mean(losses)), float(np.mean(dices)), float(np.mean(ious)), float(np.mean(clious))
 
 
+class ExperimentAttentionalPCNet(ExperimentPC):
+    def __init__(self, config):
+        config["model_name"] = config.get("model_name", "attentional_pcnet")
+        super().__init__(config)
+        
+    def set_algorithm(self):
+        from probabilistic_circuits.probabilistic_circuits import AttentionalPCNet
+        self.model = AttentionalPCNet(
+            in_channels=self.config.get("input_channels", 3),
+            n_classes=self.config.get("n_classes", 2),
+            max_depth=self.config.get("max_depth", 4),
+            max_branching=self.config.get("max_branching", 3),
+            seed=self.config.get("seed", 42),
+            embed_dim=self.config.get("embed_dim", 32)
+        )
 
-    # --------------------------------------------------------
-    # RUN PIPELINE
-    # --------------------------------------------------------
-    def run(self):
-
-        # Load training/validation/test sets
-        self.set_dataset(self.data_path, self.test_path)
-
-        if self.execution_mode == "train":
-            self.set_algorithm()
-            self.set_criterion()
-
-            # ------------------------------
-            # GE SEARCH DATASET
-            # ------------------------------
-            ge_train_size = int(self.ge_config["train_split"] * len(self.train_data))
-            print_info(f"GE Training size: {ge_train_size}")
-
-            ge_data = []
-            for i in range(ge_train_size):
-                x, _ = self.train_data[i]       # ignore masks
-                ge_data.append(x)
-
-            ge_X_train = torch.from_numpy(np.array(ge_data)).float().to(self.device)
-
-            # ------------------------------
-            # RUN GE EVOLUTION (UNSUPERVISED)
-            # ------------------------------
-            best_pc, best_genome, history = self.ge.evolve(
-                ge_X_train,
-                criterion=self.criterion,
-                generations=self.ge_config["generations"],
-                n_classes=self.n_classes,
-                train_steps=50,
-                lr=self.learning_rate,
-            )
-
-            print_info("Best genome:", best_genome)
-            print_info("Best PC:", str(best_pc))
-
-            self.experiment_dict["ge"] = {
-                "best_genome": best_genome,
-                "history": history
-            }
-
-            self.model = best_pc
-
-            # ------------------------------
-            # FULL TRAIN DATASET FOR PCNet TRAINING
-            # ------------------------------
-            train_data = [x for (x, y) in self.train_data]
-            train_masks = [y for (x, y) in self.train_data]
-
-            self.feature_tensor = np.array(train_data)
-            self.train_masks = np.array(train_masks)
-
-            val_data = [x for (x, y) in self.val_data]
-            val_masks = [y for (x, y) in self.val_data]
-
-            self.val_feature_tensor = np.array(val_data)
-            self.val_masks = np.array(val_masks)
-
-            # DO NOT PASS LABELS TO CRITERION ANYMORE
-            self.set_criterion()
-
-            # ------------------------------
-            # TRAIN FINAL PCNet
-            # ------------------------------
-            self.model = self.train(self.model, epochs=self.epochs, lr=self.learning_rate)
-
-            # Save
-            self.save_model("pcnet-ge")
-
-            # ------------------------------
-            # TEST
-            # ------------------------------
-            if self.test_path is not None:
-                test_data = [x for (x, y) in self.test_data]
-                test_masks = [y for (x, y) in self.test_data]
-
-                self.test_inputs = torch.from_numpy(np.array(test_data)).float().to(self.device)
-                self.test_ground_truth = torch.from_numpy(np.array(test_masks)).long().to(self.device)
-
-                if self.test_ground_truth.dim() == 4 and self.test_ground_truth.size(1) == 1:
-                    self.test_ground_truth = self.test_ground_truth.squeeze(1)
-
-                test_loader = self.get_dataloaders(
-                    TensorDataset(self.test_inputs, self.test_ground_truth),
-                    shuffle=False, batch_size=self.batch_size
-                )
-
-                loss, dice, iou, cl_iou = self.test(self.model, test_loader)
-
-                json.dump(
-                    self.experiment_dict,
-                    open(os.path.join(self.config["log_dir"], "experiment.json"), "w"),
-                    indent=4
-                )
-
-                self.show_prediction(self.model)
-
-        # --------------------------------------------------------
-        # TEST MODE
-        # --------------------------------------------------------
-        elif self.execution_mode == "test":
-            self.load_model(self.config["model_path"])
-
-            test_data = [x for (x, y) in self.test_data]
-            test_masks = [y for (x, y) in self.test_data]
-
-            self.test_inputs = torch.from_numpy(np.array(test_data)).float().to(self.device)
-            self.test_ground_truth = torch.from_numpy(np.array(test_masks)).long().to(self.device)
-
-            if self.test_ground_truth.dim() == 4 and self.test_ground_truth.size(1) == 1:
-                self.test_ground_truth = self.test_ground_truth.squeeze(1)
-
-            self.set_criterion()
-
-            test_loader = self.get_dataloaders(
-                TensorDataset(self.test_inputs, self.test_ground_truth),
-                shuffle=False, batch_size=self.batch_size,
-            )
-
-            loss, dice, iou, cl_iou = self.test(self.model, test_loader)
-
-            json.dump(
-                self.experiment_dict,
-                open(os.path.join(self.config["log_dir"], "experiment.json"), "w"),
-                indent=4
-            )
+class ExperimentAttentionalPCNetRandomEnsemble(ExperimentPC):
+    def __init__(self, config):
+        config["model_name"] = config.get("model_name", "attentional_pcnet_random_ensemble")
+        super().__init__(config)
+        
+    def set_algorithm(self):
+        from probabilistic_circuits.probabilistic_circuits import RandomEnsembleAttentionalPCNet
+        self.model = RandomEnsembleAttentionalPCNet(
+            n_models=self.config.get("n_models", 5),
+            device=self.device,
+            input_channels=self.config.get("input_channels", 3),
+            n_classes=self.config.get("n_classes", 2),
+            max_depth=self.config.get("max_depth", 4),
+            max_branching=self.config.get("max_branching", 3),
+            seed=self.config.get("seed", 42),
+            embed_dim=self.config.get("embed_dim", 32),
+            ensemble_mode=self.config.get("ensemble_mode", "diversity"),
+            diversity_weight=self.config.get("diversity_weight", 1.0)
+        )

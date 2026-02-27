@@ -1,1293 +1,1017 @@
-# ============================================================
-# Imports
-# ============================================================
-import random
-from abc import ABC, abstractmethod
-import os
-
-import cv2
-import matplotlib.pyplot as plt
-import networkx as nx
-import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-import tqdm
-from scipy.stats import norm
-from skimage.color import rgb2hsv, rgb2lab
-from skimage.filters import gabor, laplace, sobel
-from torch import nn
-from tqdm import trange
-from collections import Counter
+import numpy as np
 
-from utils import print_configs, print_debugging, print_info
-
-
-# ============================================================
-# Node Classes
-# ============================================================
-class Node(ABC):
-    def __init__(self, children=None):
-        self.children = children if children else []
-
-    @abstractmethod
-    def evaluate(self, x):
-        pass
-
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
+import numpy as np
+import random
 
 # ======================================================
-# Input Node: returns log-probability
+# JIT-Compiled Math Kernels (Performance Critical)
 # ======================================================
-class InputNode(nn.Module, Node):
-    """
-    Input node that automatically learns the best-fitting distribution
-    among {Gaussian, Laplace, Student-t}.
-    """
-    def __init__(self, feature_idx, mu_init=0.0, sigma_init=1.0, device="cpu"):
-        nn.Module.__init__(self)
-        Node.__init__(self, children=[])
+@torch.jit.script
+def log_gaussian_jit(x: torch.Tensor, mu: torch.Tensor, sigma: torch.Tensor) -> torch.Tensor:
+    # 0.5 * log(2*pi) ~= 0.9189385
+    return -0.5 * ((x - mu) / sigma)**2 - torch.log(sigma) - 0.9189385
 
+@torch.jit.script
+def log_laplace_jit(x: torch.Tensor, mu: torch.Tensor, sigma: torch.Tensor) -> torch.Tensor:
+    # b = sigma / sqrt(2). log(2b) = log(sigma*sqrt(2)) = log(sigma) + 0.34657
+    b = sigma * 0.70710678
+    return -torch.abs(x - mu) / b - (torch.log(sigma) + 0.3465736)
+
+@torch.jit.script
+def log_student_jit(x: torch.Tensor, mu: torch.Tensor, sigma: torch.Tensor, nu: torch.Tensor) -> torch.Tensor:
+    # Stable Student-T implementation
+    z = (x - mu) / (sigma + 1e-12)
+    term1 = torch.lgamma((nu + 1) * 0.5)
+    term2 = torch.lgamma(nu * 0.5)
+    term3 = 0.5 * torch.log(nu * 3.14159265)
+    term4 = torch.log(sigma + 1e-12)
+    term5 = ((nu + 1) * 0.5) * torch.log1p((z ** 2) / nu)
+    return term1 - term2 - term3 - term4 - term5
+
+# ======================================================
+# Base Node
+# ======================================================
+class AbstractNode(nn.Module):
+    def __init__(self, child_nodes=None):
+        super().__init__()
+        # Renamed from 'children' to 'child_nodes' to avoid conflict with nn.Module.children()
+        self.child_nodes = nn.ModuleList(child_nodes) if child_nodes else nn.ModuleList()
+
+    def forward(self, x):
+        raise NotImplementedError
+
+# ======================================================
+# Input Node (No Changes needed, but included for completeness)
+# ======================================================
+class InputNode(AbstractNode):
+    def __init__(self, feature_idx, mu_init=0.0, sigma_init=1.0):
+        # InputNodes have no children
+        super().__init__()
         self.feature_idx = feature_idx
-        self.device = device
+        
+        # Learnable Parameters
+        self.mu = nn.Parameter(torch.tensor(float(mu_init)))
+        self.log_sigma = nn.Parameter(torch.log(torch.tensor(float(sigma_init))))
+        self.log_nu = nn.Parameter(torch.log(torch.tensor(5.0))) 
+        self.logits = nn.Parameter(torch.zeros(3)) 
+        self.gate = nn.Parameter(torch.tensor(2.0)) 
 
-        # Shared location and scale
-        self.mu = nn.Parameter(torch.tensor(float(mu_init), dtype=torch.float32, device=device))
-        self.log_sigma = nn.Parameter(torch.log(torch.tensor(float(sigma_init), dtype=torch.float32, device=device)))
-
-        # Optional shape parameter for Student-t
-        self.log_nu = nn.Parameter(torch.log(torch.tensor(5.0, dtype=torch.float32, device=device)))  # degrees of freedom
-
-        # Mixture weights over distributions: [Gaussian, Laplace, Student-t]
-        self.logits = nn.Parameter(torch.zeros(3, dtype=torch.float32, device=device))
-
-        # Mixture gate
-        self.gate = nn.Parameter(torch.tensor(1.0, device=device))  # learnable
-
-        # Feature name
-        self.feature_name = f"feat_{feature_idx}"
-
-    def get_learnable_params(self):
-        return [self.mu, self.log_sigma, self.log_nu, self.logits, self.gate]
-
-    def _log_gaussian(self, x, mu, sigma):
-        return -0.5 * ((x - mu) / sigma)**2 - torch.log(sigma * (2 * np.pi)**0.5)
-
-    def _log_laplace(self, x, mu, sigma):
-        b = sigma / np.sqrt(2.0)
-        return -torch.abs(x - mu) / b - torch.log(2 * b)
-
-    def _log_student(self, x, mu, sigma, nu):
-        z = (x - mu) / (sigma + 1e-12)
-        return (
-            torch.lgamma((nu + 1) / 2)
-            - torch.lgamma(nu / 2)
-            - 0.5 * torch.log(nu * np.pi)
-            - torch.log(sigma + 1e-12)
-            - ((nu + 1) / 2) * torch.log1p((z ** 2) / nu)
-        )
-    
     def fit(self, X):
-        """
-        Initialize the distribution parameters (mu, sigma, nu, mixture weights)
-        based on the dataset statistics for this feature channel.
-
-        Args:
-            X (torch.Tensor or np.ndarray): shape (B, C, H, W)
-        """
-        # Convert to NumPy for easy aggregation
+        """Statistical initialization"""
         if isinstance(X, torch.Tensor):
             X = X.detach().cpu().numpy()
-
-        # Select this feature channel
         vals = X[:, self.feature_idx].reshape(-1)
-
-        # Robust initialization: median + MAD
-        mu_init = float(np.median(vals))
-        mad = float(np.median(np.abs(vals - mu_init)) + 1e-6)
-        sigma_init = mad * 1.4826  # consistent with Gaussian std
-
-        # Use moderate ν to start (Student-t)
-        nu_init = 5.0
-
-        # Start with uniform mixture over {Gaussian, Laplace, Student-t}
-        logits_init = np.zeros(3, dtype=np.float32)
-
-        # Copy into parameters without breaking the computational graph
+        
+        mu = float(np.median(vals))
+        mad = float(np.median(np.abs(vals - mu)) + 1e-6)
+        sigma = mad * 1.4826
+        
         with torch.no_grad():
-            self.mu.copy_(torch.tensor(mu_init, dtype=torch.float32, device=self.device))
-            self.log_sigma.copy_(torch.log(torch.tensor(sigma_init, dtype=torch.float32, device=self.device)))
-            self.log_nu.copy_(torch.log(torch.tensor(nu_init, dtype=torch.float32, device=self.device)))
-            self.logits.copy_(torch.tensor(logits_init, dtype=torch.float32, device=self.device))
+            self.mu.fill_(mu)
+            self.log_sigma.fill_(np.log(sigma))
+            self.log_nu.fill_(np.log(5.0))
+            self.logits.fill_(0.0)
 
-
-    def evaluate(self, X):
-        if isinstance(X, np.ndarray):
-            X = torch.from_numpy(X).float().to(self.device)
-        vals = X[:, self.feature_idx]
+    def forward(self, x):
+        vals = x[:, self.feature_idx]
+        
         sigma = F.softplus(self.log_sigma) + 1e-6
         nu    = F.softplus(self.log_nu) + 1e-3      
-        weights = torch.softmax(self.logits, dim=0)
-
-        log_gauss = self._log_gaussian(vals, self.mu, sigma)
-        log_lapl  = self._log_laplace(vals, self.mu, sigma)
-        log_stud  = self._log_student(vals, self.mu, sigma, nu)
-
-        # log-sum-exp over distributions
-        logpdfs = torch.stack([log_gauss, log_lapl, log_stud], dim=0)
-        log_mix = torch.logsumexp(torch.log(weights).view(-1, *([1]*(logpdfs.ndim-1))) + logpdfs, dim=0)
-        return log_mix * self.gate # scale by gate
-
-
-# ======================================================
-# Gate Node: learnable mixture of two children
-# ======================================================
-class GateNode(Node, nn.Module):
-    def __init__(self, a, b, device="cpu"):
-        nn.Module.__init__(self)
-        Node.__init__(self, [a, b])
-        self.alpha = nn.Parameter(torch.tensor(0.0, device=device))
-        self.device = device
-
-    def get_learnable_params(self):
-        return [self.alpha]
-
-    def evaluate(self, x):
-        gate = torch.sigmoid(self.alpha)
-        left, right = self.children
-        llog = left.evaluate(x)
-        rlog = right.evaluate(x)
-        return torch.logaddexp(llog + torch.log(gate + 1e-8),
-                               rlog + torch.log(1 - gate + 1e-8))
-
-
-# ======================================================
-# Residual Node: blend of base and subcircuit
-# ======================================================
-class ResidualNode(Node, nn.Module):
-    def __init__(self, base, sub, device="cpu"):
-        nn.Module.__init__(self)
-        Node.__init__(self, [base, sub])
-        self.beta = nn.Parameter(torch.tensor(0.5, device=device))
-        self.device = device
-
-    def get_learnable_params(self):
-        return [self.beta]
-
-    def evaluate(self, x):
-        b, s = self.children[0].evaluate(x), self.children[1].evaluate(x)
-        mix = torch.sigmoid(self.beta)
-        return torch.logsumexp(torch.stack([
-            b + torch.log(1 - mix + 1e-8),
-            s + torch.log(mix + 1e-8)
-        ]), dim=0)
-
-# ======================================================
-# Sum Node: log-sum-exp over children
-# ======================================================
-class SumNode(Node, nn.Module):
-    def __init__(self, children, weights=None, device="cpu"):
-        nn.Module.__init__(self)
-        Node.__init__(self, children)
-        n = len(children)
-        if weights is None:
-            weights = torch.ones(n, device=device) / n
-        elif not isinstance(weights, torch.Tensor):
-            weights = torch.tensor(weights, dtype=torch.float32, device=device)
-        # store log-weights (trainable)
-        log_w = torch.log(weights / weights.sum())
-        self.weights = nn.Parameter(log_w, requires_grad=True)
-        self.device = device
-
-    def get_learnable_params(self):
-        return [self.weights]
-
-    def evaluate(self, x):
-        """Compute log(∑_i w_i * p_i) = logsumexp(log w_i + log p_i)."""
-        child_logs = torch.stack([c.evaluate(x) for c in self.children], dim=0)
-        log_w = torch.log_softmax(self.weights, dim=0).view(-1, *([1]*(child_logs.ndim-1)))
-        return torch.logsumexp(log_w + child_logs, dim=0)
-
-
-# ======================================================
-# Product Node: sum of log-probabilities
-# ======================================================
-class ProductNode(Node, nn.Module):
-    def __init__(self, children):
-        nn.Module.__init__(self)
-        Node.__init__(self, children)
-
-    def evaluate(self, x):
-        """Compute log(∏_i p_i) = ∑_i log p_i."""
-        child_logs = torch.stack([c.evaluate(x) for c in self.children], dim=0)
-        return torch.sum(child_logs, dim=0)
-
-
-# ======================================================
-# Classifier Node: stack log-likelihoods as class logits
-# ======================================================
-class ClassifierNode(Node, nn.Module):
-    def __init__(self, children):
-        nn.Module.__init__(self)
-        Node.__init__(self, children)
-
-    def evaluate(self, x):
-        """Return (B, n_classes, H, W) log-probs."""
-        child_logs = [c.evaluate(x) for c in self.children]
-        return torch.stack(child_logs, dim=1)
-
-
-
-
-# ============================================================
-# Graph Classes
-# ============================================================
-class AbstractGraph:
-    def __init__(self):
-        self.nodes, self.edges = set(), {}
-
-    def add_node(self, node):
-        self.nodes.add(node)
-        self.edges.setdefault(node, set())
-
-    def add_edge(self, parent, child):
-        if parent not in self.nodes or child not in self.nodes:
-            raise ValueError("Both nodes must be added before edge")
-        self.edges[parent].add(child)
-
-
-class DirectedAcyclicGraph(AbstractGraph):
-    def add_edge(self, parent, child):
-        super().add_edge(parent, child)
-        if self._has_cycle():
-            self.edges[parent].remove(child)
-            raise ValueError("Adding this edge creates a cycle")
-
-    def _has_cycle(self):
-        visited, stack = set(), set()
-
-        def visit(node):
-            if node in stack:
-                return True
-            if node in visited:
-                return False
-            visited.add(node)
-            stack.add(node)
-            if any(visit(c) for c in self.edges.get(node, [])):
-                return True
-            stack.remove(node)
-            return False
-
-        return any(visit(n) for n in self.nodes)
-
-
-# ============================================================
-# Probabilistic Circuit
-# ============================================================
-class ProbabilisticCircuit:
-    def __init__(self, n_classes=2, device="cpu"):
-        self.graph = DirectedAcyclicGraph()
-        self.root, self.n_classes, self.device = None, n_classes, device
-
-    def add_node(self, node):
-        self.graph.add_node(node)
-
-    def add_edge(self, parent, child):
-        self.graph.add_edge(parent, child)
-        if child not in parent.children:
-            parent.children.append(child)
-
-    def set_root(self, node):
-        if node not in self.graph.nodes:
-            raise ValueError("Root must be in the graph")
-        self.root = node
-
-    def evaluate(self, x):
-        return self.root.evaluate(x) if self.root else None
-
-    def get_nodes(self):
-        return self.graph.nodes
-
-    def get_edges(self):
-        return [(p, c) for p, cs in self.graph.edges.items() for c in cs]
-
-    # visualization function unchanged ...
-
-
-# ============================================================
-# PCNet and EvoPCNet (keep as-is but cleaned)
-# ============================================================
-# [Your PCNet implementation cleaned goes here ... same structure but formatted]
-
-
-    def visualize(self, direction="LR", layer_sep=2.0, node_sep=5.0, save_path=None):
-        """
-        Visualize the probabilistic circuit as a tree-like hierarchical layout with proper spacing.
-
-        :param direction: 'TB' (top-to-bottom) or 'LR' (left-to-right)
-        :param layer_sep: spacing between layers (higher = more vertical spacing)
-        :param node_sep: spacing between nodes in the same layer (higher = more horizontal spacing)
-        """
-        G = nx.DiGraph()
-        colors = {}
-
-        # Add nodes with labels and colors
-        for node in self.get_nodes():
-            if isinstance(node, InputNode):
-                label = "In"
-                label += f"\n{node.feature_name}"
-                colors[node] = "lightgreen"
-            elif isinstance(node, SumNode):
-                label = "Sum"
-                weights_str = ','.join([f"{w:.2f}\n" for w in node.weights.detach().cpu().numpy()])
-                label += f"\n(w={weights_str})"
-                colors[node] = "skyblue"
-            elif isinstance(node, ProductNode):
-                label = "Product"
-                colors[node] = "lightcoral"
-            elif isinstance(node, ClassifierNode):
-                label = "Classifier"
-                colors[node] = "orange"
-            else:
-                colors[node] = "lightgray"
-            G.add_node(node, label=label)
-
-        # Add edges
-        for parent, child in self.get_edges():
-            G.add_edge(parent, child)
-
-        for n in G.nodes:
-            G.nodes[n]['rankdir'] = 'TB' if direction == "TB" else 'LR'
-        G.graph['graph'] = {'ranksep': str(layer_sep), 'nodesep': str(node_sep)}
-
-        # Hierarchical layout
-        pos = nx.nx_pydot.graphviz_layout(G, prog="dot")
-        if direction == "LR":
-            pos = {k: (y, -x) for k, (x, y) in pos.items()}
         
-        labels = nx.get_node_attributes(G, 'label')
-        node_colors = [colors[n] for n in G.nodes]
+        log_gauss = log_gaussian_jit(vals, self.mu, sigma)
+        log_lapl  = log_laplace_jit(vals, self.mu, sigma)
+        log_stud  = log_student_jit(vals, self.mu, sigma, nu)
+        
+        # Determine the target shape dynamically
+        # If input is (N, C), vals is (N,). Target: (N, 1, 1)
+        # If input is (B, C, H, W), vals is (B, H, W). Target: (B, 1, H, W)
+        target_shape = [vals.shape[0], 1] + list(vals.shape[1:])
+        
+        log_gauss = log_gauss.view(*target_shape)
+        log_lapl = log_lapl.view(*target_shape)
+        log_stud = log_stud.view(*target_shape)
 
-        plt.figure(figsize=(16, 6))
-        nx.draw(
-            G,
-            pos,
-            with_labels=True,
-            labels=labels,
-            node_size=4000,
-            node_color=node_colors,
-            font_size=7,
-            font_color="black",
-            edgecolors="k",
-            linewidths=0.7,
-            arrows=True,
-            arrowsize=12
-        )
-        plt.title("Probabilistic Circuit Tree Visualization", fontsize=16)
-        if save_path is not None:
-            save_path = os.path.join(save_path, "pc_tree.png")
-            plt.savefig(save_path, bbox_inches='tight')
-            print_info(f"PC visualization saved to {save_path}")
-# ============================================================
-# PCNet
-# ============================================================
-class PCNet(ProbabilisticCircuit):
-    def __init__(
-        self, input_size=(256, 256), n_classes=2, distribution=None, device="cpu",
-        max_depth=4, max_branching=3,
-        seed=42, cv_module = None
-    ):
-        super().__init__(n_classes, device)
-        self.input_size = input_size
-        self.distribution = distribution
+        # Vector of size 3 -> (3, 1, 1...) to match stack
+        # Add 1s for Batch, Channel, and Spatial dims
+        w_shape = [3] + [1] * len(target_shape)
+        w = torch.log_softmax(self.logits, dim=0).view(*w_shape)
+        
+        # Stack is (3, B, 1, H, W) or (3, N, 1, 1)
+        stack = torch.stack([log_gauss, log_lapl, log_stud], dim=0) 
+            
+        # Broadcasts perfectly over Mixture components (dim=0)
+        log_mix = torch.logsumexp(w + stack, dim=0)
+        
+        return log_mix * torch.sigmoid(self.gate)
+
+# ======================================================
+# Sum Node (Updated variable name)
+# ======================================================
+class SumNode(AbstractNode):
+    def __init__(self, child_nodes, weights=None):
+        super().__init__(child_nodes)
+        n = len(child_nodes)
+        if weights is None:
+            self.weights = nn.Parameter(torch.full((n,), -np.log(n)))
+        else:
+            w_t = torch.tensor(weights, dtype=torch.float32)
+            self.weights = nn.Parameter(torch.log(w_t / w_t.sum()))
+
+    def forward(self, x):
+        # Iterate over self.child_nodes instead of self.children
+        child_outputs = [c(x) for c in self.child_nodes]
+        
+        stack = torch.stack(child_outputs, dim=0)
+        
+        # log_w initially is (N_children,)
+        # We need it to be (N_children, 1, 1...) to broadcast against stack of shape (N_children, Batch, ...)
+        w_shape = [-1] + [1] * (stack.dim() - 1)
+        log_w = torch.log_softmax(self.weights, dim=0).view(*w_shape)
+        
+        return torch.logsumexp(stack + log_w, dim=0)
+
+# ======================================================
+# Product Node (Updated variable name)
+# ======================================================
+class ProductNode(AbstractNode):
+    def forward(self, x):
+        child_outputs = [c(x) for c in self.child_nodes]
+        stack = torch.stack(child_outputs, dim=0)
+        return torch.sum(stack, dim=0)
+
+# ======================================================
+# Classifier / Root Node (Updated variable name)
+# ======================================================
+class ClassifierNode(AbstractNode):
+    def forward(self, x):
+        return torch.stack([c(x) for c in self.child_nodes], dim=1)
+
+# ======================================================
+# PCNet: The Graph Manager
+# ======================================================
+class PCNet(nn.Module):
+    def __init__(self, n_classes=2, max_depth=4, max_branching=3, seed=42):
+        super().__init__()
+        self.n_classes = n_classes
         self.max_depth = max_depth
         self.max_branching = max_branching
         self.seed = seed
-        self.cv_module = cv_module
+        self.root = None
+
+    def init_network(self, inputs):
+        """
+        Builds the PC structure based on input data.
+        """
+        # Reproducibility
         random.seed(self.seed)
-
-    # --------------------------------------------------------
-    # Network structure helpers
-    # --------------------------------------------------------
-    def pairwise(self, nodes):
-        """Group nodes pairwise for ProductNode"""
-        random.shuffle(nodes)
-        pairs = [(nodes[i], nodes[i + 1]) for i in range(0, len(nodes) - 1, 2)]
-        if len(nodes) % 2 == 1:
-            pairs.append((nodes[-1],))
-        return pairs
-
-    def prod_layer(self, current_nodes):
-        """Build a ProductNode layer"""
-        next_nodes = []
-        for pair in self.pairwise(current_nodes):
-            if len(pair) == 1:
-                next_nodes.append(pair[0])
-                continue
-            prod = ProductNode(list(pair))
-            self.add_node(prod)
-            for child in pair:
-                self.add_edge(prod, child)
-            next_nodes.append(prod)
-        return next_nodes
-
-    def branchwise(self, nodes):
-        n = len(nodes)
-        if n <= 1:
-            return [(nodes[0],)]  # just one singleton branch
-
-        groups = []
-        max_b = self.max_branching
-        n_groups = max(1, n // random.randint(2, max_b) + random.randint(0, 2))
-
-        for _ in range(n_groups):
-            upper = min(max_b, n)
-            if upper < 2:  # avoid invalid randint range
-                groups.append(tuple(nodes))
-                continue
-            gsize = random.randint(2, upper)
-            group = tuple(random.sample(nodes, gsize))
-            groups.append(group)
-
-        # ensure all nodes appear at least once
-        covered = {x for g in groups for x in g}
-        missing = [x for x in nodes if x not in covered]
-        for m in missing:
-            groups[random.randrange(len(groups))] += (m,)
-
-        return groups
-
-
-    def sum_layer(self, current_nodes):
-        """Build a SumNode layer"""
-        next_nodes = []
-        for branch in self.branchwise(current_nodes):
-            weights = torch.rand(len(branch), device=self.device)
-            weights = weights / weights.sum()
-            node = SumNode(list(branch), weights=weights, device=self.device)
-            self.add_node(node)
-            for child in branch:
-                self.add_node(child)
-                self.add_edge(node, child)
-            next_nodes.append(node)
-        return next_nodes
-    
-    def reduce_to_n(self, nodes, n_target):
-        """
-        Force reduce a list of nodes to exactly n_target nodes by grouping.
-        """
-        if len(nodes) == n_target:
-            return nodes
-        if len(nodes) < n_target:
-            # Pad by duplicating last node
-            while len(nodes) < n_target:
-                nodes.append(nodes[-1])
-            return nodes
-
-        # Too many: group nodes into n_target groups
-        groups = np.array_split(nodes, n_target)
-        reduced = []
-        for g in groups:
-            if len(g) == 1:
-                reduced.append(g[0])
-            else:
-                weights = torch.rand(len(g), device=self.device)
-                weights = weights / weights.sum()
-                node = SumNode(list(g), weights=weights, device=self.device)
-                self.add_node(node)
-                for child in g:
-                    self.add_edge(node, child)
-                reduced.append(node)
-        return reduced
-
-
-    def build_network(self, current_nodes):
+        torch.manual_seed(self.seed)
+        
+        # 1. Create Leaves (InputNodes)
+        B, C, H, W = inputs.shape if inputs.dim() == 4 else (inputs.shape[0], inputs.shape[1], 1, 1)
+        
+        # Create temporary list; they become registered when added to ModuleList/Node
+        current_nodes = []
+        for i in range(C):
+            node = InputNode(i)
+            node.fit(inputs) # Initialize stats (Median/MAD)
+            current_nodes.append(node)
+            
+        # Register the leaves for the monolithic structure
+        self.leaves = nn.ModuleList(current_nodes)
+        
+        # 2. Build Random DAG Structure (Bottom-Up)
         nodes = current_nodes
         for depth in range(1, self.max_depth + 1):
+            
+            # Final Layer: Reduce to N classes
             if depth == self.max_depth:
-                # Force reduce/pad to exactly n_classes
-                nodes = self.reduce_to_n(nodes, self.n_classes)
-
-                print(f"[DEBUG] Final children = {len(nodes)}, expected = {self.n_classes}")
-                root = ClassifierNode(nodes)
-                self.add_node(root)
-                for child in nodes:
-                    self.add_edge(root, child)
-                return root
-
-            nodes = self.prod_layer(nodes) if depth % 2 == 0 else self.sum_layer(nodes)
-        
-
-
-    def init_network(self, inputs, labels):
-        """Initialize the PCNet structure"""
-        input_nodes = self.set_input_nodes(inputs, labels)
-        root = self.build_network(input_nodes)
-        self.set_root(root)
-        self.params = []
-        for n in self.get_nodes():
-            if isinstance(n, SumNode) or isinstance(n, InputNode):
-                self.params += n.get_learnable_params()
-        print_configs(f"Initialized PCNet with {len(self.get_nodes())} nodes, "
-                      f"{sum(p.numel() for p in self.params)} trainable parameters")
-
-    # --------------------------------------------------------
-    # Training & Prediction
-    # --------------------------------------------------------
-    def set_input_nodes(self, inputs, labels):
-        print_configs("Inputs tensor shape:", inputs.shape)
-        B, C, H, W = inputs.shape
-
-        nodes = []
-        for i in range(C):
-            node = InputNode(i, device=self.device)
-            node.fit(inputs)
-            nodes.append(node)
-            self.add_node(node)
-        return nodes
-    
-    def evaluate(self, x):
-        # x should be (C, H, W), convert to (1, C, H, W)
-        if self.cv_module is not None:
-            x = [self.cv_module.get_output(x_, return_map=True) for x_ in x]
-            x = np.stack(x, axis=0)
-            x = torch.from_numpy(x).float().to(self.device)
-        if x.ndim == 3:
-            x = x.unsqueeze(0)
-        out = self.root.evaluate(x)
-        return out
-
-
-    def predict(self, inputs):
-
-        with torch.no_grad():
-            logits = self.evaluate(inputs)
-            preds = torch.argmax(logits, dim=1, keepdim=True)
-            return preds.cpu().numpy()
-        
-    def state_dict(self):
-        """
-        Return a unified state_dict collecting parameters from all node modules.
-        This mimics nn.Module.state_dict().
-        """
-        state = {}
-        for node in self.get_nodes():
-            if isinstance(node, nn.Module):
-                for name, param in node.named_parameters():
-                    key = f"{node.__class__.__name__}_{id(node)}.{name}"
-                    state[key] = param.detach().clone()
-        return state
-
-    def load_state_dict(self, state_dict, strict=False):
-        """
-        Load parameters into the PCNet nodes.
-        Works even if the structure has changed slightly (strict=False).
-        """
-        loaded, missing = 0, 0
-        for node in self.get_nodes():
-            if isinstance(node, nn.Module):
-                for name, param in node.named_parameters():
-                    key = f"{node.__class__.__name__}_{id(node)}.{name}"
-                    if key in state_dict:
-                        try:
-                            with torch.no_grad():
-                                src = state_dict[key].to(param.device)
-                                if src.shape == param.shape:
-                                    param.copy_(src)
-                                else:
-                                    # partial reuse if possible
-                                    min_len = min(param.numel(), src.numel())
-                                    param.view(-1)[:min_len].copy_(src.view(-1)[:min_len])
-                                    print_debugging(f"⚠️ Resized param {key}: old {tuple(src.shape)} → new {tuple(param.shape)}")
-                            loaded += 1
-                        except Exception:
-                            missing += 1
-                    elif not strict:
-                        # try fuzzy match by name only (ignoring id)
-                        for k, v in state_dict.items():
-                            if k.endswith(f".{name}"):
-                                with torch.no_grad():
-                                    param.copy_(v.to(param.device))
-                                loaded += 1
-                                break
-                        else:
-                            missing += 1
-        print_debugging(f"Loaded {loaded} parameters, {missing} missing.")
-        return {"loaded": loaded, "missing": missing}
-
-    def named_parameters(self):
-        """
-        Generator yielding (name, param) for all sub-node parameters.
-        """
-        for node in self.get_nodes():
-            if isinstance(node, nn.Module):
-                for name, param in node.named_parameters():
-                    yield f"{node.__class__.__name__}_{id(node)}.{name}", param
-        
-    def save_dict(self):
-        """
-        Return a compact summary dictionary of the PCNet model.
-        This includes metadata, key stats, and memory usage in KB.
-        """
-        info = {}
-
-        # --- Basic info ---
-        info["model_type"] = self.__class__.__name__
-        info["device"] = str(self.device)
-        info["n_classes"] = self.n_classes
-        info["input_size"] = tuple(self.input_size)
-        info["max_depth"] = self.max_depth
-        info["max_branching"] = self.max_branching
-        info["seed"] = self.seed
-
-        # --- Structure statistics ---
-        nodes = list(self.get_nodes())
-        edges = list(self.get_edges())
-        info["n_nodes"] = len(nodes)
-        info["n_edges"] = len(edges)
-
-        type_counts = Counter([n.__class__.__name__ for n in nodes])
-        info["node_types"] = dict(type_counts)
-
-        # --- Parameter summary ---
-        all_params = []
-        mus, sigmas, nus, gates = [], [], [], []
-        sum_weights = []
-        input_feats = []
-
-        for node in nodes:
-            if isinstance(node, InputNode):
-                input_feats.append(node.feature_name)
-                mus.append(node.mu.item())
-                sigmas.append(torch.exp(node.log_sigma).item())
-                nus.append(torch.exp(node.log_nu).item())
-                gates.append(torch.sigmoid(node.gate).item())
-            elif isinstance(node, SumNode):
-                w = torch.softmax(node.weights, dim=0).detach().cpu().numpy()
-                sum_weights.extend(w.tolist())
-
-        def safe_stats(x):
-            if len(x) == 0:
-                return {"mean": None, "std": None, "min": None, "max": None}
-            return {
-                "mean": float(np.mean(x)),
-                "std": float(np.std(x)),
-                "min": float(np.min(x)),
-                "max": float(np.max(x)),
-            }
-
-        info["parameter_summary"] = {
-            "mu": safe_stats(mus),
-            "sigma": safe_stats(sigmas),
-            "nu": safe_stats(nus),
-            "sum_weights": safe_stats(sum_weights),
-        }
-
-        info["n_parameters"] = sum(p.numel() for p in getattr(self, "params", []))
-        info["input_features"] = input_feats
-
-        # --- Memory usage (KB) ---
-        model_memory_kb = sum(p.numel() * p.element_size() for p in self.params) / 1024
-        info["memory_kb"] = model_memory_kb
-
-        return info
-    
-    def __repr__(self):
-        """
-        Return a detailed string representation of the PCNet,
-        including architecture info and hierarchical tree structure.
-        """
-        if not hasattr(self, "graph") or not self.root:
-            return "<Uninitialized PCNet>"
-
-        nodes = list(self.get_nodes())
-
-        # Count node types
-        counts = {
-            "InputNode": sum(isinstance(n, InputNode) for n in nodes),
-            "SumNode": sum(isinstance(n, SumNode) for n in nodes),
-            "ProductNode": sum(isinstance(n, ProductNode) for n in nodes),
-            "ClassifierNode": sum(isinstance(n, ClassifierNode) for n in nodes),
-        }
-
-        # Count parameters
-        total_params = 0
-        param_summary = {}
-        for n in nodes:
-            if isinstance(n, InputNode):
-                p = sum(p.numel() for p in [n.mu, n.log_sigma, n.log_nu, n.logits, n.gate])
-                param_summary["InputNode"] = param_summary.get("InputNode", 0) + p
-            elif isinstance(n, SumNode):
-                p = n.weights.numel()
-                param_summary["SumNode"] = param_summary.get("SumNode", 0) + p
-            total_params += p if "p" in locals() else 0
-
-        # ---------------------------------------------------------------------
-        # HEADER SECTION
-        # ---------------------------------------------------------------------
-        header = [
-            "─────────────────────────────────────────────",
-            "🧠  Probabilistic Circuit Network Summary",
-            "─────────────────────────────────────────────",
-            f"📦 Classes: {self.n_classes}",
-            f"📏 Input size: {self.input_size}",
-            f"⚙️  Depth: {self.max_depth}, Branching: {self.max_branching}",
-            f"💻 Device: {self.device}",
-            "─────────────────────────────────────────────",
-            "📊 Node counts:",
-        ]
-        for k, v in counts.items():
-            header.append(f"  • {k:<15}: {v}")
-        header.append("─────────────────────────────────────────────")
-        header.append(f"🧩 Trainable parameters: {total_params}")
-        for k, v in param_summary.items():
-            header.append(f"  • {k:<15}: {v}")
-        header.append("─────────────────────────────────────────────")
-        header.append("📚 Structure:")
-        header_text = "\n".join(header)
-         # --- Memory usage (KB) ---
-        model_memory_kb = sum(p.numel() * p.element_size() for p in self.params) / 1024
-        header_text += f"Memory usage: {model_memory_kb:.2f} KB\n"
-
-        # ---------------------------------------------------------------------
-        # TREE SECTION
-        # ---------------------------------------------------------------------
-        lines = []
-
-        def format_node(node, prefix="", is_last=True):
-            connector = "└─ " if is_last else "├─ "
-
-            # Node label
-            if isinstance(node, ClassifierNode):
-                label = f"ClassifierNode(classes={len(node.children)})"
-            elif isinstance(node, SumNode):
-                label = f"SumNode(children={len(node.children)}, weights={len(node.weights)})"
-            elif isinstance(node, ProductNode):
-                label = f"ProductNode(children={len(node.children)})"
-            elif isinstance(node, InputNode):
-                label = f"InputNode({node.feature_name})"
+                nodes = self._reduce_to_n(nodes, self.n_classes)
+                self.root = ClassifierNode(nodes)
+                break
+            
+            # Intermediate Layers: Alternate Product & Sum
+            if depth % 2 == 0:
+                nodes = self._prod_layer(nodes)
             else:
-                label = node.__class__.__name__
+                nodes = self._sum_layer(nodes)
 
-            lines.append(f"{prefix}{connector}{label}")
+        # Fallback if depth was too small
+        if self.root is None:
+             self.root = ClassifierNode(self._reduce_to_n(current_nodes, self.n_classes))
 
-            # Recurse for children
-            if hasattr(node, "children") and node.children:
-                new_prefix = prefix + ("   " if is_last else "│  ")
-                for i, child in enumerate(node.children):
-                    format_node(child, new_prefix, i == len(node.children) - 1)
+    def forward(self, x):
+        if self.root is None:
+            raise RuntimeError("PCNet not initialized. Call init_network(data) first.")
+        return self.root(x)
 
-        format_node(self.root)
+    # ------------------------------------------------------------------
+    # Graph Topology Helpers
+    # ------------------------------------------------------------------
+    def _pairwise(self, nodes):
+        """Shuffle and pair nodes for product layers"""
+        pool = list(nodes)
+        random.shuffle(pool)
+        pairs = []
+        while len(pool) >= 2:
+            pairs.append((pool.pop(), pool.pop()))
+        if pool:
+            pairs.append((pool.pop(),))
+        return pairs
 
-        tree_text = "\n".join(lines)
-        return f"{header_text}\n{tree_text}\n─────────────────────────────────────────────"
+    def _prod_layer(self, nodes):
+        """Create Product Nodes (and pass through some residuals)"""
+        next_nodes = []
+        for pair in self._pairwise(nodes):
+            if len(pair) == 1:
+                next_nodes.append(pair[0])
+            else:
+                next_nodes.append(ProductNode(list(pair)))
+        return next_nodes
 
-    
-    def info(self, show_layers=True, show_params=True, show_counts=True):
-        """
-        Print a structured summary of the PCNet architecture.
+    def _sum_layer(self, nodes):
+        """Create Sum Nodes with random branching factors"""
+        next_nodes = []
+        pool = list(nodes)
+        random.shuffle(pool)
+        
+        while pool:
+            # Random branching factor between 2 and max_branching
+            k = random.randint(2, self.max_branching)
+            group = []
+            for _ in range(k):
+                if pool: group.append(pool.pop())
+            
+            if len(group) == 1:
+                next_nodes.append(group[0])
+            else:
+                s_node = SumNode(group)
+                next_nodes.append(s_node)
+                
+                # Residual Connection: Occasionally pass a child through directly
+                # This helps gradient flow in deeper networks
+                if random.random() < 0.2:
+                    next_nodes.append(group[0])
+                    
+        return next_nodes
 
-        Args:
-            show_layers (bool): show hierarchical layer summary
-            show_params (bool): show learnable parameters per node type
-            show_counts (bool): show node counts per type
-        """
-        print("─────────────────────────────────────────────")
-        print("🧠  Probabilistic Circuit Network Summary")
-        print("─────────────────────────────────────────────")
-        print(f"📦 Classes: {self.n_classes}")
-        print(f"📏 Input size: {self.input_size}")
-        print(f"⚙️  Depth: {self.max_depth}, Branching: {self.max_branching}")
-        print(f"💻 Device: {self.device}")
-        print("─────────────────────────────────────────────")
+    def _reduce_to_n(self, nodes, n):
+        """Force the layer to have exactly n nodes (for the final class output)"""
+        if len(nodes) < n:
+            # Pad with the last node
+            return nodes + [nodes[-1]] * (n - len(nodes))
+        
+        # Split into n groups and sum them
+        chunk_size = int(np.ceil(len(nodes) / n))
+        reduced = []
+        for i in range(0, len(nodes), chunk_size):
+            group = nodes[i : i + chunk_size]
+            if len(group) == 1:
+                reduced.append(group[0])
+            else:
+                reduced.append(SumNode(group))
+        
+        return reduced[:n]
 
-        nodes = list(self.get_nodes())
-        total_params = 0
-
-        if show_counts:
-            counts = {
-                "InputNode": sum(isinstance(n, InputNode) for n in nodes),
-                "SumNode": sum(isinstance(n, SumNode) for n in nodes),
-                "ProductNode": sum(isinstance(n, ProductNode) for n in nodes),
-                "ClassifierNode": sum(isinstance(n, ClassifierNode) for n in nodes),
-            }
-            print("📊 Node counts:")
-            for k, v in counts.items():
-                print(f"  • {k:<15}: {v}")
-            print("─────────────────────────────────────────────")
-
-        if show_params:
-            param_summary = []
-            for n in nodes:
-                if isinstance(n, InputNode):
-                    p = sum(p.numel() for p in [n.mu, n.log_sigma, n.log_nu, n.logits])
-                    param_summary.append(("InputNode", p))
-                elif isinstance(n, SumNode):
-                    p = n.weights.numel()
-                    param_summary.append(("SumNode", p))
-            total_params = sum(p for _, p in param_summary)
-            print(f"🧩 Trainable parameters: {total_params}")
-            by_type = {}
-            for t, p in param_summary:
-                by_type[t] = by_type.get(t, 0) + p
-            for t, p in by_type.items():
-                print(f"  • {t:<15}: {p}")
-            print("─────────────────────────────────────────────")
-         # --- Memory usage (KB) ---
-        model_memory_kb = sum(p.numel() * p.element_size() for p in self.params) / 1024
-        print(f"📚 Memory usage: {model_memory_kb:.2f} KB")
-        print("─────────────────────────────────────────────")
-
-        return {
-            "n_nodes": len(nodes),
-            "n_params": total_params,
-            "depth": self.max_depth,
-            "branching": self.max_branching,
-        }
-
-# ============================================================
-# MultiPCNet: multiple subnetworks (experts) + learned selector
-# Plug-and-play for your existing PCNet / Node classes
-# ------------------------------------------------------------
-# What you need already defined elsewhere in your codebase:
-#   - Node, InputNode, SumNode, ProductNode, ClassifierNode
-#   - ProbabilisticCircuit, PCNet (with init_network/evaluate/predict, etc.)
-#   - print_configs, print_debugging, print_info utilities (optional)
-# This file adds:
-#   - SelectorNode (soft and hard variants)
-#   - SubPCNet (thin wrapper around PCNet)
-#   - MultiPCNet (K experts + selector as the new root)
-# ============================================================
-from typing import List, Literal, Optional, Tuple
-import numpy as np
-import torch
-import torch.nn as nn
-import torch.nn.functional as F
-
-# If your project puts these in a package/module, import from there instead
-# from your_project.pcnet import PCNet, ProbabilisticCircuit, Node, ClassifierNode
-
-
-# ================================
-# Selector nodes
-# ================================
-class SelectorNode(nn.Module, Node):
-    """
-    Soft mixture selector over sub-circuits (experts).
-    Each child must return (B, C, H, W) *log-probabilities* (ClassifierNode output).
-
-    evaluate(x) returns the log-mixture: log sum_i w_i * p_i(x)
-
-    Notes
-    -----
-    - Fully differentiable; recommended for training.
-    - The mixing weights (logits) are input-agnostic (global). If you want
-      input-conditional gating, see InputGatedSelectorNode below.
-    """
-    def __init__(self, children: List[Node], device: str = "cpu"):
-        nn.Module.__init__(self)
-        Node.__init__(self, children=children)
-        self.device = device
-        self.logits = nn.Parameter(torch.zeros(len(children), device=device))
-
-    def get_learnable_params(self):
-        return [self.logits]
-
-    @property
-    def n_experts(self):
-        return len(self.children)
-
-    def evaluate(self, x):
-        # children[i].evaluate(x): (B, C, H, W) in log-space
-        expert_logs = torch.stack([c.evaluate(x) for c in self.children], dim=0)  # (K, B, C, H, W)
-        log_w = torch.log_softmax(self.logits, dim=0).view(-1, 1, 1, 1, 1)        # (K,1,1,1,1)
-        return torch.logsumexp(log_w + expert_logs, dim=0)  # (B,C,H,W)
-
-
-class HardBestSelectorNode(Node):
-    """
-    Non-differentiable selector: picks the expert with the highest average
-    log-likelihood for the current batch. Use for evaluation/inference.
-
-    Warning: Not suitable for gradient-based training.
-    """
-    def __init__(self, children: List[Node]):
-        super().__init__(children=children)
-
-    def evaluate(self, x):
-        # Stack expert outputs and pick the best expert per batch
-        # Strategy: average log-prob across classes and spatial dims
-        expert_logs = [c.evaluate(x) for c in self.children]  # list of (B,C,H,W)
-        stacked = torch.stack(expert_logs, dim=0)             # (K,B,C,H,W)
-        # Compute a score per (K,B)
-        scores = stacked.mean(dim=(2, 3, 4))                  # (K,B)
-        best_k = scores.argmax(dim=0)                         # (B,)
-        # Gather the chosen expert output per batch item
-        B = stacked.size(1)
-        out = []
-        for b in range(B):
-            out.append(stacked[best_k[b], b])                 # (C,H,W)
-        return torch.stack(out, dim=0)                        # (B,C,H,W)
-
-
-class InputGatedSelectorNode(nn.Module, Node):
-    """
-    Optional: input-dependent gating (tiny MLP over global-pooled inputs).
-    - Provide x_features(x): (B, F) descriptor of the input (you can plug CV module outputs).
-    - Learns p(expert | x) and mixes experts in log-space.
-    """
-    def __init__(self, children: List[Node], feat_dim: int, hidden: int = 64, device: str = "cpu"):
-        nn.Module.__init__(self)
-        Node.__init__(self, children=children)
-        self.device = device
-        self.mlp = nn.Sequential(
-            nn.Linear(feat_dim, hidden), nn.ReLU(),
-            nn.Linear(hidden, len(children))
-        ).to(device)
-
-    def get_learnable_params(self):
-        return list(self.mlp.parameters())
-
-    def evaluate_with_features(self, x, x_feat: torch.Tensor):
-        # x_feat: (B, F)
-        expert_logs = torch.stack([c.evaluate(x) for c in self.children], dim=0)  # (K,B,C,H,W)
-        B = expert_logs.size(1)
-        logits = self.mlp(x_feat)                         # (B, K)
-        log_w = torch.log_softmax(logits, dim=1).transpose(0,1).view(-1,B,1,1,1)  # (K,B,1,1,1)
-        return torch.logsumexp(log_w + expert_logs, dim=0)
-
-
-# ================================
-# SubPCNet: thin wrapper around your PCNet
-# ================================
-class SubPCNet:
-    """
-    Minimal wrapper to reuse your existing PCNet as an expert.
-    Each sub-net owns its own graph, parameters, etc.
-    """
-    def __init__(self, base_pcnet_cls, *,
-                 input_size=(256,256), n_classes=2, device="cpu",
-                 max_depth=3, max_branching=3, seed=42, cv_module=None,
-                 name: Optional[str] = None):
-        self.model = base_pcnet_cls(
-            input_size=input_size, n_classes=n_classes, device=device,
-            max_depth=max_depth, max_branching=max_branching, seed=seed,
-            cv_module=cv_module
+# ======================================================
+# Attentional PCNet Nodes
+# ======================================================
+class AttentionalSumNode(AbstractNode):
+    def __init__(self, child_nodes, input_dim, embed_dim=16):
+        super().__init__(child_nodes)
+        self.n_children = len(child_nodes)
+        self.embed_dim = embed_dim
+        
+        # KEY: Static learned embeddings for each child sub-circuit
+        self.keys = nn.Parameter(torch.randn(self.n_children, embed_dim))
+        
+        # QUERY: Network to project the input into the query space
+        self.query_proj = nn.Sequential(
+            nn.Linear(input_dim, embed_dim),
+            nn.ReLU(),
+            nn.Linear(embed_dim, embed_dim)
         )
-        self.name = name or f"SubPCNet_{id(self)}"
-        self.device = device
-        self.n_classes = n_classes
+        
+        self.scale = np.sqrt(embed_dim)
 
-    # Proxy the Node API expected by selector
-    def evaluate(self, x):
-        return self.model.evaluate(x)  # (B,C,H,W) in log-space
-
-    # Lifecycle helpers
-    def init_network(self, inputs, labels):
-        self.model.init_network(inputs, labels)
-
-    def parameters(self):
-        # Return generator over model params (as stored in self.model.params or via named_parameters)
-        # Prefer the explicit param list your PCNet builds
-        if hasattr(self.model, "params") and len(getattr(self.model, "params", [])):
-            for p in self.model.params:
-                yield p
+    def forward(self, x):
+        # 1. VALUES (V): Calculate child log-probabilities normally
+        child_outputs = [c(x) for c in self.child_nodes]
+        stack = torch.stack(child_outputs, dim=0) # Shape: (N_children, Batch, ...)
+        
+        # 2. QUERY (Q): Project the raw input
+        # Assuming x is (B, C, H, W) or (B, D)
+        if x.dim() == 4:
+            raw_input = x.mean(dim=(2, 3)) # Global Average Pooling
         else:
-            for _, p in self.model.named_parameters():
-                yield p
+            raw_input = x
+            
+        queries = self.query_proj(raw_input) # Shape: (Batch, embed_dim)
+        
+        # 3. ATTENTION SCORES: Q dot K^T
+        # keys shape: (N_children, embed_dim)
+        # scores shape: (Batch, N_children)
+        attn_scores = torch.matmul(queries, self.keys.t()) / self.scale
+        
+        # Transpose to match stack: (N_children, Batch)
+        attn_scores = attn_scores.t() 
+        
+        # Reshape for broadcasting: (N_children, Batch, 1, 1...)
+        w_shape = list(attn_scores.shape) + [1] * (stack.dim() - 2)
+        log_w = torch.log_softmax(attn_scores, dim=0).view(*w_shape)
+        
+        # 4. CONTEXT: Dynamic Mixture (LogSumExp)
+        return torch.logsumexp(stack + log_w, dim=0)
 
-    def save_dict(self):
-        info = self.model.save_dict()
-        info["subnet_name"] = self.name
-        return info
 
+class AttentionalPCNet(PCNet):
+    def __init__(self, in_channels, n_classes=2, max_depth=4, max_branching=3, seed=42, embed_dim=16):
+        self.in_channels = in_channels
+        self.embed_dim = embed_dim
+        super().__init__(n_classes=n_classes, max_depth=max_depth, max_branching=max_branching, seed=seed)
 
-# ================================
-# MultiPCNet: K experts + selector root
-# ================================
-class MultiPCNet:
-    """
-    Build K sub-PCNets (experts) and a selector on top.
-
-    selector_mode:
-        - "soft":    SelectorNode with global learned mixture weights (default)
-        - "hard":    HardBestSelectorNode (non-differentiable; use for eval only)
-        - "gated":   InputGatedSelectorNode (needs x_features function)
-
-    Bootstrapping:
-        - Optionally initialize each expert on a bootstrapped subset of the training batch
-          to encourage specialization (set bootstrap=True).
-    """
-    def __init__(self,
-                 base_pcnet_cls,
-                 *,
-                 n_experts: int = 3,
-                 input_size: Tuple[int,int] = (256,256),
-                 n_classes: int = 2,
-                 device: str = "cpu",
-                 max_depth: int = 3,
-                 max_branching: int = 3,
-                 cv_module=None,
-                 selector_mode: Literal["soft","hard","gated"] = "soft",
-                 x_feature_fn=None,   # callable: tensor(B,C,H,W)-> tensor(B,F)
-                 x_feature_dim: Optional[int] = None,
-                 seed: int = 42,
-                 bootstrap: bool = False,
-                 name: str = "MultiPCNet"):
-        self.name = name
-        self.device = device
-        self.n_classes = n_classes
-        self.selector_mode = selector_mode
-        self.x_feature_fn = x_feature_fn
-        self.bootstrap = bootstrap
-
-        # Build experts
-        self.experts: List[SubPCNet] = []
-        for k in range(n_experts):
-            self.experts.append(
-                SubPCNet(
-                    base_pcnet_cls,
-                    input_size=input_size,
-                    n_classes=n_classes,
-                    device=device,
-                    max_depth=max_depth,
-                    max_branching=max_branching,
-                    seed=seed + k,
-                    cv_module=cv_module,
-                    name=f"Expert_{k}"
-                )
-            )
-
-        # Build selector
-        if selector_mode == "soft":
-            self.selector = SelectorNode([e for e in self.experts], device=device)
-        elif selector_mode == "hard":
-            self.selector = HardBestSelectorNode([e for e in self.experts])
-        elif selector_mode == "gated":
-            assert x_feature_fn is not None and x_feature_dim is not None, "gated selector requires x_feature_fn and x_feature_dim"
-            self.selector = InputGatedSelectorNode([e for e in self.experts], feat_dim=x_feature_dim, device=device)
-        else:
-            raise ValueError(f"Unknown selector_mode: {selector_mode}")
-
-        # Collect trainable parameters
-        self.params: List[torch.nn.Parameter] = []
-
-    # -----------------------------
-    # Initialization
-    # -----------------------------
-    def init_network(self, inputs: torch.Tensor, labels: torch.Tensor):
-        """
-        Initialize each expert PCNet. You can optionally bootstrap the inputs
-        so each expert sees a slightly different subset.
-
-        inputs: (B, C, H, W)
-        labels: whatever your PCNet.init_network expects (kept for API symmetry)
-        """
-        B = inputs.shape[0]
-
-        for k, expert in enumerate(self.experts):
-            if self.bootstrap and B >= 4:
-                # Sample with replacement ~80% of batch
-                idx = torch.randint(0, B, (max(1, int(0.8*B)),), device=inputs.device)
-                sub_in = inputs[idx]
-                sub_lb = labels[idx] if isinstance(labels, torch.Tensor) and labels.shape[0] == B else labels
+    def _sum_layer(self, nodes):
+        """Create Attentional Sum Nodes with random branching factors"""
+        next_nodes = []
+        pool = list(nodes)
+        random.shuffle(pool)
+        
+        while pool:
+            # Random branching factor between 2 and max_branching
+            k = random.randint(2, self.max_branching)
+            group = []
+            for _ in range(k):
+                if pool: group.append(pool.pop())
+            
+            if len(group) == 1:
+                next_nodes.append(group[0])
             else:
-                sub_in, sub_lb = inputs, labels
-            expert.init_network(sub_in, sub_lb)
+                s_node = AttentionalSumNode(group, input_dim=self.in_channels, embed_dim=self.embed_dim)
+                next_nodes.append(s_node)
+                
+                # Residual Connection
+                if random.random() < 0.2:
+                    next_nodes.append(group[0])
+                    
+        return next_nodes
 
-        # Pack params from experts and selector
-        self.params = []
-        for e in self.experts:
-            for p in e.parameters():
-                self.params.append(p)
-        if isinstance(self.selector, nn.Module):
-            self.params += list(self.selector.get_learnable_params()) if hasattr(self.selector, 'get_learnable_params') else list(self.selector.parameters())
+    def _reduce_to_n(self, nodes, n):
+        """Force the layer to have exactly n nodes (for the final class output)"""
+        if len(nodes) < n:
+            # Pad with the last node
+            return nodes + [nodes[-1]] * (n - len(nodes))
+        
+        # Split into n groups and sum them
+        chunk_size = int(np.ceil(len(nodes) / n))
+        reduced = []
+        for i in range(0, len(nodes), chunk_size):
+            group = nodes[i : i + chunk_size]
+            if len(group) == 1:
+                reduced.append(group[0])
+            else:
+                reduced.append(AttentionalSumNode(group, input_dim=self.in_channels, embed_dim=self.embed_dim))
+        
+        return reduced[:n]
 
-        try:
-            n_params = sum(p.numel() for p in self.params if p.requires_grad)
-            print_configs(f"Initialized MultiPCNet with {len(self.experts)} experts; trainable params: {n_params}")
-        except Exception:
-            pass
+# ======================================================
+# Quick Test Script
+# ======================================================
+if __name__ == "__main__":
+    # Check for GPU
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+    print(f"🚀 Using Device: {device}")
 
-    # -----------------------------
-    # Forward / evaluate / predict
-    # -----------------------------
-    def evaluate(self, x: torch.Tensor) -> torch.Tensor:
-        """Return (B, n_classes, H, W) in log-space."""
-        if self.selector_mode == "gated":
-            # Compute features for gating
-            with torch.no_grad():
-                x_feat = self.x_feature_fn(x)                    # (B,F)
-            return self.selector.evaluate_with_features(x, x_feat)
-        else:
-            return self.selector.evaluate(x)
+    # 1. Generate Dummy Data
+    B, C, H, W = 8, 3, 64, 64
+    data = torch.randn(B, C, H, W).to(device)
 
-    def predict(self, inputs: torch.Tensor) -> np.ndarray:
+    # 2. Initialize Model
+    model = PCNet(n_classes=2, max_depth=4)
+    
+    # 3. Build Structure (Initialize leaves with data stats)
+    model.init_network(data)
+    
+    # 4. Move to GPU
+    model = model.to(device)
+    
+    # 5. Forward Pass (WITH GRADIENTS ENABLED)
+    print("Running Forward Pass...")
+    # REMOVED: with torch.no_grad():  <-- This was the cause of the error
+    output = model(data) 
+    
+    print(f"✅ Output Shape: {output.shape}")
+    print(f"✅ Sample Log-Prob (Pixel 0,0): {output[0, 0, 0, 0].item():.4f}")
+    
+    # 6. Backward Pass (Verify Differentiability)
+    print("Running Backward Pass...")
+    
+    # We sum the output to get a scalar loss for testing
+    loss = output.sum()
+    
+    # This should now work because the graph was built during forward()
+    loss.backward()
+    
+    # Verify gradients exist on a leaf node
+    leaf = None
+    for m in model.modules():
+        if isinstance(m, InputNode):
+            leaf = m
+            break
+            
+    if leaf and leaf.mu.grad is not None:
+        print(f"✅ Gradients computed successfully. InputNode.mu.grad norm: {leaf.mu.grad.norm().item():.4f}")
+    else:
+        print("❌ Gradient check failed.")
+# ======================================================
+# JIT-Compiled Math Kernels
+# ======================================================
+@torch.jit.script
+def log_gaussian_jit(x: torch.Tensor, mu: torch.Tensor, log_sigma: torch.Tensor) -> torch.Tensor:
+    """
+    Computes log Gaussian probability.
+    x: (B, C, H, W)
+    mu: (1, C, K, 1, 1)
+    log_sigma: (1, C, K, 1, 1)
+    Returns: (B, C, K, H, W)
+    """
+    # 0.5 * log(2*pi) ~= 0.9189385
+    sigma = torch.exp(log_sigma) + 1e-4
+    return -0.5 * ((x.unsqueeze(2) - mu) / sigma)**2 - log_sigma - 0.9189385
+
+# ======================================================
+# Vectorized Layers
+# ======================================================
+
+class GaussianInputLayer(nn.Module):
+    """
+    Input layer with Mixture of Gaussians per channel.
+    Input:  (B, C, H, W)
+    Output: (B, C * K, H, W)
+    """
+    def __init__(self, n_features, n_mixtures=4):
+        super().__init__()
+        self.n_features = n_features
+        self.n_mixtures = n_mixtures
+        
+        # Parameters: (1, C, K, 1, 1)
+        self.mus = nn.Parameter(torch.randn(1, n_features, n_mixtures, 1, 1))
+        self.log_sigmas = nn.Parameter(torch.zeros(1, n_features, n_mixtures, 1, 1))
+        
+    def init_params(self, x):
+        """Initialize mus/sigmas from data statistics using Quantiles."""
+        # x: (B, C, H, W)
         with torch.no_grad():
-            logits = self.evaluate(inputs)
-            preds = torch.argmax(logits, dim=1, keepdim=True)
-            return preds.cpu().numpy()
+            B, C, H, W = x.shape
+            # Flatten spatial and batch to get stats per channel
+            # We want to spread means across the data range
+            for c in range(C):
+                vals = x[:, c, :, :].reshape(-1)
+                # Compute quantiles to spread means
+                q = torch.linspace(0.05, 0.95, self.n_mixtures).to(x.device)
+                means = torch.quantile(vals, q)
+                
+                # Assign to mus
+                self.mus.data[0, c, :, 0, 0] = means
+                
+                # Estimate std based on overall range / mixtures
+                # Clamp the std lower bound to prevent torch.log from receiving 0 on static feature maps
+                std = max(vals.std().item(), 1e-4) / self.n_mixtures
+                self.log_sigmas.data[0, c, :, 0, 0] = torch.log(torch.full((self.n_mixtures,), std))
 
-    # -----------------------------
-    # Training helpers
-    # -----------------------------
-    def named_parameters(self):
-        # Yield names that reflect expert indices and selector
-        for k, e in enumerate(self.experts):
-            # Prefer the explicit params list to keep consistency with PCNet
-            if hasattr(e.model, "params") and len(getattr(e.model, "params", [])):
-                for i, p in enumerate(e.model.params):
-                    yield f"experts.{k}.param_{i}", p
+    def forward(self, x):
+        if x.dim() == 2: # Handle flattened case just in case
+             x = x.view(x.shape[0], self.n_features, 1, 1)
+             
+        # log_prob: (B, C, K, H, W)
+        log_prob = log_gaussian_jit(x, self.mus, self.log_sigmas)
+        
+        B, C, K, H, W = log_prob.shape
+        # Flatten C, K -> (B, C*K, H, W)
+        return log_prob.view(B, C * K, H, W)
+
+class SumLayer(nn.Module):
+    """
+    Log-Space 1x1 Convolution.
+    Mixes C_in channels to C_out channels.
+    """
+    def __init__(self, in_channels, out_channels):
+        super().__init__()
+        self.in_channels = in_channels
+        self.out_channels = out_channels
+        self.weights = nn.Parameter(torch.randn(out_channels, in_channels) * 0.01)
+        
+    def forward(self, x):
+        # x: (B, C_in, H, W)
+        # Weights normalized along dim=1 (sum over inputs = 1)
+        log_w = torch.log_softmax(self.weights, dim=1)
+        
+        # Compute: log( sum_j exp(x_j + w_ij) )
+        # Broadcast: (1, Out, In, 1, 1) + (B, 1, In, H, W)
+        # Sum over In (dim=2)
+        return torch.logsumexp(log_w.view(1, self.out_channels, self.in_channels, 1, 1) + 
+                               x.unsqueeze(1), dim=2)
+
+class ProductLayer(nn.Module):
+    """
+    Spatial Pooling (2x2).
+    """
+    def __init__(self):
+        super().__init__()
+        self.pool = nn.AvgPool2d(kernel_size=2, stride=2)
+        
+    def forward(self, x):
+        # Sum of log-probs in 2x2 window
+        # AvgPool computes Sum/4, so we multiply by 4
+        return self.pool(x) * 4.0
+
+class SpatialPCNet(nn.Module):
+    def __init__(self, in_channels, n_mixtures=10, depth=3, channels_per_layer=32):
+        super().__init__()
+        self.depth = depth
+        
+        # 1. Input Leaf Layer
+        self.input_layer = GaussianInputLayer(in_channels, n_mixtures)
+        current_c = in_channels * n_mixtures
+        
+        self.layers = nn.ModuleList()
+        
+        # 2. Build Pyramid
+        for d in range(depth):
+            # Sum Layer: Mixes channels
+            sum_layer = SumLayer(current_c, channels_per_layer)
+            self.layers.append(sum_layer)
+            
+            # Product Layer: Downsamples spatial
+            prod_layer = ProductLayer()
+            self.layers.append(prod_layer)
+            
+            current_c = channels_per_layer
+            
+        # 3. Root Layer
+        # Final mix to 1 channel
+        self.root = SumLayer(current_c, 1)
+
+    def init_network(self, x):
+        """Data-dependent initialization."""
+        self.input_layer.init_params(x)
+
+    def forward(self, x):
+        # Save original spatial dims for upsampling
+        orig_H, orig_W = x.shape[2], x.shape[3]
+        
+        out = self.input_layer(x)
+        
+        for layer in self.layers:
+            out = layer(out)
+            
+        # Final mix
+        out = self.root(out) # (B, 1, H', W')
+        
+        # Instead of summing to scalar, we return the spatial map.
+        # If the map is smaller than input, we can upsample it to serve as a pixel-wise score map.
+        # This is an approximation for anomaly detection: we distribute the region's score to its pixels.
+        
+        if out.shape[2] != orig_H or out.shape[3] != orig_W:
+            out = F.interpolate(out, size=(orig_H, orig_W), mode='bilinear', align_corners=False)
+            
+        return out # (B, 1, H, W)
+
+class RobustInputLayer(nn.Module):
+    """
+    Input layer that wraps the robust `InputNode` (Gauss, Laplace, Student-T).
+    Input:  (B, C, H, W)
+    Output: (B, C, H, W)
+    """
+    def __init__(self, in_channels):
+        super().__init__()
+        self.in_channels = in_channels
+        self.leaves = nn.ModuleList([InputNode(i) for i in range(in_channels)])
+        
+    def init_params(self, x):
+        for leaf in self.leaves:
+            leaf.fit(x)
+            
+    def forward(self, x):
+        leaf_outputs = [leaf(x) for leaf in self.leaves]
+        return torch.cat(leaf_outputs, dim=1) # (B, C, H, W)
+
+class RobustSpatialPCNet(nn.Module):
+    """
+    A variant of SpatialPCNet that uses the robust `InputNode` 
+    (which models Gauss, Laplace, and Student-T components) 
+    instead of just Gaussians.
+    """
+    def __init__(self, in_channels, depth=3, channels_per_layer=32):
+        super().__init__()
+        self.depth = depth
+        
+        # 1. Input Leaf Layer
+        self.input_layer = RobustInputLayer(in_channels)
+        # Note: RobustInputLayer outputs exactly `in_channels`
+        # Because the mixtures are integrated within each InputNode
+        current_c = in_channels
+        
+        self.layers = nn.ModuleList()
+        
+        # 2. Build Pyramid
+        for d in range(depth):
+            # Sum Layer: Mixes channels
+            sum_layer = SumLayer(current_c, channels_per_layer)
+            self.layers.append(sum_layer)
+            
+            # Product Layer: Downsamples spatial
+            prod_layer = ProductLayer()
+            self.layers.append(prod_layer)
+            
+            current_c = channels_per_layer
+            
+        # 3. Root Layer
+        # Final mix to 1 channel
+        self.root = SumLayer(current_c, 1)
+
+    def init_network(self, x):
+        """Data-dependent initialization."""
+        self.input_layer.init_params(x)
+
+    def forward(self, x):
+        # Save original spatial dims for upsampling
+        orig_H, orig_W = x.shape[2], x.shape[3]
+        
+        out = self.input_layer(x)
+        
+        for layer in self.layers:
+            out = layer(out)
+            
+        # Final mix
+        out = self.root(out) # (B, 1, H', W')
+        
+        if out.shape[2] != orig_H or out.shape[3] != orig_W:
+            out = F.interpolate(out, size=(orig_H, orig_W), mode='bilinear', align_corners=False)
+            
+        return out # (B, 1, H, W)
+
+class HybridPCNet(nn.Module):
+    """
+    Implements a Monolithic Coarse-to-Fine (Cascade) Anomaly Detection Pipeline.
+    Instead of two disjoint networks, this network shares its base `InputNode`s.
+    1. Spatial Pyramid: Pools shared leaf nodes spatially to find candidate anomalous regions.
+    2. Fine Root: Runs strict, complex pixel-wise operations on flagged anomalous regions.
+    """
+    def __init__(self, in_channels, spatial_mixtures=10, spatial_depth=3, max_depth=4, channels_per_layer=32):
+        super().__init__()
+        self.in_channels = in_channels
+        self.spatial_depth = spatial_depth
+        
+        # 1. The fine-grained pixel network (houses the shared Leaves)
+        self.pixel_pc = PCNet(n_classes=2, max_depth=max_depth)
+        
+        # 2. Build the Coarse Spatial Pyramid
+        # The base PCNet produces `in_channels` leaf outputs (1 mixture per channel since InputNode handles them)
+        current_c = in_channels
+        self.spatial_layers = nn.ModuleList()
+        
+        for d in range(spatial_depth):
+            # Sum Layer: Mixes channels
+            self.spatial_layers.append(SumLayer(current_c, channels_per_layer))
+            # Product Layer: Downsamples spatial (2x2)
+            self.spatial_layers.append(ProductLayer())
+            current_c = channels_per_layer
+            
+        # Final spatial mix to 1 channel score
+        self.spatial_root = SumLayer(current_c, 1)
+
+    def init_network(self, x):
+        """Initializes the base PCNet leaves and structure."""
+        self.pixel_pc.init_network(x)
+        
+    def forward(self, x, refine_quantile=0.10):
+        """
+        x: (B, C, H, W)
+        refine_quantile: Fraction of the most anomalous pixels to refine.
+        """
+        B, C, H, W = x.shape
+        
+        # 1. Evaluate Shared Leaves (InputNodes)
+        # outputs shape (B, C, H, W) representing log-probs of each input feature
+        leaf_outputs = [leaf(x) for leaf in self.pixel_pc.leaves]
+        leaf_stack = torch.cat(leaf_outputs, dim=1) # (B, C, H, W)
+        
+        # 2. Coarse Spatial Pass
+        out = leaf_stack
+        for layer in self.spatial_layers:
+            out = layer(out)
+            
+        coarse_log_prob = self.spatial_root(out) # (B, 1, H', W')
+        
+        # Upsample coarse map to original resolution to assign scores pixel-wise
+        if coarse_log_prob.shape[2] != H or coarse_log_prob.shape[3] != W:
+            coarse_log_prob = F.interpolate(coarse_log_prob, size=(H, W), mode='bilinear', align_corners=False)
+        
+        # Initialize blended final map
+        final_map = coarse_log_prob.clone()
+        
+        # 3. Identify Anomalous Pixels dynamically via Quantile
+        flat_coarse = coarse_log_prob.view(B, -1)
+        q_thresh = torch.quantile(flat_coarse, q=refine_quantile, dim=1, keepdim=True).view(B, 1, 1, 1)
+        refine_mask = (coarse_log_prob <= q_thresh) # (B, 1, H, W)
+        
+        if not refine_mask.any():
+            return final_map
+            
+        # 4. Extract and Refine Anomalous Pixels
+        for b in range(B):
+            mask_b = refine_mask[b, 0] # (H, W)
+            if not mask_b.any():
+                continue
+                
+            # Extract raw pixels: (C, H, W) -> (N_pixels, C)
+            pixels = x[b].permute(1, 2, 0)[mask_b] 
+            
+            # Reshape for PCNet InputNode fallback processing: (N, C, 1, 1)
+            # Alternatively, we could manually pass leaf_outputs, but passing raw
+            # pixels through `self.pixel_pc` is cleaner since `PCNet.forward()`
+            # handles the full bottom-up traversal natively on whatever shape we give it.
+            pixels_reshaped = pixels.view(-1, C, 1, 1)
+            
+            # Forward pass through the exact same PyTorch Graph
+            fine_out = self.pixel_pc(pixels_reshaped) 
+            
+            # Marginalize out the class splits -> (N_pixels,)
+            fine_log_prob = torch.logsumexp(fine_out, dim=1).view(-1) 
+            
+            # Replace coarse scores with fine-grained evidence
+            final_map[b, 0, mask_b] = fine_log_prob
+            
+        return final_map
+
+class RandomSpatialPCEnsemble(nn.Module):
+    """
+    An optimized, fully-differentiable ensemble of SpatialPCNets.
+    Initializes models sequentially on the target device, avoiding joblib multiprocessing overhead
+    and pickling issues.
+    """
+    def __init__(self, n_models=10, device="cpu", **model_params):
+        """
+        Args:
+            n_models: Number of random SpatialPCNets in the ensemble.
+            device: 'cpu' or 'cuda'.
+            **model_params: Arguments passed to SpatialPCNet (in_channels, n_mixtures, depth, channels_per_layer).
+        """
+        super().__init__()
+        self.n_models = n_models
+        self.target_device = device
+        self.model_params = model_params
+        
+        # Use ModuleList so PyTorch automatically tracks all sub-models
+        self.models = nn.ModuleList()
+
+    def init_network(self, X):
+        """
+        Builds and initializes the entire ensemble sequentially.
+        X: Tensor (B, C, H, W).
+        """
+        # Ensure data is on the correct device for initialization
+        if not isinstance(X, torch.Tensor):
+            X = torch.tensor(X, dtype=torch.float32)
+        X = X.to(self.target_device)
+        
+        in_channels = self.model_params.get("input_channels", X.shape[1])
+        n_mixtures = self.model_params.get("n_mixtures", 10)
+        depth = self.model_params.get("max_depth", 3)
+        channels_per_layer = self.model_params.get("channels_per_layer", 32)
+        
+        for i in range(self.n_models):
+            # 1. Initialize with random structure per model
+            # While the structure of SpatialPCNet is actually fixed, if there are random components,
+            # this loop handles creating independent instances.
+            model = SpatialPCNet(
+                in_channels=in_channels,
+                n_mixtures=n_mixtures,
+                depth=depth,
+                channels_per_layer=channels_per_layer
+            ).to(self.target_device)
+            
+            # 2. Structure Learning & Leaf Initialization
+            model.init_network(X)
+            
+            self.models.append(model)
+            
+        # Ensure entire ensemble is on the target device
+        self.to(self.target_device)
+
+    def forward(self, x):
+        """
+        Forward pass for the ensemble.
+        Returns the averaged log-likelihood per pixel.
+        """
+        # 1. Get log probabilities from each model in the ensemble
+        # Each model outputs shape (B, 1, H, W)
+        log_probs_list = [m(x) for m in self.models]
+        
+        # 2. Stack: Output shape becomes (N_Models, B, 1, H, W)
+        stack = torch.stack(log_probs_list, dim=0)
+        
+        # 3. Ensemble Averaging (Log-Sum-Exp trick)
+        # log(Mean(P)) = LogSumExp(log_P) - log(N)
+        return torch.logsumexp(stack, dim=0) - np.log(self.n_models)
+
+class RandomHybridPCEnsemble(nn.Module):
+    """
+    An optimized, fully-differentiable ensemble of HybridPCNets.
+    Initializes models sequentially on the target device.
+    """
+    def __init__(self, n_models=10, device="cpu", **model_params):
+        """
+        Args:
+            n_models: Number of random HybridPCNets in the ensemble.
+            device: 'cpu' or 'cuda'.
+            **model_params: Arguments passed to HybridPCNet.
+        """
+        super().__init__()
+        self.n_models = n_models
+        self.target_device = device
+        self.model_params = model_params
+        
+        self.models = nn.ModuleList()
+
+    def init_network(self, X):
+        """
+        Builds and initializes the hybrid ensemble sequentially.
+        X: Tensor (B, C, H, W).
+        """
+        if not isinstance(X, torch.Tensor):
+            X = torch.tensor(X, dtype=torch.float32)
+        X = X.to(self.target_device)
+        
+        in_channels = self.model_params.get("input_channels", X.shape[1])
+        spatial_mixtures = self.model_params.get("spatial_mixtures", 5)
+        spatial_depth = self.model_params.get("spatial_depth", 3)
+        max_depth = self.model_params.get("max_depth", 4)
+        channels_per_layer = self.model_params.get("channels_per_layer", 32)
+        
+        for i in range(self.n_models):
+            # 1. Initialize Hybrid Model
+            model = HybridPCNet(
+                in_channels=in_channels,
+                spatial_mixtures=spatial_mixtures,
+                spatial_depth=spatial_depth,
+                max_depth=max_depth,
+                channels_per_layer=channels_per_layer
+            ).to(self.target_device)
+            
+            # 2. Structure Learning & Leaf Initialization
+            model.init_network(X)
+            
+            self.models.append(model)
+            
+        self.to(self.target_device)
+
+    def forward(self, x, refine_quantile=0.10):
+        """
+        Forward pass for the hybrid ensemble.
+        Passes down the refine_quantile threshold to each HybridPCNet.
+        """
+        # 1. Get log probabilities from each hybrid model
+        log_probs_list = [m(x, refine_quantile=refine_quantile) for m in self.models]
+        
+        # 2. Stack: (N_Models, B, 1, H, W)
+        stack = torch.stack(log_probs_list, dim=0)
+        
+        # 3. Ensemble Averaging via Log-Sum-Exp
+        return torch.logsumexp(stack, dim=0) - np.log(self.n_models)
+
+class RandomPCEnsemble(nn.Module):
+    """
+    An optimized, fully-differentiable ensemble of basic PCNets.
+    Initializes models sequentially on the target device.
+    """
+    def __init__(self, n_models=10, device="cpu", **model_params):
+        """
+        Args:
+            n_models: Number of random PCNets in the ensemble.
+            device: 'cpu' or 'cuda'.
+            **model_params: Arguments passed to PCNet.
+        """
+        super().__init__()
+        self.n_models = n_models
+        self.target_device = device
+        self.model_params = model_params
+        
+        self.models = nn.ModuleList()
+
+    def init_network(self, X):
+        """
+        Builds and initializes the entire ensemble sequentially.
+        X: Tensor (B, C, H, W) or (N, C).
+        """
+        if not isinstance(X, torch.Tensor):
+            X = torch.tensor(X, dtype=torch.float32)
+        X = X.to(self.target_device)
+        
+        n_classes = self.model_params.get("n_classes", 2)
+        max_depth = self.model_params.get("max_depth", 4)
+        max_branching = self.model_params.get("max_branching", 3)
+        seed = self.model_params.get("seed", 42)
+        
+        for i in range(self.n_models):
+            # Pass a different seed to each model so they build different random structures
+            model = PCNet(
+                n_classes=n_classes,
+                max_depth=max_depth,
+                max_branching=max_branching,
+                seed=seed + i
+            ).to(self.target_device)
+            
+            # Structure Learning & Leaf Initialization
+            model.init_network(X)
+            
+            self.models.append(model)
+            
+        self.to(self.target_device)
+
+    def forward(self, x):
+        """
+        Forward pass for the ensemble.
+        Returns the averaged log-likelihood.
+        """
+        log_probs_list = [m(x) for m in self.models]
+        stack = torch.stack(log_probs_list, dim=0)
+        # Ensemble Averaging (Log-Sum-Exp trick)
+        return torch.logsumexp(stack, dim=0) - np.log(self.n_models)
+
+class RandomEnsembleAttentionalPCNet(nn.Module):
+    """
+    Random Ensemble wrapper for the AttentionalPCNet architecture.
+    """
+    def __init__(self, n_models=5, device="cpu", **model_params):
+        super().__init__()
+        self.n_models = n_models
+        self.target_device = device
+        self.model_params = model_params
+        self.models = nn.ModuleList()
+        self.ensemble_mode = model_params.get("ensemble_mode", "independent")
+        self.diversity_weight = model_params.get("diversity_weight", 1.0)
+
+    def init_network(self, X):
+        if not isinstance(X, torch.Tensor):
+            X = torch.tensor(X, dtype=torch.float32)
+        X = X.to(self.target_device)
+        
+        in_channels = self.model_params.get("input_channels", X.shape[1] if X.dim() == 4 else X.shape[-1])
+        n_classes = self.model_params.get("n_classes", 2)
+        max_depth = self.model_params.get("max_depth", 4)
+        max_branching = self.model_params.get("max_branching", 3)
+        seed = self.model_params.get("seed", 42)
+        embed_dim = self.model_params.get("embed_dim", 32)
+        
+        for i in range(self.n_models):
+            # Apply unique seed per architecture permutation
+            model = AttentionalPCNet(
+                in_channels=in_channels,
+                n_classes=n_classes,
+                max_depth=max_depth,
+                max_branching=max_branching,
+                seed=seed + i,
+                embed_dim=embed_dim
+            ).to(self.target_device)
+            
+            model.init_network(X)
+            self.models.append(model)
+            
+        self.to(self.target_device)
+
+    def forward(self, x):
+        log_probs_list = [m(x) for m in self.models]
+        stack = torch.stack(log_probs_list, dim=0)
+        
+        if self.training:
+            if self.ensemble_mode == "independent":
+                # Independent Training: completely detaches gradient coupling
+                return stack.mean(dim=0)
+            elif self.ensemble_mode == "diversity":
+                # Joint Training with Diversity Loss (Entropy Regularization)
+                # Compute mixture log-probability
+                log_mix = torch.logsumexp(stack, dim=0) - np.log(self.n_models)
+                
+                # Mixture weights for each expert: P(m|x)
+                log_w = stack - torch.logsumexp(stack, dim=0, keepdim=True)
+                p_w = torch.exp(log_w)
+                
+                # Negative Entropy Penalty: sum(p * log p). 
+                # Minimizing this maximizes entropy (forces diversity)
+                penalty = torch.sum(p_w * log_w, dim=0) 
+                
+                # Subtracting penalty from log-likelihood means -mean(output) in loss computes NLL + weight * penalty
+                return log_mix - self.diversity_weight * penalty
             else:
-                for name, p in e.model.named_parameters():
-                    yield f"experts.{k}.{name}", p
-        if isinstance(self.selector, nn.Module):
-            # Named parameters for selector
-            for name, p in self.selector.named_parameters():
-                yield f"selector.{name}", p
-
-    def state_dict(self):
-        state = {}
-        # Experts
-        for k, e in enumerate(self.experts):
-            # Snapshot all parameters from each node/module via PCNet.state_dict()
-            sd = e.model.state_dict()
-            for key, tensor in sd.items():
-                state[f"experts.{k}.{key}"] = tensor
-        # Selector
-        if isinstance(self.selector, nn.Module):
-            for name, p in self.selector.named_parameters():
-                state[f"selector.{name}"] = p.detach().clone()
-        return state
-
-    def load_state_dict(self, state_dict: dict, strict: bool = False):
-        loaded, missing = 0, 0
-        # Experts
-        for k, e in enumerate(self.experts):
-            # Extract subset for this expert
-            prefix = f"experts.{k}."
-            sub = {k2[len(prefix):]: v for k2, v in state_dict.items() if k2.startswith(prefix)}
-            stats = e.model.load_state_dict(sub, strict=strict)
-            loaded += stats.get("loaded", 0)
-            missing += stats.get("missing", 0)
-        # Selector
-        if isinstance(self.selector, nn.Module):
-            for name, p in self.selector.named_parameters():
-                key = f"selector.{name}"
-                if key in state_dict:
-                    with torch.no_grad():
-                        src = state_dict[key].to(p.device)
-                        if src.shape == p.shape:
-                            p.copy_(src)
-                            loaded += 1
-                        else:
-                            # partial copy fallback
-                            n = min(src.numel(), p.numel())
-                            p.view(-1)[:n].copy_(src.view(-1)[:n])
-                            loaded += 1
-                else:
-                    missing += 1
-        try:
-            print_debugging(f"MultiPCNet load_state: loaded={loaded}, missing={missing}")
-        except Exception:
-            pass
-        return {"loaded": loaded, "missing": missing}
-
-    # -----------------------------
-    # Reporting
-    # -----------------------------
-    def save_dict(self):
-        info = {
-            "model_type": "MultiPCNet",
-            "name": self.name,
-            "device": self.device,
-            "n_classes": self.n_classes,
-            "n_experts": len(self.experts),
-            "selector_mode": self.selector_mode,
-        }
-        info["experts"] = [e.save_dict() for e in self.experts]
-        if isinstance(self.selector, SelectorNode):
-            with torch.no_grad():
-                w = torch.softmax(self.selector.logits, dim=0).detach().cpu().numpy().tolist()
-            info["selector_weights"] = w
-        return info
-
-
-# ================================
-# Convenience trainer (optional)
-# ================================
-class MultiPCNetTrainer:
-    """
-    Minimal training loop hook. Plug in your own loss & dataloaders.
-    Assumes outputs are *logits* over classes per pixel (B,C,H,W) and uses
-    pixel-wise cross-entropy by default.
-    """
-    def __init__(self, model: MultiPCNet, lr: float = 1e-3, weight_decay: float = 0.0):
-        self.model = model
-        # Build optimizer over collected parameters
-        params = [p for _, p in model.named_parameters() if p.requires_grad]
-        self.opt = torch.optim.Adam(params, lr=lr, weight_decay=weight_decay)
-
-    def loss_fn(self, logits: torch.Tensor, targets: torch.Tensor):
-        # logits in log-space; convert to prob via log_softmax? they should already be log-probs.
-        # Targets expected (B,1,H,W) or (B,H,W) with class indices.
-        if targets.ndim == 4 and targets.size(1) == 1:
-            targets = targets.squeeze(1)
-        return F.nll_loss(F.log_softmax(logits, dim=1), targets)
-
-    def step(self, x: torch.Tensor, y: torch.Tensor):
-        self.opt.zero_grad()
-        logits = self.model.evaluate(x)
-        loss = self.loss_fn(logits, y)
-        loss.backward()
-        self.opt.step()
-        return float(loss.item())
-
-    @torch.no_grad()
-    def eval_batch(self, x: torch.Tensor, y: torch.Tensor):
-        logits = self.model.evaluate(x)
-        if y.ndim == 4 and y.size(1) == 1:
-            y_ = y.squeeze(1)
+                # Standard Joint Training (Prone to Winner-Takes-All Mode Collapse)
+                return torch.logsumexp(stack, dim=0) - np.log(self.n_models)
         else:
-            y_ = y
-        pred = logits.argmax(dim=1)
-        acc = (pred == y_).float().mean().item()
-        return acc
-
-
-# ================================
-# Example wiring (usage)
-# ================================
-"""
-from your_pcnet_impl import PCNet
-
-# Build
-mnet = MultiPCNet(
-    base_pcnet_cls=PCNet,
-    n_experts=3,
-    input_size=(256,256),
-    n_classes=2,
-    device="cpu",
-    max_depth=4,
-    max_branching=3,
-    selector_mode="soft",  # or "hard" / "gated"
-    bootstrap=True,
-)
-
-# Initialize (pass a representative batch for InputNode fitting)
-mnet.init_network(train_inputs, train_labels)
-
-# Train with your loop or the convenience trainer
-trainer = MultiPCNetTrainer(mnet, lr=1e-3)
-for x, y in train_loader:
-    loss = trainer.step(x, y)
-
-# Inference
-with torch.no_grad():
-    out = mnet.evaluate(x)      # (B,C,H,W) log-probs
-    pred = mnet.predict(x)      # numpy labels
-
-# Introspection
-print(mnet.save_dict())
-"""
-
+            # Ensemble Averaging (LogSumExp Trick) for Test-time evaluation
+            return torch.logsumexp(stack, dim=0) - np.log(self.n_models)
 
