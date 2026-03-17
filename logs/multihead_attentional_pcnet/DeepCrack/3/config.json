@@ -6,8 +6,8 @@
     "embed_dim": 8,
     "device": "cpu",
     "n_cpus": 0,
-    "data_path": "data/crackseg9k_split/GAPS384/train",
-    "test_path": "data/crackseg9k_split/GAPS384/test",
+    "data_path": "data/crackseg9k_split/DeepCrack/train",
+    "test_path": "data/crackseg9k_split/DeepCrack/test",
     "save_path": "models/",
     "validation_split": 0.2,
     "epochs": 50,
@@ -25,5 +25,8 @@
     "execution_mode": "train",
     "learning_rate": 0.01,
     "ensemble_mode": "diversity",
-    "diversity_weight": 0.5
+    "diversity_weight": 0.5,
+    "seed": 3,
+    "preprocessing": false,
+    "log_dir": "logs/multihead_attentional_pcnet/DeepCrack/3"
 }

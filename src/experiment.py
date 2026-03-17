@@ -71,6 +71,7 @@ def run_experiment(config):
     elif config["algorithm"] in ["spatial_pcnet"]:
         experiment = ExperimentSpatialPCNet(config)
         experiment.run()
+    
         
     elif config["algorithm"] in ["attentional_pcnet"]:
         experiment = ExperimentAttentionalPCNet(config)
@@ -92,9 +93,6 @@ def run_experiment(config):
         experiment = ExperimentGEPC(config)
         experiment.run()
     
-    elif config["algorithm"] in ["spatial_pcnet_random_ensemble"]:
-        experiment = ExperimentSpatialEnsemblePC(config)
-        experiment.run()
         
     elif config["algorithm"] in ["hybrid_pcnet"]:
         experiment = ExperimentHybridPCNet(config)
@@ -104,22 +102,17 @@ def run_experiment(config):
         experiment = ExperimentHybridPCNetRandomEnsemble(config)
         experiment.run()
 
-    elif config["algorithm"] in ["deep_feature_pcnet"]:
-        experiment = ExperimentDeepFeaturePCNet(config)
+    elif config["algorithm"] in ["attentional_robust_structural_pcnet"]:
+        experiment = ExperimentAttentionalRobustStructuralPCNet(config)
         experiment.run()
 
-    elif config["algorithm"] in ["deep_feature_pcnet_random_ensemble"]:
-        experiment = ExperimentDeepFeaturePCNetRandomEnsemble(config)
+    elif config["algorithm"] in ["robust_structural_pcnet"]:
+        experiment = ExperimentRobustStructuralPCNet(config)
         experiment.run()
-
-    elif config["algorithm"] in ["adversarial_pcnet"]:
-        experiment = ExperimentAdversarialPCNet(config)
+    
+    elif config["algorithm"] in ["multihead_attentional_pcnet"]:
+        experiment = ExperimentMultiHeadAttentionalPCNet(config)
         experiment.run()
-
-    elif config["algorithm"] in ["autoencoder_pc_prior"]:
-        experiment = ExperimentAutoencoderPCPrior(config)
-        experiment.run()
-
     else:
         raise ValueError(f"Algorithm {config['algorithm']} not supported")
     
@@ -276,7 +269,6 @@ class DiceCELoss(nn.Module):
         dl = self.dice_loss(pred, target)
         return 0.2*ce + 0.1*dl + self.gamma*(1 - cl)
 
-
 class UnsupervisedPCNetLoss(nn.Module):
     """
     A stable, balanced, and segmentation-oriented unsupervised loss for crack detection.
@@ -379,9 +371,6 @@ class UnsupervisedPCNetLoss(nn.Module):
 
         return loss
 
-
-
-    
 class Experiment:
     def __init__(self, config):
         self.config = config
@@ -531,46 +520,41 @@ class Experiment:
         # Mean across classes + batch
         return dice.mean()
 
-
-
-
     def iou_score(self, logits, targets, num_classes=None):
         """
-        logits:  (N, C, H_pred, W_pred)
-        targets: (N, H_gt,  W_gt)
+        logits:  (N, C, H, W) for multi-class OR (N, H, W) binary mask
+        targets: (N, H, W) or (N, 1, H, W)
         """
+        # 1. Squeeze channel dim from targets if present
+        if targets.dim() == 4 and targets.shape[1] == 1:
+            targets = targets.squeeze(1)
 
-        # ----------------------------------------------
-        # 1. Resize logits if spatial dimensions differ
-        # ----------------------------------------------
+        # 2. Resize logits if spatial dimensions differ
         if logits.shape[-2:] != targets.shape[-2:]:
+            was_3d = (logits.dim() == 3)
+            if was_3d: logits = logits.unsqueeze(1)
             logits = torch.nn.functional.interpolate(
-                logits,
-                size=targets.shape[-2:],
-                mode="bilinear",
-                align_corners=False
+                logits.float(), 
+                size=targets.shape[-2:], 
+                mode="nearest" # Nearest is safer for masks/classes
             )
+            if was_3d: logits = logits.squeeze(1)
 
-        # ----------------------------------------------
-        # 2. Convert logits → predicted class indices
-        # ----------------------------------------------
-        preds = torch.argmax(logits, dim=1)   # (N, H, W)
+        # 3. Convert to predicted class indices safely
+        if logits.dim() == 4 and logits.shape[1] > 1:
+            # Multi-class scenario: Take argmax across channels
+            preds = torch.argmax(logits, dim=1)
+            if num_classes is None: num_classes = logits.shape[1]
+        else:
+            # Binary mask scenario (already thresholded or single channel)
+            preds = (logits > 0.5)
+            if num_classes is None: num_classes = 2
 
-        # ----------------------------------------------
-        # 3. Flatten for vectorized IoU computation
-        # ----------------------------------------------
-        preds = preds.view(-1)
-        targets = targets.view(-1)
+        # 4. CRITICAL FIX: Flatten and cast to Long (Integer) for bincount
+        preds = preds.contiguous().view(-1).long()
+        targets = targets.contiguous().view(-1).long()
 
-        # ----------------------------------------------
-        # 4. Determine number of classes
-        # ----------------------------------------------
-        if num_classes is None:
-            num_classes = int(logits.shape[1])
-
-        # ----------------------------------------------
         # 5. Compute confusion matrix
-        # ----------------------------------------------
         confusion = torch.bincount(
             num_classes * targets + preds,
             minlength=num_classes ** 2
@@ -580,37 +564,58 @@ class Experiment:
         FP = confusion.sum(0) - TP
         FN = confusion.sum(1) - TP
 
+        # Compute IoU per class
         IoU = TP / (TP + FP + FN + 1e-7)
-        mIoU = IoU.mean()
-        return mIoU
+        
+        # For binary crack detection, we usually only care about the Foreground IoU (class 1)
+        # But to keep it generic across your framework, we return the mean.
+        return IoU.mean()
 
-
-
-    def cl_iou_score(self,pred_mask, true_mask, tau=4):
+    def cl_iou_score(self, pred_mask, true_mask, tau=4):
         """
-        pred_mask, true_mask: (B,1,H,W)
+        Calculates the true Centerline-IoU (clIoU) using topological skeletonization.
         """
+        import skimage.morphology as morph  # <-- Added missing import here
+        import cv2
+        import numpy as np
+        import torch
+        import torch.nn.functional as F
+        
+        # Squeeze channel dim if needed to ensure shape is (B, 1, H, W)
+        if pred_mask.dim() == 3: pred_mask = pred_mask.unsqueeze(1)
+        if true_mask.dim() == 3: true_mask = true_mask.unsqueeze(1)
+
         B = pred_mask.shape[0]
         device = pred_mask.device
-        pred_mask = (pred_mask > 0.5).float()
-        true_mask = (true_mask > 0.5).float()
+        
+        # 1. Binarize and move to CPU numpy for topological thinning
+        pm_np = (pred_mask > 0.5).cpu().numpy().astype(bool)
+        tm_np = (true_mask > 0.5).cpu().numpy().astype(bool)
+        
+        skel_pred_np = np.zeros_like(pm_np)
+        skel_true_np = np.zeros_like(tm_np)
+        
+        # 2. Extract TRUE Centerlines (Iterative Thinning)
+        for b in range(B):
+            # skimage skeletonize expects a 2D boolean array
+            skel_pred_np[b, 0] = morph.skeletonize(pm_np[b, 0])
+            skel_true_np[b, 0] = morph.skeletonize(tm_np[b, 0])
+            
+        # Convert true centerlines back to PyTorch tensors
+        skel_pred = torch.tensor(skel_pred_np, dtype=torch.float32, device=device)
+        skel_true = torch.tensor(skel_true_np, dtype=torch.float32, device=device)
 
-        # Skeletonization approximation
-        kernel_3 = torch.ones((1, 1, 3, 3), device=device)
-        eroded_true = F.max_pool2d(1 - true_mask, 3, 1, 1)
-        eroded_pred = F.max_pool2d(1 - pred_mask, 3, 1, 1)
-        skel_true = torch.relu(true_mask - (1 - eroded_true))
-        skel_pred = torch.relu(pred_mask - (1 - eroded_pred))
-
-        # --- Dilation ---
+        # 3. Dilation
         k_np = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (2*tau+1, 2*tau+1))
         k = torch.tensor(k_np, dtype=torch.float32, device=device)[None, None, :, :]
+        
         dil_true = (F.conv2d(skel_true, k, padding=tau, groups=1) > 0).float()
         dil_pred = (F.conv2d(skel_pred, k, padding=tau, groups=1) > 0).float()
 
-        TPcl = (skel_true * dil_pred).sum(dim=(1,2,3))
-        FPcl = (skel_pred * (1 - dil_true)).sum(dim=(1,2,3))
-        FNcl = (skel_true * (1 - dil_pred)).sum(dim=(1,2,3))
+        # 4. Intersection Metrics
+        TPcl = (skel_true * dil_pred).sum(dim=(1, 2, 3))
+        FPcl = (skel_pred * (1 - dil_true)).sum(dim=(1, 2, 3))
+        FNcl = (skel_true * (1 - dil_pred)).sum(dim=(1, 2, 3))
 
         cl_iou = TPcl / (TPcl + FPcl + FNcl + 1e-8)
         return cl_iou.mean().item()
@@ -686,9 +691,6 @@ class Experiment:
 
     def log_results(self):
         pass
-
-
-
 
 class ExperimentDL(Experiment):
     def __init__(self, config):
@@ -1074,7 +1076,6 @@ class ExperimentDL(Experiment):
             json.dump(self.experiment_dict, open(os.path.join(self.log_path, "experiment_results.json"), "w"), indent=4)
             self.show_predictions(self.model, self.test_data, self.device, num_samples=2, threshold=self.threshold)
 
-
 class UNetExperiment(ExperimentDL):
 
     def __init__(self, config):
@@ -1156,235 +1157,6 @@ class ExperimentDeepCrackZ(ExperimentDL):
     def load_model(self, model_name="deepcrackL"):
         self.model.load_state_dict(torch.load(os.path.join(self.save_path, f"{model_name}.pth")))
 
-# import os
-# import json
-# import torch
-# from torch.utils.data import Subset
-
-# from crackdata_processing import CrackDataset  # your class
-# from nnunetv2.training.nnUNetTrainer.nnUNetTrainer import nnUNetTrainer
-
-# class nnUNetTrainer_Epochs(nnUNetTrainer):
-#     """
-#     Custom trainer to control 'epochs' in nnUNet v2 by defining:
-#       - num_iterations_per_epoch
-#       - num_epochs
-#     Total training iterations = num_epochs * num_iterations_per_epoch
-#     """
-
-#     def __init__(self, plans, configuration, fold, dataset_json, unpack_dataset=True,
-#                  device=None, **kwargs):
-#         super().__init__(plans, configuration, fold, dataset_json,
-#                          unpack_dataset=unpack_dataset, device=device, **kwargs)
-
-#         # Read custom values passed via kwargs (nnUNet forwards unknown args into trainer kwargs)
-#         self._custom_num_epochs = int(kwargs.get("epochs", 100))
-#         self._custom_iters_per_epoch = int(kwargs.get("num_iterations_per_epoch", 250))
-
-#     @property
-#     def num_iterations_per_epoch(self) -> int:
-#         return self._custom_iters_per_epoch
-
-#     @property
-#     def num_epochs(self) -> int:
-#         return self._custom_num_epochs
-
-
-# class ExperimentNNUNet(Experiment):
-#     def __init__(self, config):
-#         super().__init__(config)
-
-#         # nnUNet config
-#         self.dataset_id = int(config.get("nnunet_dataset_id", 777))
-#         self.dataset_name = config.get("nnunet_dataset_name", "Cracks")
-#         self.nn_cfg = config.get("nnunet_config", "2d")
-#         self.folds = config.get("nnunet_folds", [0])
-#         self.num_gpus = int(config.get("nnunet_num_gpus", 1))
-#         self.trainer = config.get("nnunet_trainer", "nnUNetTrainer")
-#         self.plans = config.get("nnunet_plans", "nnUNetPlans")
-
-#         # Ensure writable nnUNet dirs (falls back to ./nnunet_data/* if needed)
-#         resolve_nnunet_paths(self.config)
-
-#         self.nnUNet_raw = self.config["nnUNet_raw"]
-#         self.nnUNet_preprocessed = self.config["nnUNet_preprocessed"]
-#         self.nnUNet_results = self.config["nnUNet_results"]
-
-#         self._env = os.environ.copy()
-#         self._env["nnUNet_raw"] = self.nnUNet_raw
-#         self._env["nnUNet_preprocessed"] = self.nnUNet_preprocessed
-#         self._env["nnUNet_results"] = self.nnUNet_results
-
-
-#         self.model_name = config.get("model_name", "nnunet")  # only for logging labeling
-
-#     def set_algorithm(self):
-#         # nnUNet decides architecture/training internally
-#         pass
-
-#     def setup(self, pos_weight=1.0):
-#         pass
-
-#     def save(self):
-#         pass
-
-#     def load(self):
-#         pass
-
-#     def validate(self):
-#         pass
-
-#     def resolve_sample_count(self, sample_size, n_total: int) -> int:
-#         if sample_size is None:
-#             return n_total
-#         s = float(sample_size)
-#         if 0 < s <= 1:
-#             return max(1, int(round(s * n_total)))
-#         return int(min(s, n_total))
-
-#     def _build_train_subset(self):
-#         full = self.data
-#         n = len(full)
-#         k = self.resolve_sample_count(self.sample_size, n)
-
-#         g = torch.Generator()
-#         g.manual_seed(int(self.config.get("seed", 42)))
-#         idx = torch.randperm(n, generator=g)[:k].tolist()
-#         return torch.utils.data.Subset(full, idx)
-
-#     def set_dataset(self, train_path, test_path=None):
-#         # Keep your same folder conventions
-
-#         self.images_path = os.path.join(train_path, "images")
-#         self.ground_truth_path = os.path.join(train_path, "masks")
-
-#         self.data = CrackDataset(
-#             self.images_path,
-#             self.ground_truth_path,
-#             sample_size=None,  # we handle sample_size via Subset for seed control
-#             resize_size=(self.resize_size[0], self.resize_size[1]),
-#             preprocessing=self.preprocessing
-#         )
-
-#         self.train_data = self._build_train_subset()
-
-#         # nnUNet doesn't need your val split; it does its own CV folds.
-#         # We keep val_data for compatibility, but don't use it.
-#         self.val_data = None
-
-#         if test_path is not None:
-#             test_images = os.path.join(test_path, "images")
-#             test_masks = os.path.join(test_path, "masks")
-#             self.test_data = CrackDataset(
-#                 test_images,
-#                 test_masks,
-#                 sample_size=self.test_size,
-#                 resize_size=(self.resize_size[0], self.resize_size[1]),
-#                 preprocessing=self.preprocessing
-#             )
-#         else:
-#             self.test_data = None
-
-#     def train(self):
-#         # export subset to nnUNet_raw
-#         export_crackdataset_subset_to_nnunet_raw(
-#             train_ds=self.train_data,
-#             test_ds=self.test_data,
-#             nnunet_raw_dir=self.nnUNet_raw,
-#             dataset_id=self.dataset_id,
-#             dataset_name=self.dataset_name,
-#             input_channels=int(self.config.get("input_channels", 3))
-#         )
-
-#         nnunet_plan_preprocess(self.dataset_id, env=self._env)
-
-#         # You can train "all" folds for proper nnUNet CV, but it’s expensive.
-#         # If you want faster learning-curve sweeps, train only fold 0:
-#         folds_to_train = self.config.get("nnunet_train_folds", "0")  # "all" or "0"
-#         device = self.config.get("nnunet_device", None)  # allow override
-#         nnunet_train(
-#             dataset_id=self.dataset_id,
-#             cfg=self.nn_cfg,
-#             folds=folds_to_train,
-#             trainer=self.trainer,
-#             plans=self.plans,
-#             num_gpus=self.num_gpus,
-#             env=self._env,
-#             device=device,
-#             num_epochs=int(self.config.get("epochs",80)),
-#             num_iterations_per_epoch=int(self.config.get("nnunet_iter_per_epoch", 250)),
-#         )
-
-#     def evaluate(self):
-#         if self.test_data is None:
-#             print("[INFO] No test set provided; skipping.")
-#             return None
-
-#         ds_folder = f"Dataset{self.dataset_id:03d}_{self.dataset_name}"
-#         raw_base = os.path.join(self.nnUNet_raw, ds_folder)
-#         in_dir = os.path.join(raw_base, "imagesTs")
-
-#         out_dir = os.path.join(self.nnUNet_results, ds_folder, "pred_imagesTs_seed" + str(self.config.get("seed", 0)))
-#         nnunet_predict(
-#             dataset_id=self.dataset_id,
-#             in_dir=in_dir,
-#             out_dir=out_dir,
-#             cfg=self.nn_cfg,
-#             folds=self.folds,
-#             trainer=self.trainer,
-#             plans=self.plans,
-#             env=self._env
-#         )
-
-#         # compute Dice/IoU
-#         dices, ious = [], []
-#         for j in range(len(self.test_data)):
-#             case_id = f"case_{100000 + j:06d}"
-#             pred_path = os.path.join(out_dir, f"{case_id}.nii.gz")
-#             pred = np.squeeze(nib.load(pred_path).get_fdata())  # (H,W) or float
-#             pred01 = (pred > 0.5).astype(np.uint8)
-
-#             _, gt = self.test_data[j]
-#             if isinstance(gt, torch.Tensor):
-#                 gt = gt.detach().cpu().numpy()
-#             gt = np.squeeze(gt)
-#             gt01 = (gt > 0.5).astype(np.uint8)
-
-#             d, i = dice_iou_binary(pred01, gt01)
-#             dices.append(d)
-#             ious.append(i)
-
-#         results = {
-#             "test_dice": float(np.mean(dices)),
-#             "test_iou": float(np.mean(ious)),
-#             "n_train": int(len(self.train_data)),
-#             "seed": int(self.config.get("seed", 0))
-#         }
-
-#         print(f"[nnUNet] n_train={results['n_train']} seed={results['seed']} "
-#               f"Dice={results['test_dice']:.4f} IoU={results['test_iou']:.4f}")
-
-#         # write to your log_dir
-#         with open(os.path.join(self.log_path, "nnunet_results.json"), "w") as f:
-#             json.dump(results, f, indent=2)
-
-#         return results
-
-#     def run(self):
-        # self.set_dataset(self.data_path, self.test_path)
-
-        # if self.execution_mode == "train":
-        #     self.train()
-        #     self.evaluate()
-
-        # elif self.execution_mode == "test":
-        #     self.evaluate()
-
-        # else:
-        #     raise ValueError(f"Execution mode {self.execution_mode} not supported for nnUNet")
-
-
-
 class ExperimentPC(Experiment):
     def __init__(self, config):
         super().__init__(config)
@@ -1457,8 +1229,9 @@ class ExperimentPC(Experiment):
             
             # B. Save the learned structure and weights
             self.save_model()
-            
-            # C. Immediate Evaluation
+            if self.val_data is not None:
+                val_loader = self.get_dataloaders(self.val_data, batch_size=self.batch_size)
+                self.calibrate_threshold(val_loader)
             print_info("\n📊 Running Post-Training Evaluation...")
             self.test_loader = self.get_dataloaders(self.test_data, batch_size=self.batch_size)
             self.test(self.model, self.test_loader)
@@ -1470,10 +1243,10 @@ class ExperimentPC(Experiment):
             if not os.path.exists(os.path.join(self.log_path, f"{self.model_name}.pkl")):
                 print_info(f"❌ Model not found at {self.log_path}. Please train first.")
                 return
-
+            
             self.load_model()
             self.test_loader = self.get_dataloaders(self.test_data, batch_size=self.batch_size)
-            
+            self.calibrate_threshold(self.test_loader)
             # B. Evaluate
             self.test(self.model, self.test_loader)
             
@@ -1554,18 +1327,63 @@ class ExperimentPC(Experiment):
         targets = targets.contiguous().view(-1)
         intersection = (preds * targets).sum()
         return (2. * intersection + smooth) / (preds.sum() + targets.sum() + smooth)
-
-    def iou_score(self, preds, targets, smooth=1e-6):
-        preds = preds.contiguous().view(-1)
-        targets = targets.contiguous().view(-1)
-        intersection = (preds * targets).sum()
-        union = preds.sum() + targets.sum() - intersection
-        return (intersection + smooth) / (union + smooth)
-
-    def cl_iou_score(self, preds, targets, smooth=1e-6):
-        # detailed skeleton analysis is complex; utilizing standard IoU for positive class as proxy
-        # unless specific skeletonization library is available.
-        return self.iou_score(preds, targets, smooth)
+    
+    def calibrate_threshold(self, val_loader):
+        print_info("🔍 Calibrating optimal threshold to maximize F1-Score...")
+        self.model.eval()
+        all_probs, all_targets = [], []
+        
+        with torch.no_grad():
+            for batch in val_loader:
+                if isinstance(batch, (list, tuple)):
+                    x, y = batch[0].to(self.device), batch[1]
+                else: continue
+                
+                log_probs = self.model(self._prepare_input(x), **self.forward_kwargs)
+                anomaly_map = -log_probs
+                
+                # Squeeze extra dims
+                if anomaly_map.dim() == 5 and anomaly_map.shape[2] == 1: 
+                    anomaly_map = anomaly_map.squeeze(2)
+                if anomaly_map.dim() == 4 and anomaly_map.shape[1] > 1: 
+                    anomaly_map = anomaly_map.mean(dim=1, keepdim=True)
+                if anomaly_map.shape[-2:] != y.shape[-2:]:
+                    anomaly_map = F.interpolate(anomaly_map, size=y.shape[-2:], mode='bilinear', align_corners=False)
+                
+                # Min-Max Normalization per batch
+                B = anomaly_map.shape[0]
+                flat = anomaly_map.view(B, -1)
+                mins = flat.min(dim=1, keepdim=True)[0].view(B, 1, 1, 1)
+                maxs = flat.max(dim=1, keepdim=True)[0].view(B, 1, 1, 1)
+                probs = (anomaly_map - mins) / (maxs - mins + 1e-8)
+                
+                all_probs.append(probs.cpu().numpy())
+                all_targets.append(y.numpy())
+                
+        # Flatten all predictions and targets across the entire validation set
+        all_probs = np.concatenate(all_probs).flatten()
+        all_targets = np.concatenate(all_targets).flatten()
+        
+        # Sweep thresholds from 0.02 to 0.98
+        best_f1, best_t = 0.0, 0.5
+        thresholds = np.linspace(0.02, 0.98, 50)
+        
+        for t in thresholds:
+            preds = (all_probs > t).astype(int)
+            tp = ((preds == 1) & (all_targets == 1)).sum()
+            fp = ((preds == 1) & (all_targets == 0)).sum()
+            fn = ((preds == 0) & (all_targets == 1)).sum()
+            
+            p = tp / (tp + fp + 1e-8)
+            r = tp / (tp + fn + 1e-8)
+            f1 = 2 * p * r / (p + r + 1e-8)
+            
+            if f1 > best_f1:
+                best_f1 = f1
+                best_t = t
+                
+        self.threshold = best_t  # Save the optimal threshold!
+        print_info(f"✅ Calibration complete! Best Threshold: {self.threshold:.4f} (Val F1: {best_f1:.4f})")
 
     # =========================================================
     # Updated Test Method
@@ -1665,7 +1483,7 @@ class ExperimentPC(Experiment):
             losses.append(loss.item())
             dices.append(dice.item())
             ious.append(iou.item())
-            clious.append(cl_iou.item())
+            clious.append(cl_iou)
             
             accuracies.append(accuracy.item())
             precisions.append(precision.item())
@@ -1762,12 +1580,9 @@ class ExperimentPC(Experiment):
 
         # 3. Calculate Threshold for Binary Classification
         # In a real scenario, this is calibrated on a validation set.
-        # Here, we use the 95th percentile of the BATCH to highlight the "worst" areas.
-        flat_scores = anomaly_map.view(-1).cpu().numpy()
-        threshold = np.percentile(flat_scores, 95)
-        
+        # Here, we use the 95th percentile of the BATCH to highlight the "worst"
         # Create Binary Mask
-        pred_mask = (anomaly_map > threshold).float()
+        pred_mask = (anomaly_map > self.threshold).float()
 
         # 4. Plotting
         n_vis = min(4, x.shape[0])
@@ -1820,7 +1635,7 @@ class ExperimentPC(Experiment):
             # Col 4: Predicted Mask
             ax = axes[i, 3]
             ax.imshow(p_mask, cmap='Reds', interpolation='nearest')
-            ax.set_title(f"Pred Mask (>{threshold:.1f})")
+            ax.set_title(f"Pred Mask (>{self.threshold:.1f})")
             ax.axis('off')
 
         plt.tight_layout()
@@ -1889,30 +1704,6 @@ class ExperimentGEPC(ExperimentPC):
         self.save_model()
 
 
-class ExperimentSpatialPCNet(ExperimentPC):
-    def __init__(self, config):
-        config["model_name"] = config.get("model_name", "spatial_pcnet")
-        super().__init__(config)
-        
-    def set_algorithm(self):
-        self.model = RobustSpatialPCNet(
-            in_channels=self.config.get("input_channels", 3),
-            depth=self.config.get("max_depth", 3), 
-            channels_per_layer=self.config.get("channels_per_layer", 32)
-        )
-
-class ExperimentSpatialPCNet(ExperimentPC):
-    def __init__(self, config):
-        config["model_name"] = config.get("model_name", "spatial_pcnet")
-        super().__init__(config)
-        
-    def set_algorithm(self):
-        self.model = RobustSpatialPCNet(
-            in_channels=self.config.get("input_channels", 3),
-            depth=self.config.get("max_depth", 3), 
-            channels_per_layer=self.config.get("channels_per_layer", 32)
-        )
-
 class ExperimentPCNet(ExperimentPC):
     def __init__(self, config):
         config["model_name"] = config.get("model_name", "vanilla_pcnet")
@@ -1925,699 +1716,7 @@ class ExperimentPCNet(ExperimentPC):
             max_branching=self.config.get("max_branching", 3),
             seed=self.config.get("seed", 42)
         )
-
-class ExperimentRandomEnsemblePCNet(ExperimentPC):
-    def __init__(self, config):
-        config["model_name"] = config.get("model_name", "random_ensemble_pcnet")
-        self.n_models = config.get("n_models", 10)
-        super().__init__(config)
-
-    def set_algorithm(self):
-        self.model = RandomPCEnsemble(
-            n_models=self.n_models,
-            device=self.device,
-            n_classes=self.config.get("n_classes", 2),
-            max_depth=self.config.get("max_depth", 4),
-            max_branching=self.config.get("max_branching", 3),
-            seed=self.config.get("seed", 42)
-        )
         
-
-class ExperimentHybridPCNet(ExperimentPC):
-    def __init__(self, config):
-        config["model_name"] = config.get("model_name", "hybrid_pcnet")
-        super().__init__(config)
-        self.refine_quantile = self.config.get("refine_quantile", 0.15)
-        self.forward_kwargs = {"refine_quantile": self.refine_quantile}
-        
-    def set_algorithm(self):
-        self.model = HybridPCNet(
-            in_channels=self.config.get("input_channels", 3),
-            spatial_mixtures=self.config.get("spatial_mixtures", 5),
-            spatial_depth=self.config.get("spatial_depth", 3),
-            max_depth=self.config.get("max_depth", 4),
-            channels_per_layer=self.config.get("channels_per_layer", 32)
-        )
-
-class ExperimentSpatialPCNetRandomEnsemble(ExperimentPC):
-    def __init__(self, config):
-        config["model_name"] = config.get("model_name", "spatial_pc_ensemble")
-        self.n_models = config.get("n_models", 10)
-        super().__init__(config)
-
-    def set_algorithm(self):
-        self.model = RandomSpatialPCEnsemble(
-            n_models=self.n_models,
-            device=self.device,
-            input_channels=self.config.get("input_channels", 3),
-            n_mixtures=self.config.get("n_mixtures", 10),
-            max_depth=self.max_depth,
-            channels_per_layer=self.config.get("channels_per_layer", 32)
-        )
-        
-class ExperimentHybridPCNetRandomEnsemble(ExperimentPC):
-    def __init__(self, config):
-        config["model_name"] = config.get("model_name", "hybrid_pc_ensemble")
-        self.n_models = config.get("n_models", 5)
-        self.refine_quantile = config.get("refine_quantile", 0.15)
-        self.forward_kwargs = {"refine_quantile": self.refine_quantile}
-        super().__init__(config)
-        
-    def set_algorithm(self):
-        self.model = RandomHybridPCEnsemble(
-            n_models=self.n_models,
-            device=self.device,
-            input_channels=self.config.get("input_channels", 3),
-            spatial_mixtures=self.config.get("spatial_mixtures", 5),
-            spatial_depth=self.config.get("spatial_depth", 3),
-            max_depth=self.config.get("max_depth", 4),
-            channels_per_layer=self.config.get("channels_per_layer", 32)
-        )
-
-class ExperimentDeepFeaturePCNet(ExperimentPC):
-    """
-    Experiment running Latent Density Estimation with DeepFeaturePCNet.
-    Uses a pretrained ResNet18 (frozen) as the spatial feature extractor.
-    """
-    def __init__(self, config):
-        self.device_str = config.get("device", "cpu")
-        self.target_device = torch.device(self.device_str)
-        super().__init__(config)
-        self.learning_rate = self.config.get("learning_rate", 1e-3)
-        
-    def set_algorithm(self):
-        # Initialize a basic frozen feature extractor
-        # Using a pretrained ResNet18, taking features from the backbone (layer2) to retain spatial dimensions
-        resnet = models.resnet18(pretrained=True)
-        # Sequence up to layer2 will output (B, 128, H/8, W/8)
-        feature_extractor = nn.Sequential(*list(resnet.children())[:6])
-        
-        self.model = DeepFeaturePCNet(
-            feature_extractor=feature_extractor,
-            spatial_mixtures=self.config.get("n_mixtures", 10),
-            spatial_depth=self.config.get("max_depth", 3),
-            channels_per_layer=self.config.get("channels_per_layer", 32)
-        )
-        self.model_name = "deep_feature_pcnet"
-        
-    def init_model(self):
-        print_info(f"🔨 Initializing DeepFeaturePCNet structure with input shape {self.X.shape}...")
-        self.model.init_network(self.X)
-
-    def show_predictions(self, model, dataset, device, num_samples=3, threshold=0.5):
-        """
-        Custom prediction visualization for DeepFeaturePCNet.
-        Handles spatial interpolation from the latent space back to ground-truth space.
-        """
-        print_info("🖼️ Saving DeepFeaturePCNet predictions grids...")
-        model.eval()
-        predictions_dir = os.path.join(self.log_path, "predictions")
-        os.makedirs(predictions_dir, exist_ok=True)
-
-        total_samples = len(dataset)
-        num_groups = total_samples // num_samples
-        max_pred = 15
-        for j in range(num_groups):
-            if j > max_pred:
-                print(f"Saved {max_pred} prediction grids.")
-                break
-            import matplotlib.pyplot as plt
-            fig, axes = plt.subplots(3, num_samples, figsize=(4 * num_samples, 9))
-
-            for i in range(num_samples):
-                idx = j * num_samples + i
-                if idx >= total_samples:
-                    for row in range(3): axes[row, i].axis("off")
-                    continue
-
-                img, gt = dataset[idx]
-                img = img.unsqueeze(0).to(device)
-                gt_np = gt.squeeze().cpu().numpy()
-
-                with torch.no_grad():
-                    pred_log_prob = model(img).cpu()
-                    
-                # Up-interpolate latent probability map
-                if pred_log_prob.shape[-2:] != gt.shape[-2:]:
-                    pred_log_prob = torch.nn.functional.interpolate(pred_log_prob, size=gt.shape[-2:], mode='bilinear', align_corners=False)
-                    
-                pred = pred_log_prob.squeeze()
-                anomaly_map = -pred
-                
-                # Normalize inside batch [0, 1]
-                amin, amax = anomaly_map.min(), anomaly_map.max()
-                prob = ((anomaly_map - amin) / (amax - amin + 1e-8)).numpy()
-                pred_mask = (prob > threshold).astype("uint8")
-
-                img_np = img.squeeze().permute(1, 2, 0).cpu().numpy()
-                axes[0, i].imshow(img_np)
-                axes[0, i].set_title(f"Input {idx}")
-                axes[0, i].axis("off")
-                axes[1, i].imshow(gt_np, cmap="gray")
-                axes[1, i].set_title(f"Ground Truth {idx}")
-                axes[1, i].axis("off")
-                axes[2, i].imshow(pred_mask, cmap="cool")
-                axes[2, i].set_title(f"Prediction {idx}")
-                axes[2, i].axis("off")
-            plt.savefig(os.path.join(predictions_dir, f"predictions_grid_{j}.png"), bbox_inches="tight")
-            plt.close(fig)
-
-class ExperimentDeepFeaturePCNetRandomEnsemble(ExperimentPC):
-    """
-    Experiment running Latent Density Estimation with RandomDeepFeaturePCEnsemble.
-    """
-    def __init__(self, config):
-        self.n_models = config.get("n_models", 10)
-        self.device_str = config.get("device", "cpu")
-        self.target_device = torch.device(self.device_str)
-        super().__init__(config)
-        
-        # DeepFeaturePCNet receives unnormalized latent tensor features; applying a slower stable LR
-        self.learning_rate = self.config.get("learning_rate", 1e-3)
-        
-    def set_algorithm(self):
-        # Freeze a feature extractor
-        resnet = models.resnet18(pretrained=True)
-        feature_extractor = nn.Sequential(*list(resnet.children())[:6])
-        
-        # Initialize the ensemble wrapper
-        self.model = RandomDeepFeaturePCEnsemble(
-            feature_extractor=feature_extractor,
-            n_models=self.n_models,
-            device=self.device_str,
-            n_mixtures=self.config.get("n_mixtures", 10),
-            max_depth=self.config.get("max_depth", 3),
-            channels_per_layer=self.config.get("channels_per_layer", 32)
-        )
-        self.model_name = "deep_feature_pc_ensemble"
-
-    def init_model(self):
-        print_info(f"🔨 Initializing DeepFeaturePCNet Ensemble structure on {self.device_str}...")
-        self.model.init_network(self.X)
-
-    def show_predictions(self, model, dataset, device, num_samples=3, threshold=0.5):
-        """
-        Custom prediction visualization for DeepFeaturePCNet Ensemble.
-        Handles spatial interpolation from the latent space back to ground-truth space.
-        """
-        print_info("🖼️ Saving DeepFeaturePCNet Ensemble predictions grids...")
-        model.eval()
-        predictions_dir = os.path.join(self.log_path, "predictions")
-        os.makedirs(predictions_dir, exist_ok=True)
-
-        total_samples = len(dataset)
-        num_groups = total_samples // num_samples
-        max_pred = 15
-        for j in range(num_groups):
-            if j > max_pred:
-                break
-            import matplotlib.pyplot as plt
-            fig, axes = plt.subplots(3, num_samples, figsize=(4 * num_samples, 9))
-
-            for i in range(num_samples):
-                idx = j * num_samples + i
-                if idx >= total_samples:
-                    for row in range(3): axes[row, i].axis("off")
-                    continue
-
-                img, gt = dataset[idx]
-                img = img.unsqueeze(0).to(device)
-                gt_np = gt.squeeze().cpu().numpy()
-
-                with torch.no_grad():
-                    pred_log_prob = model(img).cpu()
-                    
-                if pred_log_prob.shape[-2:] != gt.shape[-2:]:
-                    pred_log_prob = torch.nn.functional.interpolate(pred_log_prob, size=gt.shape[-2:], mode='bilinear', align_corners=False)
-                    
-                pred = pred_log_prob.squeeze()
-                anomaly_map = -pred
-                amin, amax = anomaly_map.min(), anomaly_map.max()
-                prob = ((anomaly_map - amin) / (amax - amin + 1e-8)).numpy()
-                pred_mask = (prob > threshold).astype("uint8")
-
-                img_np = img.squeeze().permute(1, 2, 0).cpu().numpy()
-                axes[0, i].imshow(img_np)
-                axes[0, i].axis("off")
-                axes[1, i].imshow(gt_np, cmap="gray")
-                axes[1, i].axis("off")
-                axes[2, i].imshow(pred_mask, cmap="cool")
-                axes[2, i].axis("off")
-            plt.savefig(os.path.join(predictions_dir, f"predictions_grid_{j}.png"), bbox_inches="tight")
-            plt.close(fig)
-
-
-class ExperimentAdversarialPCNet(ExperimentPC):
-    """
-    Experiment running PCNet as a GAN Critic against an Unconditional Generator.
-    """
-    def __init__(self, config):
-        self.device_str = config.get("device", "cpu")
-        self.target_device = torch.device(self.device_str)
-        self.latent_dim = config.get("latent_dim", 100)
-        self.learning_rate_g = config.get("learning_rate_g", 1e-4)
-        self.learning_rate_d = config.get("learning_rate_d", 1e-4)
-        super().__init__(config)
-        
-    def set_algorithm(self):
-        # PCNet Critic
-        self.model = RobustSpatialPCNet(
-            in_channels=self.config.get("input_channels", 3),
-            depth=self.config.get("max_depth", 5),
-            channels_per_layer=self.config.get("channels_per_layer", 32)
-        )
-        self.model_name = "adversarial_pcnet"
-        
-        # Generator
-        from networks import DCGANGenerator
-        self.generator = DCGANGenerator(
-            latent_dim=self.latent_dim,
-            out_channels=self.config.get("input_channels", 3),
-            ngf=64
-        ).to(self.target_device)
-        from networks import init_weights
-        self.generator.apply(init_weights)
-        
-    def init_model(self):
-        print_info(f"🔨 Initializing Adversarial PCNet structure with input shape {self.X.shape}...")
-        self.model.init_network(self.X)
-        self.model = self.model.to(self.target_device)
-
-    def train(self):
-        print_info(f"⚙️ Starting Adversarial Training for {self.epochs} epochs...")
-        import torch.optim as optim
-        
-        optimizer_G = optim.Adam(self.generator.parameters(), lr=self.learning_rate_g, betas=(0.5, 0.999))
-        optimizer_D = None
-        
-        self.model.train()
-        self.generator.train()
-        self.train_loader = self.get_dataloaders(self.train_data, batch_size=self.batch_size)
-        
-        for epoch in range(self.epochs):
-            epoch_loss_d = 0.0
-            epoch_loss_g = 0.0
-            batch_count = 0
-            
-            for i, batch in enumerate(self.train_loader):
-                x_real = batch[0] if isinstance(batch, (list, tuple)) else batch
-                x_real = x_real.to(self.target_device)
-                
-                # Dynamic Initialization
-                if not self.is_initialized:
-                    self.X = x_real
-                    self.init_model()
-                    optimizer_D = optim.Adam(self.model.parameters(), lr=self.learning_rate_d)
-                    self.is_initialized = True
-                    
-                if optimizer_D is None:
-                    continue
-
-                B = x_real.size(0)
-                
-                # -------------------
-                # 1. Train Critic (D)
-                # -------------------
-                optimizer_D.zero_grad()
-                
-                # Real Log-Likelihood
-                log_prob_real = self.model(x_real)
-                
-                # Fake Log-Likelihood
-                z = torch.randn(B, self.latent_dim, 1, 1, device=self.target_device)
-                x_fake = self.generator(z)
-                log_prob_fake = self.model(x_fake.detach())
-                
-                # Loss = -(mean(log P(real)) - mean(log P(fake)))
-                # Prevent pure -inf
-                loss_D = -torch.mean(log_prob_real) + torch.mean(log_prob_fake)
-                
-                loss_D.backward()
-                torch.nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=5.0)
-                optimizer_D.step()
-
-                # ---------------------
-                # 2. Train Generator (G)
-                # ---------------------
-                optimizer_G.zero_grad()
-                
-                z = torch.randn(B, self.latent_dim, 1, 1, device=self.target_device)
-                x_fake = self.generator(z)
-                log_prob_fake_for_G = self.model(x_fake)
-                
-                # Maximize fake log_prob => minimize -fake log_prob
-                loss_G = -torch.mean(log_prob_fake_for_G)
-                
-                loss_G.backward()
-                optimizer_G.step()
-                
-                epoch_loss_d += loss_D.item()
-                epoch_loss_g += loss_G.item()
-                batch_count += 1
-                
-            avg_loss_d = epoch_loss_d / max(1, batch_count)
-            avg_loss_g = epoch_loss_g / max(1, batch_count)
-            print_info(f"Epoch [{epoch+1}/{self.epochs}] | D Loss: {avg_loss_d:.4f} | G Loss: {avg_loss_g:.4f}")
-
-        # Save models
-        self.save_model()
-        torch.save({
-            'generator_state_dict': self.generator.state_dict(),
-            'optimizer_G_state_dict': optimizer_G.state_dict(),
-        }, os.path.join(self.log_path, f"{self.model_name}_generator.pkl"))
-
-    def show_predictions(self, model, dataset, device, num_samples=3, threshold=0.5):
-        import matplotlib.pyplot as plt
-        self.generator.eval()
-        fig, axes = plt.subplots(1, num_samples, figsize=(4 * num_samples, 4))
-        
-        # In case we only do 1 sample, we wrap axes in a list
-        if num_samples == 1:
-            axes = [axes]
-            
-        with torch.no_grad():
-            z = torch.randn(num_samples, self.latent_dim, 1, 1, device=self.target_device)
-            fakes = self.generator(z).cpu().numpy()
-            
-            for i in range(num_samples):
-                # fakes are Tanh [-1, 1], convert to [0, 1] for imshow
-                fake_img = (fakes[i].transpose(1, 2, 0) * 0.5) + 0.5
-                axes[i].imshow(fake_img)
-                axes[i].set_title(f"Generated {i}")
-                axes[i].axis("off")
-                
-        predictions_dir = os.path.join(self.log_path, "predictions")
-        os.makedirs(predictions_dir, exist_ok=True)
-        plt.savefig(os.path.join(predictions_dir, "generated_samples.png"), bbox_inches="tight")
-        plt.close(fig)
-
-
-class ExperimentAutoencoderPCPrior(ExperimentPC):
-    """
-    Experiment running an Autoencoder (UNet) trained with MSE + NLL Prior from a Frozen DeepFeaturePCNet.
-    """
-    def __init__(self, config):
-        self.device_str = config.get("device", "cpu")
-        self.target_device = torch.device(self.device_str)
-        super().__init__(config)
-        self.lambda_pc = self.config.get("lambda_pc", 0.05)
-        self.learning_rate_ae = self.config.get("learning_rate_ae", 1e-4)
-        
-    def set_algorithm(self):
-        # PCNet Prior components
-        resnet = models.resnet18(pretrained=True)
-        self.feature_extractor = nn.Sequential(*list(resnet.children())[:6]).to(self.target_device)
-        
-        # Dynamically determine the out_channels and safe depth of the feature extractor
-        dummy_x = torch.zeros(1, self.config.get("input_channels", 3), 128, 128).to(self.target_device)
-        with torch.no_grad():
-            dummy_z = self.feature_extractor(dummy_x)
-            
-        import math
-        spatial_H, spatial_W = dummy_z.shape[2], dummy_z.shape[3]
-        safe_depth = int(math.log2(min(spatial_H, spatial_W)))
-        requested_depth = self.config.get("max_depth", 3)
-        actual_depth = min(requested_depth, safe_depth)
-            
-        self.pc_prior = RobustSpatialPCNet(
-            in_channels=dummy_z.shape[1],
-            depth=actual_depth,
-            channels_per_layer=self.config.get("channels_per_layer", 32)
-        ).to(self.target_device)
-        self.model_name = "autoencoder_pc_prior"
-        
-        # Autoencoder
-        from networks import define_G
-        self.autoencoder = define_G(
-            input_nc=self.config.get("input_channels", 3),
-            output_nc=self.config.get("input_channels", 3),
-            ngf=64, 
-            netG='unet_128', 
-            norm='batch', 
-            init_type='normal', 
-            gpu_ids=[self.target_device.index] if self.target_device.type == 'cuda' else []
-        ).to(self.target_device)
-        
-    def init_model(self):
-        print_info(f"🔨 Initializing PCNet Prior structure and statistics with {self.X.shape[0]} normal samples...")
-        with torch.no_grad():
-            z = self.feature_extractor(self.X)
-            self.pc_prior.init_network(z)
-            self.pc_prior = self.pc_prior.to(self.target_device)
-        
-        # Freeze the Prior
-        for param in self.feature_extractor.parameters():
-            param.requires_grad = False
-        for param in self.pc_prior.parameters():
-            param.requires_grad = False
-            
-        self.feature_extractor.eval()
-        self.pc_prior.eval()
-
-    def train(self):
-        print_info(f"⚙️ Starting Autoencoder Training with PCNet Prior for {self.epochs} epochs...")
-        import torch.optim as optim
-        import torch.nn.functional as F
-        
-        optimizer = optim.Adam(self.autoencoder.parameters(), lr=self.learning_rate_ae)
-        
-        self.train_loader = self.get_dataloaders(self.train_data, batch_size=self.batch_size)
-        
-        for epoch in range(self.epochs):
-            epoch_loss = 0.0
-            epoch_mse = 0.0
-            epoch_nll = 0.0
-            batch_count = 0
-            
-            for i, batch in enumerate(self.train_loader):
-                x_real = batch[0] if isinstance(batch, (list, tuple)) else batch
-                x_real = x_real.to(self.target_device)
-                
-                # Dynamic Initialization
-                if not self.is_initialized:
-                    self.X = x_real
-                    self.init_model()
-                    self.is_initialized = True
-
-                self.autoencoder.train()
-                optimizer.zero_grad()
-                
-                # 1. Reconstruct images
-                x_hat = self.autoencoder(x_real)
-                
-                # 2. MSE Loss
-                mse_loss = F.mse_loss(x_hat, x_real)
-                
-                # 3. PCNet Prior Loss
-                # We need to extract features then evaluate density
-                z_hat = self.feature_extractor(x_hat)
-                log_prob = self.pc_prior(z_hat)
-                nll_loss = -torch.mean(log_prob)
-                
-                # 4. Total Loss
-                total_loss = mse_loss + (self.lambda_pc * nll_loss)
-                
-                total_loss.backward()
-                torch.nn.utils.clip_grad_norm_(self.autoencoder.parameters(), max_norm=5.0)
-                optimizer.step()
-                
-                epoch_loss += total_loss.item()
-                epoch_mse += mse_loss.item()
-                epoch_nll += nll_loss.item()
-                batch_count += 1
-                
-            avg_loss = epoch_loss / max(1, batch_count)
-            avg_mse = epoch_mse / max(1, batch_count)
-            avg_nll = epoch_nll / max(1, batch_count)
-            print_info(f"Epoch [{epoch+1}/{self.epochs}] | Total Loss: {avg_loss:.4f} | MSE: {avg_mse:.4f} | NLL: {avg_nll:.4f}")
-
-        self.save_model()
-        torch.save(self.autoencoder.state_dict(), os.path.join(self.log_path, f"{self.model_name}_autoencoder.pkl"))
-
-    def show_prediction(self, model=None, dataset=None, device=None, num_samples=3, threshold=0.5):
-        if dataset is None: dataset = self.test_data
-        if device is None: device = self.target_device
-        if dataset is None or len(dataset) == 0: return
-
-        import matplotlib.pyplot as plt
-        self.autoencoder.eval()
-        self.feature_extractor.eval()
-        self.pc_prior.eval()
-        
-        predictions_dir = os.path.join(self.log_path, "predictions")
-        os.makedirs(predictions_dir, exist_ok=True)
-
-        total_samples = len(dataset)
-        num_groups = total_samples // num_samples
-        if num_groups == 0 and total_samples > 0:
-            num_groups = 1
-            num_samples = total_samples
-        max_pred = 15
-        
-        for j in range(num_groups):
-            if j > max_pred:
-                break
-            fig, axes = plt.subplots(4, num_samples, figsize=(4 * num_samples, 12))
-            
-            for i in range(num_samples):
-                idx = j * num_samples + i
-                if idx >= total_samples:
-                    for row in range(4): axes[row, i].axis("off")
-                    continue
-
-                img, gt = dataset[idx]
-                img = img.unsqueeze(0).to(device)
-                gt_np = gt.squeeze().cpu().numpy()
-
-                with torch.no_grad():
-                    reconstructed = self.autoencoder(img)
-                    z_hat = self.feature_extractor(reconstructed)
-                    pred_log_prob = self.pc_prior(z_hat).cpu()
-                    
-                if pred_log_prob.shape[-2:] != gt.shape[-2:]:
-                    pred_log_prob = torch.nn.functional.interpolate(pred_log_prob, size=gt.shape[-2:], mode='bilinear', align_corners=False)
-                    
-                pred = pred_log_prob.squeeze()
-                anomaly_map = -pred
-                amin, amax = anomaly_map.min(), anomaly_map.max()
-                prob = ((anomaly_map - amin) / (amax - amin + 1e-8)).numpy()
-                pred_mask = (prob > threshold).astype("uint8")
-
-                img_np = img.squeeze().permute(1, 2, 0).cpu().numpy()
-                rec_np = reconstructed.squeeze().permute(1, 2, 0).cpu().numpy()
-                
-                # Denormalize autoencoder tanh output to [0,1] for display if needed
-                # Assuming images are already reasonably scaled or autoencoder outputs same scale.
-                # If images were min-max scaled, the AE output is too.
-
-                axes[0, i].imshow(img_np)
-                axes[0, i].set_title(f"Input {idx}")
-                axes[0, i].axis("off")
-                
-                axes[1, i].imshow(rec_np)
-                axes[1, i].set_title(f"Reconstructed {idx}")
-                axes[1, i].axis("off")
-                
-                axes[2, i].imshow(gt_np, cmap="gray")
-                axes[2, i].set_title(f"Ground Truth {idx}")
-                axes[2, i].axis("off")
-                
-                axes[3, i].imshow(pred_mask, cmap="cool")
-                axes[3, i].set_title(f"Prior Anomaly Map {idx}")
-                axes[3, i].axis("off")
-                
-            plt.savefig(os.path.join(predictions_dir, f"predictions_grid_{j}.png"), bbox_inches="tight")
-            plt.close(fig)
-
-    @torch.no_grad()
-    def test(self, model, dataloader):
-        self.autoencoder.eval()
-        self.feature_extractor.eval()
-        self.pc_prior.eval()
-        
-        # Metric Lists
-        losses, msels, nllls = [], [], []
-        dices, ious, clious = [], [], []
-        accuracies, precisions, recalls, f1_scores = [], [], [], []
-        
-        print_info("🧪 Starting Evaluation for Autoencoder PC Prior...")
-        
-        for batch in dataloader:
-            if isinstance(batch, (list, tuple)):
-                images, masks = batch[0], batch[1]
-            else:
-                continue
-
-            images = images.to(self.target_device)
-            masks = masks.to(self.target_device)
-
-            reconstructed = self.autoencoder(images)
-            
-            # Loss: MSE + Prior NLL
-            import torch.nn.functional as F
-            mse_loss = F.mse_loss(reconstructed, images)
-            
-            z_hat = self.feature_extractor(reconstructed)
-            log_prob = self.pc_prior(z_hat)
-            nll_loss = -torch.mean(log_prob)
-            loss = mse_loss + (self.lambda_pc * nll_loss)
-
-            anomaly_map = -log_prob
-            if anomaly_map.dim() == 4 and anomaly_map.shape[1] > 1:
-                anomaly_map = anomaly_map.mean(dim=1, keepdim=True)
-                
-            if anomaly_map.shape[-2:] != masks.shape[-2:]:
-                anomaly_map = F.interpolate(anomaly_map, size=masks.shape[-2:], mode='bilinear', align_corners=False)
-            
-            B = anomaly_map.shape[0]
-            flat = anomaly_map.view(B, -1)
-            mins = flat.min(dim=1, keepdim=True)[0].view(B, 1, 1, 1)
-            maxs = flat.max(dim=1, keepdim=True)[0].view(B, 1, 1, 1)
-            probs = (anomaly_map - mins) / (maxs - mins + 1e-8)
-            
-            pred_mask = (probs > self.threshold).float()
-            true_mask = masks.float()
-            
-            if pred_mask.shape[-2:] != true_mask.shape[-2:]:
-                pred_mask = F.interpolate(pred_mask, size=true_mask.shape[-2:], mode='nearest')
-                
-            if pred_mask.shape != true_mask.shape:
-                if pred_mask.shape[1] == 1: pred_mask = pred_mask.squeeze(1)
-                if true_mask.ndim == 4 and true_mask.shape[1] == 1: true_mask = true_mask.squeeze(1)
-
-            dice = self.dice_coef(pred_mask, true_mask)
-            iou = self.iou_score(pred_mask, true_mask)
-            cl_iou = self.cl_iou_score(pred_mask, true_mask)
-
-            pm = pred_mask.contiguous().view(-1).long()
-            tm = true_mask.contiguous().view(-1).long()
-            tp = ((pm == 1) & (tm == 1)).sum().float()
-            fp = ((pm == 1) & (tm == 0)).sum().float()
-            fn = ((pm == 0) & (tm == 1)).sum().float()
-            tn = ((pm == 0) & (tm == 0)).sum().float()
-
-            accuracy = (tp + tn) / (tp + tn + fp + fn + 1e-8)
-            precision = tp / (tp + fp + 1e-8)
-            recall = tp / (tp + fn + 1e-8)
-            f1_score = 2 * precision * recall / (precision + recall + 1e-8)
-
-            losses.append(loss.item())
-            msels.append(mse_loss.item())
-            nllls.append(nll_loss.item())
-            dices.append(dice.item())
-            ious.append(iou.item())
-            clious.append(cl_iou.item())
-            
-            accuracies.append(accuracy.item())
-            precisions.append(precision.item())
-            recalls.append(recall.item())
-            f1_scores.append(f1_score.item())
-        results = {
-            "test_loss": np.mean(losses),
-            "test_mse": np.mean(msels),
-            "test_nll": np.mean(nllls),
-            "test_dice": np.mean(dices),
-            "test_iou": np.mean(ious),
-            "test_cl_iou": np.mean(clious),
-            "test_accuracy": np.mean(accuracies),
-            "test_precision": np.mean(precisions),
-            "test_recall": np.mean(recalls),
-            "test_f1_score": np.mean(f1_scores)
-        }
-        print_info("✅ Testing complete.")
-        print_info(f"Test Loss: {results['test_loss']:.4f} (MSE: {results['test_mse']:.4f}, NLL: {results['test_nll']:.4f})")
-        print_info(f"Test Dice: {results['test_dice']:.4f}, IoU: {results['test_iou']:.4f}, CL IoU: {results['test_cl_iou']:.4f}")
-        print_info(f"Test Accuracy: {results['test_accuracy']:.4f}, Precision: {results['test_precision']:.4f}, Recall: {results['test_recall']:.4f}, F1-Score: {results['test_f1_score']:.4f}")
-
-        self.experiment_dict["results"] = results
-        
-        with open(self.experiment_report, "a") as f:
-            f.write(f"Test Loss: {results['test_loss']:.4f}, Dice: {results['test_dice']:.4f}, IoU: {results['test_iou']:.4f}, CL IoU: {results['test_cl_iou']:.4f}\n")
-            f.write(f"Test Accuracy: {results['test_accuracy']:.4f}, Precision: {results['test_precision']:.4f}, Recall: {results['test_recall']:.4f}, F1-Score: {results['test_f1_score']:.4f}\n")
-
-        return float(np.mean(losses)), float(np.mean(dices)), float(np.mean(ious)), float(np.mean(clious))
-
-
 class ExperimentAttentionalPCNet(ExperimentPC):
     def __init__(self, config):
         config["model_name"] = config.get("model_name", "attentional_pcnet")
@@ -2653,3 +1752,48 @@ class ExperimentAttentionalPCNetRandomEnsemble(ExperimentPC):
             ensemble_mode=self.config.get("ensemble_mode", "diversity"),
             diversity_weight=self.config.get("diversity_weight", 1.0)
         )
+
+class ExperimentMultiHeadAttentionalPCNet(ExperimentPC):
+    """
+    Experiment running the Multi-Head Attentional PCNet.
+    This version uses multiple 'heads' in each Sum node to attend to different 
+    feature subspaces of the input image simultaneously.
+    """
+    def __init__(self, config):
+        # Default name if not provided
+        config["model_name"] = config.get("model_name", "multihead_attentional_pcnet")
+        super().__init__(config)
+        
+        # Multi-Head specific hyperparameters
+        self.embed_dim = self.config.get("embed_dim", 32)
+        self.num_heads = self.config.get("num_heads", 4)
+        
+    def set_algorithm(self):
+        """
+        Instantiates the Multi-Head Attentional model.
+        Note: The actual graph structure is built during the first forward pass 
+        via init_network() in the parent train() method.
+        """
+        # Ensure the architecture class 'MultiHeadAttentionalPCNet' is available
+        self.model = MultiHeadAttentionalPCNet(
+            in_channels=self.config.get("input_channels", 3),
+            n_classes=self.config.get("n_classes", 2),
+            max_depth=self.config.get("max_depth", 4),
+            max_branching=self.config.get("max_branching", 3),
+            seed=self.config.get("seed", 42),
+            embed_dim=self.config.get("embed_dim", 32),
+            num_heads=self.config.get("num_heads", 4)
+        )
+
+    def log_results(self):
+        """
+        Optional: Custom logging to check head-weight distributions.
+        This helps confirm if the heads are actually specializing or collapsing.
+        """
+        super().log_results()
+        print_info("📊 Checking Multi-Head specialization...")
+        with torch.no_grad():
+            for name, param in self.model.named_parameters():
+                if "head_mix" in name:
+                    probs = torch.softmax(param, dim=0)
+                    print_info(f"Node: {name} | Head Weights: {probs.cpu().numpy()}")

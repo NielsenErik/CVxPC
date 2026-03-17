@@ -1,6 +1,0 @@
-Experiment Configurations: {'mlflow': None, 'experiment': 'crack_segmentation', 'algorithm': 'deep_feature_pcnet', 'device': 'cpu', 'n_cpus': 10, 'data_path': 'data/crackseg9k_split/DeepCrack/train', 'test_path': 'data/crackseg9k_split/DeepCrack/test', 'save_path': 'models/', 'validation_split': 0.2, 'feature_extractor': 'cv_modules', 'epochs': 50, 'batch_size': 16, 'resize_size': [128, 128], 'input_channels': 3, 'n_classes': 2, 'max_depth': 5, 'max_branching': 3, 'seed': 1, 'filter_sizes': [15, 21], 'n_cv_modules ': 64, 'n_filters': 4, 'execution_mode': 'train', 'preprocessing': False, 'log_dir': 'logs/deep_feature_pcnet/DeepCrack/1'}
-Dataset sizes: {'train': 354, 'val': 71, 'test': 89}
-Test Loss: -1002.9150, Dice: 0.0323, IoU: 0.0164, CL IoU: 0.0164
-Test Accuracy: 0.9154, Precision: 0.0332, Recall: 0.0361, F1-Score: 0.0323
-Test Loss: -1002.9150, Dice: 0.0323, IoU: 0.0164, CL IoU: 0.0164
-Test Accuracy: 0.9154, Precision: 0.0332, Recall: 0.0361, F1-Score: 0.0323

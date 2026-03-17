@@ -1,4 +1,0 @@
-Experiment Configurations: {'mlflow': None, 'experiment': 'crack_segmentation', 'algorithm': 'attentional_pcnet', 'embed_dim': 32, 'device': 'cpu', 'n_cpus': 0, 'data_path': 'data/crackseg9k_split/DeepCrack/train', 'test_path': 'data/crackseg9k_split/DeepCrack/test', 'save_path': 'models/', 'validation_split': 0.2, 'epochs': 100, 'batch_size': 16, 'resize_size': [256, 256], 'input_channels': 3, 'n_classes': 2, 'max_depth': 5, 'max_branching': 4, 'lambda_pc': 0.05, 'learning_rate_ae': 0.0001, 'execution_mode': 'train', 'learning_rate': 0.001, 'seed': 1, 'preprocessing': False, 'log_dir': 'logs/attentional_pcnet/DeepCrack/1', 'model_name': 'attentional_pcnet'}
-Dataset sizes: {'train': 354, 'val': 71, 'test': 89}
-Test Loss: -1.3002, Dice: 0.6061, IoU: 0.4432, CL IoU: 0.4432
-Test Accuracy: 0.9614, Precision: 0.5472, Recall: 0.7220, F1-Score: 0.6061
