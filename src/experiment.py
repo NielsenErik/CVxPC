@@ -5,7 +5,6 @@ import os
 import mlflow
 from networks import *
 from probabilistic_circuits.probabilistic_circuits import *
-from probabilistic_circuits.deep_feature_pcnet import DeepFeaturePCNet, RandomDeepFeaturePCEnsemble
 import abc
 from torch.utils.data import DataLoader
 import tqdm
@@ -19,6 +18,12 @@ import pickle
 import torch.nn.functional as F
 from torch.utils.data import TensorDataset
 import json
+
+from upcracknet.model import Generator, Discriminator
+from upcracknet.PS_loss import StyleLoss, PerceptualLoss
+from upcracknet.msgms_loss import MSGMS_Loss
+from torch.autograd import Variable
+import math
 
 import pandas as pd
 from crackdata_processing import CrackDataset
@@ -112,6 +117,15 @@ def run_experiment(config):
     
     elif config["algorithm"] in ["multihead_attentional_pcnet"]:
         experiment = ExperimentMultiHeadAttentionalPCNet(config)
+        experiment.run()
+    elif config["algorithm"] in ["ge_pcnet"]:
+        experiment = ExperimentGEPC(config)
+        experiment.run()
+    elif config["algorithm"] in ["ge_multihead_pcnet"]:
+        experiment = ExperimentGEMultiHeadPC(config)
+        experiment.run()
+    elif config["algorithm"].lower() in ["upcracknet", "up-cracknet"]:
+        experiment = ExperimentUPCrackNet(config)
         experiment.run()
     else:
         raise ValueError(f"Algorithm {config['algorithm']} not supported")
@@ -246,7 +260,10 @@ class DiceCELoss(nn.Module):
             target = target.unsqueeze(1).float()
         else:
             pred_prob = torch.softmax(pred, dim=1)
-            target = F.one_hot(target, num_classes=pred.size(1)).permute(0,3,1,2).float()
+            
+            # Squeeze channel dim if needed before one_hot
+            o_tgt = target.squeeze(1).long() if target.ndim == 4 and target.size(1) == 1 else target.long()
+            target = F.one_hot(o_tgt, num_classes=pred.size(1)).permute(0,3,1,2).float()
         inter = (pred_prob * target).sum(dim=(2,3))
         denom = pred_prob.sum(dim=(2,3)) + target.sum(dim=(2,3))
         dice = (2. * inter + smooth) / (denom + smooth)
@@ -261,10 +278,11 @@ class DiceCELoss(nn.Module):
             tgt_prob = target.float()
             cl = soft_clDice(pred_prob, tgt_prob)
         else:
-            ce = self.ce(pred, target)
+            ce_target = target.squeeze(1) if target.ndim == 4 and target.size(1) == 1 else target
+            ce = self.ce(pred, ce_target.long())
             # treat class 1 as foreground for clDice; adapt if needed
             pred_prob = torch.softmax(pred, dim=1)[:,1:2]
-            tgt_prob = (target==1).unsqueeze(1).float()
+            tgt_prob = (ce_target==1).unsqueeze(1).float()
             cl = soft_clDice(pred_prob, tgt_prob)
         dl = self.dice_loss(pred, target)
         return 0.2*ce + 0.1*dl + self.gamma*(1 - cl)
@@ -465,160 +483,90 @@ class Experiment:
     # Metrics
     # ----------------------------
 
-    def dice_coef(self, logits, targets, smooth=1.0):
-        """
-        logits:  (B, C, H_pred, W_pred)
-        targets: (B, H_gt,  W_gt) or (H, W)
-        """
+    def dice_coef(self, pred_mask, true_mask, smooth=1e-6):
+        pm = pred_mask.contiguous().view(-1).float()
+        tm = true_mask.contiguous().view(-1).float()
+        intersection = (pm * tm).sum()
+        return (2. * intersection + smooth) / (pm.sum() + tm.sum() + smooth)
 
-        # ---------------------------------------------------------
-        # 1. Make sure targets has batch dimension
-        # ---------------------------------------------------------
-        if targets.dim() == 2:  # (H, W)
-            targets = targets.unsqueeze(0)  # (1, H, W)
+    def iou_score(self, pred_mask, true_mask, num_classes=2):
+        pm = pred_mask.contiguous().view(-1).long()
+        tm = true_mask.contiguous().view(-1).long()
 
-        # ---------------------------------------------------------
-        # 2. Resize logits to match GT spatial size
-        # ---------------------------------------------------------
-        if logits.shape[-2:] != targets.shape[-2:]:
-            logits = F.interpolate(
-                logits,
-                size=targets.shape[-2:],
-                mode="bilinear",
-                align_corners=False
-            )
-
-        B, C, H, W = logits.shape
-
-        # ---------------------------------------------------------
-        # 3. Binary Dice
-        # ---------------------------------------------------------
-        if C == 1:
-            probs = torch.sigmoid(logits)              # (B,1,H,W)
-            targets = targets.unsqueeze(1).float()     # (B,1,H,W)
-
-            intersection = (probs * targets).sum(dim=(2,3))
-            denominator   = probs.sum(dim=(2,3)) + targets.sum(dim=(2,3))
-
-            dice = (2 * intersection + smooth) / (denominator + smooth)
-            return dice.mean()
-
-        # ---------------------------------------------------------
-        # 4. Multi-class Dice (macro Dice)
-        #    One-hot encode ground truth
-        # ---------------------------------------------------------
-        probs = torch.softmax(logits, dim=1)  # (B,C,H,W)
-
-        # one-hot: (B,H,W,C) → (B,C,H,W)
-        targets_1h = F.one_hot(targets, num_classes=C).permute(0, 3, 1, 2).float()
-
-        intersection = (probs * targets_1h).sum(dim=(2,3))      # (B,C)
-        denominator  = probs.sum(dim=(2,3)) + targets_1h.sum(dim=(2,3))
-
-        dice = (2 * intersection + smooth) / (denominator + smooth)  # (B,C)
-
-        # Mean across classes + batch
-        return dice.mean()
-
-    def iou_score(self, logits, targets, num_classes=None):
-        """
-        logits:  (N, C, H, W) for multi-class OR (N, H, W) binary mask
-        targets: (N, H, W) or (N, 1, H, W)
-        """
-        # 1. Squeeze channel dim from targets if present
-        if targets.dim() == 4 and targets.shape[1] == 1:
-            targets = targets.squeeze(1)
-
-        # 2. Resize logits if spatial dimensions differ
-        if logits.shape[-2:] != targets.shape[-2:]:
-            was_3d = (logits.dim() == 3)
-            if was_3d: logits = logits.unsqueeze(1)
-            logits = torch.nn.functional.interpolate(
-                logits.float(), 
-                size=targets.shape[-2:], 
-                mode="nearest" # Nearest is safer for masks/classes
-            )
-            if was_3d: logits = logits.squeeze(1)
-
-        # 3. Convert to predicted class indices safely
-        if logits.dim() == 4 and logits.shape[1] > 1:
-            # Multi-class scenario: Take argmax across channels
-            preds = torch.argmax(logits, dim=1)
-            if num_classes is None: num_classes = logits.shape[1]
-        else:
-            # Binary mask scenario (already thresholded or single channel)
-            preds = (logits > 0.5)
-            if num_classes is None: num_classes = 2
-
-        # 4. CRITICAL FIX: Flatten and cast to Long (Integer) for bincount
-        preds = preds.contiguous().view(-1).long()
-        targets = targets.contiguous().view(-1).long()
-
-        # 5. Compute confusion matrix
         confusion = torch.bincount(
-            num_classes * targets + preds,
+            num_classes * tm + pm,
             minlength=num_classes ** 2
-        ).reshape(num_classes, num_classes)
+        ).reshape(num_classes, num_classes).float()
 
         TP = confusion.diag()
         FP = confusion.sum(0) - TP
         FN = confusion.sum(1) - TP
 
-        # Compute IoU per class
         IoU = TP / (TP + FP + FN + 1e-7)
-        
-        # For binary crack detection, we usually only care about the Foreground IoU (class 1)
-        # But to keep it generic across your framework, we return the mean.
-        return IoU.mean()
+        return IoU.mean().item()
 
     def cl_iou_score(self, pred_mask, true_mask, tau=4):
-        """
-        Calculates the true Centerline-IoU (clIoU) using topological skeletonization.
-        """
-        import skimage.morphology as morph  # <-- Added missing import here
+        import skimage.morphology as morph
         import cv2
         import numpy as np
         import torch
         import torch.nn.functional as F
         
-        # Squeeze channel dim if needed to ensure shape is (B, 1, H, W)
         if pred_mask.dim() == 3: pred_mask = pred_mask.unsqueeze(1)
         if true_mask.dim() == 3: true_mask = true_mask.unsqueeze(1)
+        
+        if pred_mask.shape[-2:] != true_mask.shape[-2:]:
+            pred_mask = F.interpolate(pred_mask.float(), size=true_mask.shape[-2:], mode='nearest')
 
         B = pred_mask.shape[0]
         device = pred_mask.device
         
-        # 1. Binarize and move to CPU numpy for topological thinning
         pm_np = (pred_mask > 0.5).cpu().numpy().astype(bool)
         tm_np = (true_mask > 0.5).cpu().numpy().astype(bool)
         
         skel_pred_np = np.zeros_like(pm_np)
         skel_true_np = np.zeros_like(tm_np)
         
-        # 2. Extract TRUE Centerlines (Iterative Thinning)
         for b in range(B):
-            # skimage skeletonize expects a 2D boolean array
             skel_pred_np[b, 0] = morph.skeletonize(pm_np[b, 0])
             skel_true_np[b, 0] = morph.skeletonize(tm_np[b, 0])
             
-        # Convert true centerlines back to PyTorch tensors
         skel_pred = torch.tensor(skel_pred_np, dtype=torch.float32, device=device)
         skel_true = torch.tensor(skel_true_np, dtype=torch.float32, device=device)
 
-        # 3. Dilation
         k_np = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (2*tau+1, 2*tau+1))
         k = torch.tensor(k_np, dtype=torch.float32, device=device)[None, None, :, :]
         
         dil_true = (F.conv2d(skel_true, k, padding=tau, groups=1) > 0).float()
         dil_pred = (F.conv2d(skel_pred, k, padding=tau, groups=1) > 0).float()
 
-        # 4. Intersection Metrics
         TPcl = (skel_true * dil_pred).sum(dim=(1, 2, 3))
         FPcl = (skel_pred * (1 - dil_true)).sum(dim=(1, 2, 3))
         FNcl = (skel_true * (1 - dil_pred)).sum(dim=(1, 2, 3))
 
         cl_iou = TPcl / (TPcl + FPcl + FNcl + 1e-8)
         return cl_iou.mean().item()
+
+    def classification_metrics(self, pred_mask, true_mask):
+        pm = pred_mask.contiguous().view(-1).long()
+        tm = true_mask.contiguous().view(-1).long()
+
+        tp = ((pm == 1) & (tm == 1)).sum().float()
+        fp = ((pm == 1) & (tm == 0)).sum().float()
+        fn = ((pm == 0) & (tm == 1)).sum().float()
+        tn = ((pm == 0) & (tm == 0)).sum().float()
+
+        accuracy = (tp + tn) / (tp + tn + fp + fn + 1e-8)
+        precision = tp / (tp + fp + 1e-8)
+        recall = tp / (tp + fn + 1e-8)
+        f1_score = 2 * precision * recall / (precision + recall + 1e-8)
+        
+        return {
+            "accuracy": accuracy.item(),
+            "precision": precision.item(),
+            "recall": recall.item(),
+            "f1_score": f1_score.item()
+        }
 
 
     from torch.utils.data import DataLoader, TensorDataset
@@ -721,44 +669,7 @@ class ExperimentDL(Experiment):
     # Training loop
     # ----------------------------
 
-    def iou_score(self, logits, targets, num_classes=None):
 
-        # Resize if sizes do not match
-        if logits.shape[-2:] != targets.shape[-2:]:
-            logits = F.interpolate(
-                logits,
-                size=targets.shape[-2:],
-                mode="bilinear",
-                align_corners=False
-            )
-
-        # Decide number of classes
-        if num_classes is None:
-            num_classes = 2 if logits.shape[1] == 1 else logits.shape[1]
-
-        # Predictions
-        if logits.shape[1] == 1:   # binary
-            preds = (torch.sigmoid(logits) > 0.5).long().squeeze(1)
-        else:                      # multiclass
-            preds = torch.argmax(logits, dim=1)
-
-        # Flatten + convert
-        preds = preds.view(-1).long()
-        targets = targets.view(-1).long()
-
-        # Compute confusion matrix
-        bins = num_classes * targets + preds
-        confusion = torch.bincount(
-            bins,
-            minlength=num_classes ** 2
-        ).reshape(num_classes, num_classes)
-
-        TP = confusion.diag()
-        FP = confusion.sum(0) - TP
-        FN = confusion.sum(1) - TP
-
-        IoU = TP / (TP + FP + FN + 1e-7)
-        return IoU.mean()
 
     def train(self, model, train_data, val_data=None, 
             loss_function=None, optimizer=None, scheduler=None, 
@@ -790,10 +701,16 @@ class ExperimentDL(Experiment):
                 loss.backward()
                 optimizer.step()
 
+                if outputs.shape[1] == 1:
+                    pred_mask = (torch.sigmoid(outputs) > self.threshold).float()
+                else:
+                    pred_mask = torch.argmax(outputs, dim=1).float()
+                true_mask = masks.float()
+
                 epoch_loss += loss.item()
-                epoch_dice += self.dice_coef(outputs, masks).item()
-                epoch_iou  += self.iou_score(outputs, masks).item()
-                epoch_cl_iou += self.cl_iou_score(outputs, masks)
+                epoch_dice += float(self.dice_coef(pred_mask, true_mask))
+                epoch_iou  += float(self.iou_score(pred_mask, true_mask))
+                epoch_cl_iou += float(self.cl_iou_score(pred_mask, true_mask))
 
             train_loss = epoch_loss / len(train_loader)
             train_dice = epoch_dice / len(train_loader)
@@ -812,9 +729,15 @@ class ExperimentDL(Experiment):
                         images, masks = images.to(device), masks.to(device)
                         outputs = model(images)
                         val_loss += loss_function(outputs, masks).item()
-                        val_dice += self.dice_coef(outputs, masks).item()
-                        val_iou  += self.iou_score(outputs, masks).item()
-                        val_cl_iou += self.cl_iou_score(outputs, masks)
+                        if outputs.shape[1] == 1:
+                            pred_mask = (torch.sigmoid(outputs) > self.threshold).float()
+                        else:
+                            pred_mask = torch.argmax(outputs, dim=1).float()
+                        true_mask = masks.float()
+
+                        val_dice += float(self.dice_coef(pred_mask, true_mask))
+                        val_iou  += float(self.iou_score(pred_mask, true_mask))
+                        val_cl_iou += float(self.cl_iou_score(pred_mask, true_mask))
 
                 val_loss /= len(val_loader)
                 val_dice /= len(val_loader)
@@ -901,43 +824,28 @@ class ExperimentDL(Experiment):
                 outputs = model(images)
                 loss = loss_function(outputs, masks)
         
-                dice_score = self.dice_coef(outputs, masks)
-                iou_score = self.iou_score(outputs, masks)
-                cl_iou_score = self.cl_iou_score(outputs, masks)
-                prob = torch.sigmoid(outputs)
-                pred_mask = (prob > self.threshold).float()
+                if outputs.shape[1] == 1:
+                    prob = torch.sigmoid(outputs)
+                    pred_mask = (prob > self.threshold).float()
+                else:
+                    pred_mask = torch.argmax(outputs, dim=1).float()
                 true_mask = masks.float()
 
-                # Flatten predictions and targets
-                pm = pred_mask.view(-1).long()
-                tm = true_mask.view(-1).long()
-
-                tp = ((pm == 1) & (tm == 1)).sum()
-                fp = ((pm == 1) & (tm == 0)).sum()
-                fn = ((pm == 0) & (tm == 1)).sum()
-                tn = ((pm == 0) & (tm == 0)).sum()
-
-                # Accuracy
-                accuracy = (tp + tn) / (tp + tn + fp + fn + 1e-8)
-
-                # Precision = TP / (TP + FP)
-                precision = tp / (tp + fp + 1e-8)
-
-                # Recall = TP / (TP + FN)
-                recall = tp / (tp + fn + 1e-8)
-
-                # F1 = harmonic mean
-                f1_score = 2 * precision * recall / (precision + recall + 1e-8)
+                dice_score = float(self.dice_coef(pred_mask, true_mask))
+                iou_score = float(self.iou_score(pred_mask, true_mask))
+                cl_iou_score = float(self.cl_iou_score(pred_mask, true_mask))
+                
+                metrics = self.classification_metrics(pred_mask, true_mask)
 
                 losses.append(loss.item())
-                dices.append(float(torch.as_tensor(dice_score).mean()))
-                ious.append(float(torch.as_tensor(iou_score).mean()))
-                clious.append(float(torch.as_tensor(cl_iou_score)))
+                dices.append(dice_score)
+                ious.append(iou_score)
+                clious.append(cl_iou_score)
 
-                accuracies.append(accuracy.item())
-                precisions.append(precision.item())
-                recalls.append(recall.item())
-                f1_scores.append(f1_score.item())
+                accuracies.append(metrics["accuracy"])
+                precisions.append(metrics["precision"])
+                recalls.append(metrics["recall"])
+                f1_scores.append(metrics["f1_score"])
 
         print_info("✅ Testing complete.")
         print_info(f"Test Loss: {np.mean(losses):.4f}, Dice: {np.mean(dices):.4f}, IoU: {np.mean(ious):.4f}, CL IoU: {np.mean(clious):.4f}")
@@ -1085,8 +993,9 @@ class UNetExperiment(ExperimentDL):
     def set_algorithm(self):
         self.model = UNet(n_classes=1)
     
-    def save_model(self, model_name="unet"):
-        torch.save(self.model.state_dict(), os.path.join(self.save_path, f"{model_name}.pth"))
+    def save_model(self, model_name=None):
+        name = model_name if model_name else self.model_name
+        torch.save(self.model.state_dict(), os.path.join(self.save_path, f"{name}.pth"))
 
     def load_model(self, model_name="unet"):
         self.model.load_state_dict(torch.load(os.path.join(self.save_path, f"{model_name}.pth")))
@@ -1108,8 +1017,9 @@ class ConvAEExperiment(ExperimentDL):
     def set_algorithm(self):
         self.model = ConvAutoEncoder(input_channels=self.input_channels, hidden_channels=self.hidden_channels, n_classes=self.n_classes, kernel_size=self.kernel_size, stride=self.stride, padding=self.padding, dropout=self.dropout)
 
-    def save_model(self, model_name="convae"):
-        torch.save(self.model.state_dict(), os.path.join(self.save_path, f"{model_name}.pth"))
+    def save_model(self, model_name=None):
+        name = model_name if model_name else self.model_name
+        torch.save(self.model.state_dict(), os.path.join(self.save_path, f"{name}.pth"))
 
     def load_model(self, model_name="convae"):
         self.model.load_state_dict(torch.load(os.path.join(self.save_path, f"{model_name}.pth")))
@@ -1322,12 +1232,7 @@ class ExperimentPC(Experiment):
     # --------------------------------------------------------
     # Testing & Metrics
     # --------------------------------------------------------
-    def dice_coef(self, preds, targets, smooth=1e-6):
-        preds = preds.contiguous().view(-1)
-        targets = targets.contiguous().view(-1)
-        intersection = (preds * targets).sum()
-        return (2. * intersection + smooth) / (preds.sum() + targets.sum() + smooth)
-    
+
     def calibrate_threshold(self, val_loader):
         print_info("🔍 Calibrating optimal threshold to maximize F1-Score...")
         self.model.eval()
@@ -1461,34 +1366,22 @@ class ExperimentPC(Experiment):
 
             # 4. Compute Metrics
             # Dice / IoU (using float masks)
-            dice = self.dice_coef(pred_mask, true_mask)
-            iou = self.iou_score(pred_mask, true_mask)
-            cl_iou = self.cl_iou_score(pred_mask, true_mask)
+            dice_score = float(self.dice_coef(pred_mask, true_mask))
+            iou_score = float(self.iou_score(pred_mask, true_mask))
+            cl_iou_score = float(self.cl_iou_score(pred_mask, true_mask))
 
-            # Classification Stats (using flattened binary vectors)
-            pm = pred_mask.contiguous().view(-1).long()
-            tm = true_mask.contiguous().view(-1).long()
-
-            tp = ((pm == 1) & (tm == 1)).sum().float()
-            fp = ((pm == 1) & (tm == 0)).sum().float()
-            fn = ((pm == 0) & (tm == 1)).sum().float()
-            tn = ((pm == 0) & (tm == 0)).sum().float()
-
-            accuracy = (tp + tn) / (tp + tn + fp + fn + 1e-8)
-            precision = tp / (tp + fp + 1e-8)
-            recall = tp / (tp + fn + 1e-8)
-            f1_score = 2 * precision * recall / (precision + recall + 1e-8)
+            metrics = self.classification_metrics(pred_mask, true_mask)
 
             # 5. Append Results
             losses.append(loss.item())
-            dices.append(dice.item())
-            ious.append(iou.item())
-            clious.append(cl_iou)
+            dices.append(dice_score)
+            ious.append(iou_score)
+            clious.append(cl_iou_score)
             
-            accuracies.append(accuracy.item())
-            precisions.append(precision.item())
-            recalls.append(recall.item())
-            f1_scores.append(f1_score.item())
+            accuracies.append(metrics["accuracy"])
+            precisions.append(metrics["precision"])
+            recalls.append(metrics["recall"])
+            f1_scores.append(metrics["f1_score"])
 
         # 6. Logging & Saving
         results = {
@@ -1522,9 +1415,10 @@ class ExperimentPC(Experiment):
     # --------------------------------------------------------
     # I/O Helpers
     # --------------------------------------------------------
-    def save_model(self):
+    def save_model(self, model_name=None):
         """Pickles the entire model object (structure + weights)"""
-        save_path = os.path.join(self.log_path, f"{self.model_name}.pkl")
+        name = model_name if model_name else self.model_name
+        save_path = os.path.join(self.log_path, f"{name}.pkl")
         with open(save_path, "wb") as f:
             pickle.dump(self.model, f)
         print_info(f"💾 Model saved to {save_path}")
@@ -1657,6 +1551,13 @@ class ExperimentGEPC(ExperimentPC):
         from probabilistic_circuits.grammatical_evolution import GEOptimizer
         print_info(f"⚙️ Starting GE Optimization for {self.epochs} generations...")
         
+        ge_model_type = "pcnet"
+        algo = self.config.get("algorithm", "").lower()
+        if "multihead_attentional" in algo:
+            ge_model_type = "multihead_attentional_pcnet"
+        elif "attentional" in algo:
+            ge_model_type = "attentional_pcnet"
+
         ge = GEOptimizer(
             pop_size=self.config.get("pop_size", 16),
             genome_len=self.config.get("genome_len", 64),
@@ -1670,7 +1571,9 @@ class ExperimentGEPC(ExperimentPC):
             seed=self.config.get("seed", 42),
             n_jobs=self.config.get("n_cpus", os.cpu_count()),
             log_path=self.config.get("log_dir", "logs/ge_pcnet"),
-            model_type="attentional_pcnet" if "attentional" in self.config.get("algorithm", "") else "pcnet"
+            model_type=ge_model_type,
+            embed_dim=self.config.get("embed_dim", 16),
+            num_heads=self.config.get("num_heads", 4)
         )
 
         # Pull all training data into memory for GE
@@ -1701,7 +1604,12 @@ class ExperimentGEPC(ExperimentPC):
         self.experiment_dict["ge_metrics"] = metrics
         
         # Save the finalized GE model
-        self.save_model()
+        self.save_model(model_name=self.model_name)
+
+class ExperimentGEMultiHeadPC(ExperimentGEPC):
+    def __init__(self, config):
+        config["model_name"] = config.get("model_name", "ge_multihead_pcnet")
+        super().__init__(config)
 
 
 class ExperimentPCNet(ExperimentPC):
@@ -1797,3 +1705,282 @@ class ExperimentMultiHeadAttentionalPCNet(ExperimentPC):
                 if "head_mix" in name:
                     probs = torch.softmax(param, dim=0)
                     print_info(f"Node: {name} | Head Weights: {probs.cpu().numpy()}")
+def gaussian(window_size, sigma):
+    gauss = torch.Tensor([math.exp(-(x - window_size//2)**2/float(2*sigma**2)) for x in range(window_size)])
+    return gauss/gauss.sum()
+
+def create_window(window_size, channel):
+    _1D_window = gaussian(window_size, 1.5).unsqueeze(1)
+    _2D_window = _1D_window.mm(_1D_window.t()).float().unsqueeze(0).unsqueeze(0)
+    window = Variable(_2D_window.expand(channel, 1, window_size, window_size).contiguous())
+    return window
+
+def _ssim(img1, img2, window, window_size, channel, size_average = True):
+    mu1 = F.conv2d(img1, window, padding = window_size//2, groups = channel)
+    mu2 = F.conv2d(img2, window, padding = window_size//2, groups = channel)
+
+    mu1_sq = mu1.pow(2)
+    mu2_sq = mu2.pow(2)
+    mu1_mu2 = mu1*mu2
+
+    sigma1_sq = F.conv2d(img1*img1, window, padding = window_size//2, groups = channel) - mu1_sq
+    sigma2_sq = F.conv2d(img2*img2, window, padding = window_size//2, groups = channel) - mu2_sq
+    sigma12 = F.conv2d(img1*img2, window, padding = window_size//2, groups = channel) - mu1_mu2
+
+    C1 = 0.01**2
+    C2 = 0.03**2
+
+    ssim_map = ((2*mu1_mu2 + C1)*(2*sigma12 + C2))/((mu1_sq + mu2_sq + C1)*(sigma1_sq + sigma2_sq + C2))
+
+    if size_average:
+        return ssim_map.mean()
+    else:
+        return ssim_map.mean(1).mean(1).mean(1)
+
+def ssim_loss_func(img1, img2, window_size=11, size_average=True):
+    (_, channel, _, _) = img1.size()
+    window = create_window(window_size, channel)
+    if img1.is_cuda:
+        window = window.cuda(img1.get_device())
+    window = window.type_as(img1)
+    return _ssim(img1, img2, window, window_size, channel, size_average)
+
+class ExperimentUPCrackNet(Experiment):
+    def __init__(self, config):
+        super().__init__(config)
+        self.model_name = self.config.get("model_name", "upcracknet")
+        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        
+        self.ngf = self.config.get("ngf", 64)
+        self.ndf = self.config.get("ndf", 64)
+        
+        self.lrG = self.config.get("lrG", 0.0008)
+        self.lrD = self.config.get("lrD", 0.0002)
+        self.lamb = self.config.get("lamb", 100)
+        self.beta1 = self.config.get("beta1", 0.5)
+        self.beta2 = self.config.get("beta2", 0.999)
+        self.loss_L1 = self.config.get("loss_L1", False)
+        self.loss_L1_SSIM_GMS_Style = self.config.get("loss_L1_SSIM_GMS_Style", True)
+        
+    def set_algorithm(self):
+        self.G = Generator(3, self.ngf, 3) # (in_c, ngf, out_c)
+        self.D = Discriminator(6, self.ndf, 1) # (in_c*2, ndf, 1)
+        self.model = self.G # For testing phase
+        
+    def save_model(self, model_name="upcracknet"):
+        torch.save(self.G.state_dict(), os.path.join(self.save_path, f"{model_name}_G.pth"))
+        torch.save(self.D.state_dict(), os.path.join(self.save_path, f"{model_name}_D.pth"))
+
+    def load_model(self, model_name="upcracknet"):
+        self.G.load_state_dict(torch.load(os.path.join(self.save_path, f"{model_name}_G.pth")))
+        
+    def setup(self, pos_weight=1.0):
+        self.G.normal_weight_init(mean=0.0, std=0.02)
+        self.D.normal_weight_init(mean=0.0, std=0.02)
+        
+        self.BCE_loss = torch.nn.BCEWithLogitsLoss().to(self.device)
+        self.L1_loss = torch.nn.L1Loss().to(self.device)
+        self.L2_loss = torch.nn.MSELoss().to(self.device)
+        
+        self.perceptual_loss = PerceptualLoss().to(self.device)
+        self.style_loss = StyleLoss().to(self.device)
+        self.msgms_loss = MSGMS_Loss().to(self.device)
+        
+        self.G_optimizer = torch.optim.Adam(self.G.parameters(), lr=self.lrG, betas=(self.beta1, self.beta2))
+        self.D_optimizer = torch.optim.Adam(self.D.parameters(), lr=self.lrD, betas=(self.beta1, self.beta2))
+
+    def adjust_learning_rate(self, optimizer, base_lr, epoch):
+        lr = base_lr * (0.99 ** epoch)
+        for param_group in optimizer.param_groups:
+            param_group['lr'] = lr
+            
+    def run(self):
+        self.set_algorithm()
+        self.G.to(self.device)
+        self.D.to(self.device)
+        
+        if self.execution_mode == "train":
+            self.set_dataset(self.data_path, self.test_path)
+            self.setup()
+            self.train()
+            if self.test_path is not None:
+                self.evaluate(self.G, self.test_data)
+                json.dump(self.experiment_dict, open(os.path.join(self.log_path, "experiment_results.json"), "w"), indent=4)
+        elif self.execution_mode == "test":
+            self.set_dataset(self.data_path, self.test_path)
+            self.set_algorithm()
+            self.load_model(self.model_name)
+            self.setup()
+            self.evaluate(self.G, self.test_data)
+            json.dump(self.experiment_dict, open(os.path.join(self.log_path, "experiment_results.json"), "w"), indent=4)
+
+    def train(self, model=None, train_data=None, val_data=None, loss_function=None, optimizer=None, device="cuda", epochs=50, batch_size=8):
+        self.G.to(self.device)
+        self.D.to(self.device)
+        
+        train_loader = self.get_dataloaders(self.train_data, batch_size=self.batch_size)
+        val_loader = self.get_dataloaders(self.val_data, batch_size=self.batch_size) if self.val_data else None
+
+        D_losses, G_losses, D_losses_mean, G_losses_mean = [], [], [], []
+        
+        best_val_loss = float('inf')
+
+        for epoch in range(self.epochs):
+            self.adjust_learning_rate(self.G_optimizer, self.lrG, epoch)
+            self.adjust_learning_rate(self.D_optimizer, self.lrD, epoch)
+            
+            self.G.train()
+            self.D.train()
+            
+            epoch_D_loss = 0
+            epoch_G_loss = 0
+            
+            for i, (images, masks) in enumerate(train_loader):
+                if masks.dim() == 3:
+                    masks = masks.unsqueeze(1)
+                
+                # Expand binary mask to 3 channels to match Generator output dims for UP-CrackNet
+                masks = masks.repeat(1, 3, 1, 1).float()
+                
+                x_ = images.to(self.device)
+                y_ = masks.to(self.device)
+                
+                # ------ Train Discriminator ------
+                self.D_optimizer.zero_grad()
+                D_real_decision = self.D(x_, y_).squeeze()
+                real_ = torch.ones_like(D_real_decision).to(self.device)
+                D_real_loss = self.BCE_loss(D_real_decision, real_)
+
+                gen_image = self.G(x_)
+                D_fake_decision = self.D(x_, gen_image.detach()).squeeze()
+                fake_ = torch.zeros_like(D_fake_decision).to(self.device)
+                D_fake_loss = self.BCE_loss(D_fake_decision, fake_)
+
+                D_loss = (D_real_loss + D_fake_loss) * 0.5
+                D_loss.backward()
+                self.D_optimizer.step()
+                
+                # ------ Train Generator ------
+                self.G_optimizer.zero_grad()
+                gen_image = self.G(x_)
+                D_fake_decision = self.D(x_, gen_image).squeeze()
+                G_fake_loss = self.BCE_loss(D_fake_decision, real_)
+                
+                l1_loss = 0
+                if self.loss_L1:
+                    l1_loss = self.lamb * self.L1_loss(gen_image, y_)
+                elif self.loss_L1_SSIM_GMS_Style:
+                    loss_MSGMS = self.msgms_loss(gen_image, y_)
+                    loss_SSIM = 1 - ssim_loss_func(gen_image, y_)
+                    gen_style_loss = self.style_loss(gen_image, y_) * 10
+                    l_rec = gen_style_loss + loss_MSGMS + loss_SSIM + self.L1_loss(gen_image, y_)
+                    l1_loss = self.lamb * l_rec
+
+                G_loss = G_fake_loss + l1_loss
+                G_loss.backward()
+                self.G_optimizer.step()
+                
+                epoch_D_loss += D_loss.item()
+                epoch_G_loss += G_loss.item()
+
+            print(f"Epoch [{epoch+1}/{self.epochs}] | D_loss: {epoch_D_loss/len(train_loader):.4f} | G_loss: {epoch_G_loss/len(train_loader):.4f}")
+            
+            D_losses.append(epoch_D_loss/len(train_loader))
+            G_losses.append(epoch_G_loss/len(train_loader))
+            
+            # Validation
+            if val_loader:
+                self.G.eval()
+                val_loss = 0
+                with torch.no_grad():
+                    for images, masks in val_loader:
+                        if masks.dim() == 3:
+                            masks = masks.unsqueeze(1)
+                        masks = masks.repeat(1, 3, 1, 1).float()
+                        x_ = images.to(self.device)
+                        y_ = masks.to(self.device)
+                        
+                        gen_image = self.G(x_)
+                        
+                        if self.loss_L1:
+                            l1_val = self.L1_loss(gen_image, y_)
+                        elif self.loss_L1_SSIM_GMS_Style:
+                            loss_MSGMS = self.msgms_loss(gen_image, y_)
+                            loss_SSIM = 1 - ssim_loss_func(gen_image, y_)
+                            gen_style_loss = self.style_loss(gen_image, y_) * 10
+                            l_rec = gen_style_loss + loss_MSGMS + loss_SSIM + self.L1_loss(gen_image, y_)
+                            l1_val = self.lamb * l_rec
+                            
+                        val_loss += l1_val.item()
+                        
+                val_loss /= len(val_loader)
+                if val_loss < best_val_loss:
+                    best_val_loss = val_loss
+                    self.save_model(model_name=self.model_name + "_best")
+
+        # Save latest model
+        self.save_model(self.model_name)
+        return self.G
+
+    def evaluate(self, model, test_data, loss_function=None):
+        test_loader = self.get_dataloaders(test_data, batch_size=self.batch_size, shuffle=False)
+        self.G.eval()
+        self.G.to(self.device)
+        
+        dices, ious, clious = [], [], []
+        accuracies, precisions, recalls, f1_scores = [], [], [], []
+        
+        with torch.no_grad():
+            for images, masks in test_loader:
+                images = images.to(self.device)
+                masks = masks.to(self.device)
+                
+                outputs = self.G(images)
+                # Generator outputs 3 channels in [-1, 1] range (tanh).
+                # Take average over channels and threshold for binary crack prediction.
+                # Assuming crack is positive, we convert to [0,1]
+                outputs_prob = (outputs.mean(dim=1, keepdim=True) + 1.0) / 2.0
+                
+                pred_mask = (outputs_prob > self.threshold).float()
+                
+                # Masks is (B, 1, H, W) or (B, H, W)
+                if masks.dim() == 3: masks = masks.unsqueeze(1)
+                true_mask = masks.float()
+
+                dice_score = float(self.dice_coef(pred_mask, true_mask))
+                iou_score = float(self.iou_score(pred_mask, true_mask))
+                cl_iou_score = float(self.cl_iou_score(pred_mask, true_mask))
+                
+                metrics = self.classification_metrics(pred_mask, true_mask)
+
+                dices.append(dice_score)
+                ious.append(iou_score)
+                clious.append(cl_iou_score)
+
+                accuracies.append(metrics["accuracy"])
+                precisions.append(metrics["precision"])
+                recalls.append(metrics["recall"])
+                f1_scores.append(metrics["f1_score"])
+
+        print_info("✅ Testing complete.")
+        print_info(f"Dice: {np.mean(dices):.4f}, IoU: {np.mean(ious):.4f}, CL IoU: {np.mean(clious):.4f}")
+        print_info(f"Accuracy: {np.mean(accuracies):.4f}, Precision: {np.mean(precisions):.4f}, Recall: {np.mean(recalls):.4f}, F1: {np.mean(f1_scores):.4f}")
+        
+        self.experiment_dict["results"] = {
+            "test_dice": np.mean(dices),
+            "test_iou": np.mean(ious),
+            "test_cl_iou": np.mean(clious),
+            "test_accuracy": np.mean(accuracies),
+            "test_precision": np.mean(precisions),
+            "test_recall": np.mean(recalls),
+            "test_f1_score": np.mean(f1_scores)
+        }
+        
+        with open(self.experiment_report, "a") as f:
+            f.write(f"Test Dice: {np.mean(dices):.4f}, IoU: {np.mean(ious):.4f}, CL IoU: {np.mean(clious):.4f}\n")
+            f.write(f"Test Accuracy: {np.mean(accuracies):.4f}, Precision: {np.mean(precisions):.4f}, Recall: {np.mean(recalls):.4f}, F1-Score: {np.mean(f1_scores):.4f}\n")
+            
+        return np.mean(dices)
+        
+    def validate(self):
+        pass

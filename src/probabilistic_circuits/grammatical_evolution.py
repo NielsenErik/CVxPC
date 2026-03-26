@@ -172,19 +172,10 @@ class PCBuilder:
         # Re-initialize tracked params manually if there relies on it
         self.pc.params = []
         for n in self.pc.modules():
-            if isinstance(n, (InputNode, SumNode, ProductNode, ClassifierNode, AttentionalSumNode)):
+            if isinstance(n, (InputNode, SumNode, ProductNode, ClassifierNode, AttentionalSumNode, MultiHeadAttentionalSumNode)):
                 for p in n.parameters():
                     if p.requires_grad:
                         if not any(p is existing_p for existing_p in self.pc.params):
-                            self.pc.params.append(p)
-        return root
-        for n in self.pc.get_nodes():
-            if isinstance(n, nn.Module):
-                if hasattr(n, "get_learnable_params"):
-                    self.pc.params += list(n.get_learnable_params())
-                else:
-                    for _, p in n.named_parameters(recurse=False):
-                        if p.requires_grad:
                             self.pc.params.append(p)
         return root
 
@@ -204,7 +195,9 @@ class PCBuilder:
             kids = [self._build_subtree(c) for c in t.children]
             
             # Use AttentionalSumNode if device implies Attentional PCNet, otherwise basic SumNode
-            if hasattr(self.pc, "embed_dim"):
+            if hasattr(self.pc, "num_heads") and hasattr(self.pc, "embed_dim"):
+                node = MultiHeadAttentionalSumNode(kids, input_dim=self.pc.in_channels, embed_dim=self.pc.embed_dim, num_heads=self.pc.num_heads)
+            elif hasattr(self.pc, "embed_dim"):
                 node = AttentionalSumNode(kids, input_dim=self.pc.in_channels, embed_dim=self.pc.embed_dim)
             else:
                 node = SumNode(kids)
@@ -245,7 +238,9 @@ class GEOptimizer:
         n_jobs=None,
         report=None,
         log_path=None,
-        model_type="pcnet"
+        model_type="pcnet",
+        embed_dim=16,
+        num_heads=4
     ):
         self.pop_size = pop_size
         self.genome_len = genome_len
@@ -262,6 +257,8 @@ class GEOptimizer:
         self.report = report
         self.log_path = log_path
         self.model_type = model_type
+        self.embed_dim = embed_dim
+        self.num_heads = num_heads
         
         if log_path:
             os.makedirs(log_path, exist_ok=True)
@@ -305,10 +302,16 @@ class GEOptimizer:
         trees = self.mapper.map_model(genome, inputs.shape[1], self.max_depth, self.max_branching)
         
         # Instantiate base PCNet to hold the structure
-        if self.model_type == "attentional_pcnet":
+        if self.model_type == "multihead_attentional_pcnet":
+            pc = MultiHeadAttentionalPCNet(
+                in_channels=inputs.shape[1], n_classes=n_classes, 
+                max_depth=self.max_depth, max_branching=self.max_branching, 
+                embed_dim=self.embed_dim, num_heads=self.num_heads
+            )
+        elif self.model_type == "attentional_pcnet":
             pc = AttentionalPCNet(
                 in_channels=inputs.shape[1], n_classes=n_classes, 
-                max_depth=self.max_depth, max_branching=self.max_branching, embed_dim=16
+                max_depth=self.max_depth, max_branching=self.max_branching, embed_dim=self.embed_dim
             )
         else:
             pc = PCNet(
@@ -481,10 +484,16 @@ class GEOptimizer:
         # --- Final refinement of best genome ---
         trees = self.mapper.map_model(best_genome, inputs.shape[1], self.max_depth, self.max_branching)
         
-        if self.model_type == "attentional_pcnet":
+        if self.model_type == "multihead_attentional_pcnet":
+            final_pc = MultiHeadAttentionalPCNet(
+                in_channels=inputs.shape[1], n_classes=n_classes, 
+                max_depth=self.max_depth, max_branching=self.max_branching, 
+                embed_dim=self.embed_dim, num_heads=self.num_heads
+            ).to(self.device)
+        elif self.model_type == "attentional_pcnet":
             final_pc = AttentionalPCNet(
                 in_channels=inputs.shape[1], n_classes=n_classes, 
-                max_depth=self.max_depth, max_branching=self.max_branching, embed_dim=16
+                max_depth=self.max_depth, max_branching=self.max_branching, embed_dim=self.embed_dim
             ).to(self.device)
         else:
             final_pc = PCNet(

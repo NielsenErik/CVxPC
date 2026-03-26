@@ -150,7 +150,7 @@ class ProductNode(AbstractNode):
 # ======================================================
 class ClassifierNode(AbstractNode):
     def forward(self, x):
-        return torch.stack([c(x) for c in self.child_nodes], dim=1)
+        return torch.cat([c(x) for c in self.child_nodes], dim=1)
 
 # ======================================================
 # PCNet: The Graph Manager

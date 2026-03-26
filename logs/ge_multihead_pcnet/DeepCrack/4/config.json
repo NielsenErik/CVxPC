@@ -1,0 +1,30 @@
+{
+    "mlflow": null,
+    "experiment": "crack_segmentation",
+    "algorithm": "ge_multihead_pcnet",
+    "device": "cpu",
+    "data_path": "data/crackseg9k_split/DeepCrack/train",
+    "test_path": "data/crackseg9k_split/DeepCrack/test",
+    "save_path": "models/",
+    "validation_split": 0.2,
+    "epochs": 1,
+    "batch_size": 2,
+    "sample_size": 0.05,
+    "resize_size": [
+        256,
+        256
+    ],
+    "input_channels": 3,
+    "n_classes": 2,
+    "execution_mode": "train",
+    "embed_dim": 8,
+    "num_heads": 4,
+    "pop_size": 2,
+    "genome_len": 32,
+    "max_depth": 3,
+    "max_branching": 2,
+    "ge_train_steps": 1,
+    "seed": 4,
+    "preprocessing": false,
+    "log_dir": "logs/ge_multihead_pcnet/DeepCrack/4"
+}

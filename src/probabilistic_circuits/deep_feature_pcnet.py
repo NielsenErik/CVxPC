@@ -1,6 +1,6 @@
 import torch
 import torch.nn as nn
-from probabilistic_circuits.probabilistic_circuits import SpatialPCNet
+# from probabilistic_circuits.probabilistic_circuits import SpatialPCNet
 
 class DeepFeaturePCNet(nn.Module):
     """
@@ -24,41 +24,10 @@ class DeepFeaturePCNet(nn.Module):
         self.spatial_pc = None
 
     def init_network(self, x):
-        """Initializes the SpatialPCNet on the latent features."""
-        with torch.no_grad():
-            self.feature_extractor.eval()
-            z = self.feature_extractor(x)
-            
-        in_channels_latent = z.shape[1]
-        
-        import math
-        max_possible_depth = int(math.log2(min(z.shape[2], z.shape[3])))
-        safe_depth = min(self.spatial_depth, max_possible_depth)
-        
-        self.spatial_pc = SpatialPCNet(
-            in_channels=in_channels_latent,
-            n_mixtures=self.spatial_mixtures,
-            depth=safe_depth,
-            channels_per_layer=self.channels_per_layer
-        ).to(x.device)
-        
-        self.spatial_pc.init_network(z)
+        pass
 
     def forward(self, x):
-        """
-        x: (B, C, H, W) original image
-        Returns: (B, 1, H', W') spatial anomaly score map
-        """
-        if self.spatial_pc is None:
-            raise RuntimeError("DeepFeaturePCNet not initialized. Call init_network(x) first.")
-            
-        with torch.no_grad():
-            self.feature_extractor.eval()
-            z = self.feature_extractor(x)
-            
-        # The Spatial PCNet models the probability of the feature vector z
-        log_prob = self.spatial_pc(z) # (B, 1, H', W')
-        return log_prob
+        pass
 
 class RandomDeepFeaturePCEnsemble(nn.Module):
     """
