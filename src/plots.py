@@ -846,11 +846,231 @@ def plot_sum_node(node, x_batch, save_path):
     plt.close()
 
 
+# def plot_distribution_flow_paths(model, x_batch, save_path="distribution_paths.pdf"):
+#     """
+#     Shows the distribution evolution for each input image (row).
+#     Columns follow the PCNet computational path:
+#     Input → InputNodes → internal nodes → ClassifierNode → FINAL CLASSIFICATION (mask)
+
+#     FINAL CLASSIFICATION VIS:
+#       - white background
+#       - black crack
+#     """
+
+#     import os
+#     import numpy as np
+#     import matplotlib.pyplot as plt
+
+#     os.makedirs(os.path.dirname(save_path) or ".", exist_ok=True)
+
+#     x_batch = x_batch.detach().cpu()
+#     B = x_batch.shape[0]
+
+#     # ---------------------------------------------------------
+#     # 1. Get model nodes in topological evaluation order
+#     # ---------------------------------------------------------
+#     nodes = list(model.get_nodes())
+
+#     # reorder: ensure InputNodes first, ClassifierNodes last
+#     def order_key(n):
+#         name = n.__class__.__name__
+#         if name == "InputNode":
+#             return 0
+#         if name == "ClassifierNode":
+#             return 2
+#         return 1
+
+#     nodes = sorted(nodes, key=order_key)
+
+#     # ---------------------------------------------------------
+#     # Helper: convert raw node output to spatial heatmap
+#     # ---------------------------------------------------------
+#     def _to_spatial_map(a_np: np.ndarray) -> np.ndarray:
+#         """
+#         Accepts shapes like:
+#           (1,C,H,W), (C,H,W), (1,H,W), (H,W), (N,) ...
+#         Returns (H,W) if possible, else (1,1) fallback.
+#         """
+#         a = a_np
+#         # squeeze batch dim if present
+#         if a.ndim >= 1 and a.shape[0] == 1:
+#             a = np.squeeze(a, axis=0)
+
+#         if a.ndim == 2:  # (H,W)
+#             return a
+#         if a.ndim == 3:  # (C,H,W) or (H,W,C)
+#             # assume channel-first if first dim small-ish
+#             if a.shape[0] <= 16 and a.shape[1] > 8 and a.shape[2] > 8:
+#                 return a.mean(axis=0)  # (H,W)
+#             # else channel-last
+#             if a.shape[2] <= 16 and a.shape[0] > 8 and a.shape[1] > 8:
+#                 return a.mean(axis=2)
+#             # fallback
+#             return a[0] if a.shape[0] > 0 else np.zeros((1, 1), dtype=np.float32)
+#         if a.ndim == 1:
+#             return np.array([[a.mean()]], dtype=np.float32)
+#         if a.ndim == 4:  # (B,C,H,W) but batch should already be 1; just in case:
+#             return a[0].mean(axis=0)
+#         return np.zeros((1, 1), dtype=np.float32)
+
+#     # ---------------------------------------------------------
+#     # Helper: build final classification mask (white bg, black crack)
+#     # ---------------------------------------------------------
+#     def _to_final_class_mask(a_np: np.ndarray) -> np.ndarray:
+#         """
+#         Tries to interpret classifier output as:
+#           - multi-class logits/probs: (1,C,H,W) or (C,H,W) -> argmax
+#           - binary logits/probs:      (1,1,H,W) or (H,W)  -> threshold
+#         Returns mask in {0,1} where:
+#           1 = background (white)
+#           0 = crack (black)
+#         """
+#         a = a_np
+#         if a.ndim >= 1 and a.shape[0] == 1:
+#             a = np.squeeze(a, axis=0)  # remove batch if present
+
+#         # Multi-class: (C,H,W)
+#         if a.ndim == 3 and a.shape[0] > 1:
+#             cls = np.argmax(a, axis=0)  # (H,W)
+#             # assume "crack" is class 1 if exists; otherwise crack = any non-zero class
+#             crack = (cls == 1) if a.shape[0] > 1 else (cls != 0)
+#             bg = (~crack).astype(np.float32)
+#             return bg  # 1 background, 0 crack
+
+#         # Binary: (1,H,W) or (H,W)
+#         if a.ndim == 3 and a.shape[0] == 1:
+#             a = a[0]
+#         if a.ndim == 2:
+#             # if it's logits, threshold at 0; if probs, threshold at 0.5 — we handle both safely:
+#             # use 0.5 if values look like probs, else 0.0
+#             finite = a[np.isfinite(a)]
+#             if finite.size > 0 and finite.min() >= 0.0 and finite.max() <= 1.0:
+#                 crack = a > 0.5
+#             else:
+#                 crack = a > 0.0
+#             bg = (~crack).astype(np.float32)
+#             return bg
+
+#         # Scalar fallback
+#         return np.ones((1, 1), dtype=np.float32)
+
+#     # ---------------------------------------------------------
+#     # 2. Evaluate all nodes for each input image
+#     # ---------------------------------------------------------
+#     all_maps = []   # list of rows; each row is list of spatial maps (or None)
+#     all_last_raw = []  # store raw output of last (ClassifierNode if present) for final mask
+#     for img_idx in range(B):
+#         x = x_batch[img_idx:img_idx + 1]
+
+#         row_maps = []
+#         last_raw = None
+#         for node in nodes:
+#             try:
+#                 a_t = node.evaluate(x).detach().cpu()
+#                 a_np = a_t.numpy()
+#                 last_raw = a_np  # keep overwriting; ends with last node output
+#                 a_map = _to_spatial_map(a_np)
+#                 row_maps.append(a_map)
+#             except Exception:
+#                 row_maps.append(None)
+
+#         all_maps.append(row_maps)
+#         all_last_raw.append(last_raw)
+
+#     # ---------------------------------------------------------
+#     # 3. Compute global normalization range (5–95 percentile)
+#     # ---------------------------------------------------------
+#     vals = []
+#     for row in all_maps:
+#         for m in row:
+#             if m is not None:
+#                 vals.append(m.flatten())
+
+#     if len(vals) == 0:
+#         print("[WARN] No activations available.")
+#         return
+
+#     vals = np.concatenate(vals)
+#     lo, hi = np.percentile(vals, [5, 95])
+
+#     # ---------------------------------------------------------
+#     # 4. Plot storyboard:
+#     #     - 1 row = 1 input image
+#     #     - columns = Input → Nodes... → FINAL CLASSIFICATION
+#     # ---------------------------------------------------------
+#     T = len(nodes)
+#     fig, axs = plt.subplots(B, T + 2, figsize=(3 * (T + 2), 3 * B))
+
+#     if B == 1:
+#         axs = axs.reshape(1, T + 2)
+
+#     # Column 0: original image
+#     for i in range(B):
+#         img = x_batch[i].numpy().transpose(1, 2, 0)
+#         if img.shape[-1] == 1:
+#             img = img[:, :, 0]
+
+#         axs[i, 0].imshow(img, cmap="gray")
+#         if i == 0:
+#             axs[i, 0].set_title("Input", fontsize=20)
+#         axs[i, 0].axis("off")
+
+#     # Node activations (columns 1..T+1)
+#     im_for_cbar = None
+#     for row_i in range(B):
+#         for col_j, node in enumerate(nodes):
+#             ax = axs[row_i, col_j + 1]
+#             act = all_maps[row_i][col_j]
+#             title = f"{col_j}: {node.__class__.__name__}"
+
+#             if act is None:
+#                 if row_i == 0:
+#                     ax.set_title(title, fontsize=20)
+#                 ax.axis("off")
+#                 continue
+
+#             im = ax.imshow(act, cmap="plasma", vmin=lo, vmax=hi)
+#             if im_for_cbar is None:
+#                 im_for_cbar = im
+#             if row_i == 0:
+#                 ax.set_title(title, fontsize=20)
+#             ax.axis("off")
+
+#     # Final classification (last column, index T+1)
+#     for row_i in range(B):
+#         ax = axs[row_i, T + 1]
+#         raw = all_last_raw[row_i]
+#         if raw is None:
+#             ax.set_title("Final\n(no output)", fontsize=20)
+#             ax.axis("off")
+#             continue
+
+#         bg_mask = _to_final_class_mask(raw)  # 1=white bg, 0=black crack
+#         ax.imshow(bg_mask, cmap="gray", vmin=0, vmax=1)
+#         if row_i == 0:
+#             ax.set_title("Classification", fontsize=20)
+
+#         ax.axis("off")
+
+#     # Add a single global colorbar for activations only
+#     if im_for_cbar is not None:
+#         fig.subplots_adjust(right=0.92)
+#         cbar_ax = fig.add_axes([0.945, 0.15, 0.010, 0.7])
+
+#         fig.colorbar(im_for_cbar, cax=cbar_ax)
+
+#     plt.tight_layout(rect=[0, 0, 0.93, 1])
+#     plt.savefig(save_path, dpi=300)
+#     plt.close()
+
+#     print(f"[OK] Saved distribution path storyboard → {save_path}")
+
+
 def plot_distribution_flow_paths(model, x_batch, save_path="distribution_paths.pdf"):
     """
-    Shows the distribution evolution for each input image (row).
+    Shows the distribution evolution for up to 2 input images (rows).
     Columns follow the PCNet computational path:
-    Input → InputNodes → internal nodes → ClassifierNode → FINAL CLASSIFICATION (mask)
+    Input → All InputNodes → 1 of each internal node type → ClassifierNode → FINAL CLASSIFICATION (mask)
 
     FINAL CLASSIFICATION VIS:
       - white background
@@ -863,15 +1083,32 @@ def plot_distribution_flow_paths(model, x_batch, save_path="distribution_paths.p
 
     os.makedirs(os.path.dirname(save_path) or ".", exist_ok=True)
 
-    x_batch = x_batch.detach().cpu()
-    B = x_batch.shape[0]
+    # Force batch size to a maximum of 2
+    B = min(2, x_batch.shape[0])
+    x_batch = x_batch[:B].detach().cpu()
 
     # ---------------------------------------------------------
-    # 1. Get model nodes in topological evaluation order
+    # 1. Get and filter model nodes
     # ---------------------------------------------------------
-    nodes = list(model.get_nodes())
+    all_nodes = list(model.get_nodes())
+    
+    selected_nodes = []
+    seen_types = set()
+    
+    target_types = {"SumNode", "ProductNode", "ResidualNode", "GateNode", "ClassifierNode"}
 
-    # reorder: ensure InputNodes first, ClassifierNodes last
+    for n in all_nodes:
+        name = n.__class__.__name__
+        if name == "InputNode":
+            # Keep ALL InputNodes
+            selected_nodes.append(n)
+        elif name in target_types:
+            # Keep ONLY ONE of each intermediate/classifier type
+            if name not in seen_types:
+                selected_nodes.append(n)
+                seen_types.add(name)
+
+    # Reorder: ensure InputNodes first, ClassifierNodes last
     def order_key(n):
         name = n.__class__.__name__
         if name == "InputNode":
@@ -880,36 +1117,27 @@ def plot_distribution_flow_paths(model, x_batch, save_path="distribution_paths.p
             return 2
         return 1
 
-    nodes = sorted(nodes, key=order_key)
+    selected_nodes = sorted(selected_nodes, key=order_key)
 
     # ---------------------------------------------------------
     # Helper: convert raw node output to spatial heatmap
     # ---------------------------------------------------------
     def _to_spatial_map(a_np: np.ndarray) -> np.ndarray:
-        """
-        Accepts shapes like:
-          (1,C,H,W), (C,H,W), (1,H,W), (H,W), (N,) ...
-        Returns (H,W) if possible, else (1,1) fallback.
-        """
         a = a_np
-        # squeeze batch dim if present
         if a.ndim >= 1 and a.shape[0] == 1:
             a = np.squeeze(a, axis=0)
 
         if a.ndim == 2:  # (H,W)
             return a
         if a.ndim == 3:  # (C,H,W) or (H,W,C)
-            # assume channel-first if first dim small-ish
             if a.shape[0] <= 16 and a.shape[1] > 8 and a.shape[2] > 8:
                 return a.mean(axis=0)  # (H,W)
-            # else channel-last
             if a.shape[2] <= 16 and a.shape[0] > 8 and a.shape[1] > 8:
                 return a.mean(axis=2)
-            # fallback
             return a[0] if a.shape[0] > 0 else np.zeros((1, 1), dtype=np.float32)
         if a.ndim == 1:
             return np.array([[a.mean()]], dtype=np.float32)
-        if a.ndim == 4:  # (B,C,H,W) but batch should already be 1; just in case:
+        if a.ndim == 4:
             return a[0].mean(axis=0)
         return np.zeros((1, 1), dtype=np.float32)
 
@@ -917,32 +1145,21 @@ def plot_distribution_flow_paths(model, x_batch, save_path="distribution_paths.p
     # Helper: build final classification mask (white bg, black crack)
     # ---------------------------------------------------------
     def _to_final_class_mask(a_np: np.ndarray) -> np.ndarray:
-        """
-        Tries to interpret classifier output as:
-          - multi-class logits/probs: (1,C,H,W) or (C,H,W) -> argmax
-          - binary logits/probs:      (1,1,H,W) or (H,W)  -> threshold
-        Returns mask in {0,1} where:
-          1 = background (white)
-          0 = crack (black)
-        """
         a = a_np
         if a.ndim >= 1 and a.shape[0] == 1:
-            a = np.squeeze(a, axis=0)  # remove batch if present
+            a = np.squeeze(a, axis=0)
 
         # Multi-class: (C,H,W)
         if a.ndim == 3 and a.shape[0] > 1:
-            cls = np.argmax(a, axis=0)  # (H,W)
-            # assume "crack" is class 1 if exists; otherwise crack = any non-zero class
+            cls = np.argmax(a, axis=0)
             crack = (cls == 1) if a.shape[0] > 1 else (cls != 0)
             bg = (~crack).astype(np.float32)
-            return bg  # 1 background, 0 crack
+            return bg
 
         # Binary: (1,H,W) or (H,W)
         if a.ndim == 3 and a.shape[0] == 1:
             a = a[0]
         if a.ndim == 2:
-            # if it's logits, threshold at 0; if probs, threshold at 0.5 — we handle both safely:
-            # use 0.5 if values look like probs, else 0.0
             finite = a[np.isfinite(a)]
             if finite.size > 0 and finite.min() >= 0.0 and finite.max() <= 1.0:
                 crack = a > 0.5
@@ -951,24 +1168,23 @@ def plot_distribution_flow_paths(model, x_batch, save_path="distribution_paths.p
             bg = (~crack).astype(np.float32)
             return bg
 
-        # Scalar fallback
         return np.ones((1, 1), dtype=np.float32)
 
     # ---------------------------------------------------------
-    # 2. Evaluate all nodes for each input image
+    # 2. Evaluate selected nodes for each input image
     # ---------------------------------------------------------
-    all_maps = []   # list of rows; each row is list of spatial maps (or None)
-    all_last_raw = []  # store raw output of last (ClassifierNode if present) for final mask
+    all_maps = []   
+    all_last_raw = []  
     for img_idx in range(B):
         x = x_batch[img_idx:img_idx + 1]
 
         row_maps = []
         last_raw = None
-        for node in nodes:
+        for node in selected_nodes:
             try:
                 a_t = node.evaluate(x).detach().cpu()
                 a_np = a_t.numpy()
-                last_raw = a_np  # keep overwriting; ends with last node output
+                last_raw = a_np  # The last node will be the ClassifierNode
                 a_map = _to_spatial_map(a_np)
                 row_maps.append(a_map)
             except Exception:
@@ -994,15 +1210,16 @@ def plot_distribution_flow_paths(model, x_batch, save_path="distribution_paths.p
     lo, hi = np.percentile(vals, [5, 95])
 
     # ---------------------------------------------------------
-    # 4. Plot storyboard:
-    #     - 1 row = 1 input image
-    #     - columns = Input → Nodes... → FINAL CLASSIFICATION
+    # 4. Plot storyboard
     # ---------------------------------------------------------
-    T = len(nodes)
+    T = len(selected_nodes)
     fig, axs = plt.subplots(B, T + 2, figsize=(3 * (T + 2), 3 * B))
 
     if B == 1:
         axs = axs.reshape(1, T + 2)
+
+    # Define the larger font size
+    TITLE_FONT_SIZE = 22
 
     # Column 0: original image
     for i in range(B):
@@ -1012,20 +1229,21 @@ def plot_distribution_flow_paths(model, x_batch, save_path="distribution_paths.p
 
         axs[i, 0].imshow(img, cmap="gray")
         if i == 0:
-            axs[i, 0].set_title("Input", fontsize=20)
+            axs[i, 0].set_title("Input", fontsize=TITLE_FONT_SIZE, weight='bold')
         axs[i, 0].axis("off")
 
-    # Node activations (columns 1..T+1)
+    # Node activations (columns 1..T)
     im_for_cbar = None
     for row_i in range(B):
-        for col_j, node in enumerate(nodes):
+        for col_j, node in enumerate(selected_nodes):
             ax = axs[row_i, col_j + 1]
             act = all_maps[row_i][col_j]
-            title = f"{col_j}: {node.__class__.__name__}"
+            # Restored the full class name (e.g., "SumNode")
+            title = node.__class__.__name__
 
             if act is None:
                 if row_i == 0:
-                    ax.set_title(title, fontsize=20)
+                    ax.set_title(title, fontsize=TITLE_FONT_SIZE)
                 ax.axis("off")
                 continue
 
@@ -1033,7 +1251,7 @@ def plot_distribution_flow_paths(model, x_batch, save_path="distribution_paths.p
             if im_for_cbar is None:
                 im_for_cbar = im
             if row_i == 0:
-                ax.set_title(title, fontsize=20)
+                ax.set_title(title, fontsize=TITLE_FONT_SIZE)
             ax.axis("off")
 
     # Final classification (last column, index T+1)
@@ -1041,32 +1259,28 @@ def plot_distribution_flow_paths(model, x_batch, save_path="distribution_paths.p
         ax = axs[row_i, T + 1]
         raw = all_last_raw[row_i]
         if raw is None:
-            ax.set_title("Final\n(no output)", fontsize=20)
+            ax.set_title("Final\n(no output)", fontsize=TITLE_FONT_SIZE, weight='bold')
             ax.axis("off")
             continue
 
-        bg_mask = _to_final_class_mask(raw)  # 1=white bg, 0=black crack
+        bg_mask = _to_final_class_mask(raw)  
         ax.imshow(bg_mask, cmap="gray", vmin=0, vmax=1)
         if row_i == 0:
-            ax.set_title("Classification", fontsize=20)
+            ax.set_title("Pixel wise\nclassification", fontsize=TITLE_FONT_SIZE, weight='bold')
 
         ax.axis("off")
 
     # Add a single global colorbar for activations only
     if im_for_cbar is not None:
         fig.subplots_adjust(right=0.92)
-        cbar_ax = fig.add_axes([0.945, 0.15, 0.010, 0.7])
-
+        cbar_ax = fig.add_axes([0.945, 0.25, 0.015, 0.5])
         fig.colorbar(im_for_cbar, cax=cbar_ax)
 
     plt.tight_layout(rect=[0, 0, 0.93, 1])
-    plt.savefig(save_path, dpi=300)
+    plt.savefig(save_path, dpi=300, bbox_inches='tight')
     plt.close()
 
     print(f"[OK] Saved distribution path storyboard → {save_path}")
-
-
-
 # =========================================================
 # MASTER DISPATCHER
 # =========================================================
@@ -1168,67 +1382,54 @@ def plot_evolutionary_results(root_dir, y_limits=None):
 # }
 # plot_evolutionary_results("./results", y_limits=custom_limits)
 
-import matplotlib.pyplot as plt
 import pandas as pd
-import numpy as np
+import matplotlib.pyplot as plt
+import matplotlib.ticker as ticker
 
 def plot_pareto_front(csv_path, save_path):
-    # ----------------------------------------------------
-    # Load and Clean Data
-    # ----------------------------------------------------
-    df = pd.read_csv(csv_path)
-    df = df[['Model', 'Dataset', 'clIoU', 'nParams']].dropna()
+    # 1. Load Data
+    df = pd.read_csv(csv_path)[['Model', 'Dataset', 'clIoU', 'nParams']].dropna()
     df['nParams'] = pd.to_numeric(df['nParams'])
     df['clIoU']   = pd.to_numeric(df['clIoU'])
 
-    # ----------------------------------------------------
-    # MAPPINGS (Color for Dataset, Marker for Model)
-    # ----------------------------------------------------
+    # 2. Mappings
     datasets = df['Dataset'].unique()
-    color_map = {ds: plt.cm.tab10(i / len(datasets)) for i, ds in enumerate(datasets)}
-
     models = df['Model'].unique()
-    # List of distinct markers
-    all_markers = ['o', 's', '^', 'D', 'v', 'p', '*', 'X', 'P', '<', '>']
-    marker_map = {model: all_markers[i % len(all_markers)] for i, model in enumerate(models)}
-
-    # ----------------------------------------------------
-    # Broken x-axis setup
-    # ----------------------------------------------------
-    fig, (ax1, ax2) = plt.subplots(
-        1, 2, sharey=True, figsize=(12, 7),
-        gridspec_kw={"wspace": 0.08}
-    )
-
-    # Adjust limits as per your data requirements
-    ax1.set_ylim(0, 1.05)      
-    ax1.set_xlim(30, 40)      # Example range for small models
-    ax2.set_xlim(1e6, 5e7)     # Example range for large models
-
-    # ----------------------------------------------------
-    # Scatter Plotting (No Pareto Dominance)
-    # ----------------------------------------------------
-    for _, row in df.iterrows():
-        ds_color = color_map[row['Dataset']]
-        m_style  = marker_map[row['Model']]
-        
-        for ax in (ax1, ax2):
-            ax.scatter(
-                row['nParams'], row['clIoU'],
-                color=ds_color, marker=m_style, 
-                s=100, alpha=0.8, edgecolors='white', linewidth=0.5
-            )
-
-    # ----------------------------------------------------
-    # Cosmetics & Axis Break
-    # ----------------------------------------------------
-    for ax in (ax1, ax2):
-        ax.grid(True, which="both", linestyle="--", alpha=0.3)
     
-    ax1.set_ylabel("clIoU", fontsize=13)
-    fig.text(0.5, 0.04, 'Number of Parameters', ha='center', fontsize=13)
+    color_map = {ds: plt.cm.tab10(i / len(datasets)) for i, ds in enumerate(datasets)}
+    markers = ['o', 's', '^', 'D', 'v', 'p', '*', 'X']
+    marker_map = {m: markers[i % len(markers)] for i, m in enumerate(models)}
 
-    # Draw the break marks (diagonal lines)
+    # 3. Compact Setup
+    fig, (ax1, ax2) = plt.subplots(1, 2, sharey=True, figsize=(7, 4), gridspec_kw={"wspace": 0.1})
+
+    # Tighter limits
+    ax1.set_ylim(0, 1.05)      
+    ax1.set_xlim(20, 50)       # PCNet range
+    ax2.set_xlim(1e6, 4e7)   # DeepCrack/U-Net range (~30M-36M)
+
+    # Force ticks to appear exactly where they should
+    ax1.xaxis.set_major_locator(ticker.MultipleLocator(5))   # Ticks at 20, 30, 40, 50
+    ax2.xaxis.set_major_locator(ticker.MultipleLocator(5e6))
+    # 4. Plotting
+    for _, row in df.iterrows():
+        c, m = color_map[row['Dataset']], marker_map[row['Model']]
+        ax1.scatter(row['nParams'], row['clIoU'], c=[c], marker=m, s=80, alpha=0.8, edgecolors='w', lw=0.5)
+        ax2.scatter(row['nParams'], row['clIoU'], c=[c], marker=m, s=80, alpha=0.8, edgecolors='w', lw=0.5)
+
+    # 5. Cosmetics & Axis Break
+    ax1.set_ylabel("clIoU", fontsize=10)
+    
+    # Moved the x-axis label slightly higher to close the gap
+    fig.text(0.5, 0.03, 'Number of Parameters', ha='center', fontsize=10)
+
+    for ax in (ax1, ax2):
+        ax.grid(True, linestyle="--", alpha=0.4)
+        ax.tick_params(axis='both', labelsize=9)
+
+    ax2.xaxis.set_major_formatter(ticker.FuncFormatter(lambda x, pos: f'{x*1e-6:g}M'))
+
+    # Draw the break marks
     d = .015
     kwargs = dict(color="k", clip_on=False, linewidth=1)
     ax1.plot((1-d, 1+d), (-d, +d), transform=ax1.transAxes, **kwargs)
@@ -1236,40 +1437,27 @@ def plot_pareto_front(csv_path, save_path):
     ax2.plot((-d, +d), (-d, +d), transform=ax2.transAxes, **kwargs)
     ax2.plot((-d, +d), (1-d, 1+d), transform=ax2.transAxes, **kwargs)
 
-    # ----------------------------------------------------
-    # TWO-PART LEGEND (Dataset and Model)
-    # ----------------------------------------------------
-    # 1. Dataset Legend (Colors)
-    ds_handles = [
-        plt.Line2D([0], [0], marker='o', color='w', label=ds,
-                   markerfacecolor=color_map[ds], markersize=10)
-        for ds in datasets
-    ]
-    
-    # 2. Model Legend (Shapes) - Using grey to keep focus on shape
-    model_handles = [
-        plt.Line2D([0], [0], marker=marker_map[m], color='w', label=m,
-                   markerfacecolor='grey', markersize=10)
-        for m in models
-    ]
+    # 6. Ultra-Compact Legend (Placed TIGHTLY below the plot)
+    ds_handles = [plt.Line2D([0], [0], marker='o', color='w', label=ds, 
+                             markerfacecolor=color_map[ds], markersize=8) for ds in datasets]
+    model_handles = [plt.Line2D([0], [0], marker=marker_map[m], color='w', label=m, 
+                                markerfacecolor='grey', markersize=8) for m in models]
 
-    # Combine handles and place below
-    all_handles = ds_handles + [plt.Line2D([0], [0], color='none', label='')] + model_handles
-    
-    fig.legend(
-        handles=all_handles,
-        loc="lower center",
-        bbox_to_anchor=(0.5, -0.15), 
-        ncol=5,
-        frameon=True,
-        fontsize=10
-    )
+    # loc="upper center" anchors the top of the legend box, letting it hang downward.
+    # columnspacing=0.8 drastically reduces the horizontal width of the legend rows.
+    # borderpad=0 removes the invisible padding inside the legend box.
+    fig.legend(handles=ds_handles, loc="upper center", bbox_to_anchor=(0.5, 0), 
+               ncol=len(datasets), frameon=False, fontsize=9, 
+               handletextpad=0.2, columnspacing=0.8, borderpad=0)
+               
+    fig.legend(handles=model_handles, loc="upper center", bbox_to_anchor=(0.5, -0.05), 
+               ncol=len(models), frameon=False, fontsize=9, 
+               handletextpad=0.2, columnspacing=0.8, borderpad=0)
 
-    # ----------------------------------------------------
-    # Save
-    # ----------------------------------------------------
-    print(f"Saving Pareto front plot to {save_path}")
-    plt.savefig(save_path, bbox_inches='tight')
+    # 7. Save
+    # bbox_inches='tight' will automatically crop the image right at the edge of your new legends!
+    plt.savefig(save_path, bbox_inches='tight', dpi=300)
+    print(f"Saved compact Pareto front plot to {save_path}")
 
     
 def plot_efficiency_barplot(csv_path, save_path):
@@ -1514,6 +1702,128 @@ def plot_top2_by_cliou_per_dataset(models_dict,
     print(f"[OK] Saved -> {save_path}")
 
 
+import os
+import math
+import pickle
+import numpy as np
+import torch
+import matplotlib.pyplot as plt
+
+def plot_top1_by_cliou_per_dataset(models_dict,
+                                   save_path="plots/top1_cliou_grid.pdf",
+                                   resize_size=(256, 256),
+                                   n_test=20,
+                                   tau=4,
+                                   seed=None,
+                                   device=None):
+    from crackdata_processing import CrackDataset
+
+    if seed is not None:
+        np.random.seed(seed)
+        torch.manual_seed(seed)
+
+    if device is None:
+        device = "cuda" if torch.cuda.is_available() else "cpu"
+
+    datasets = list(models_dict.keys())
+    n_datasets = len(datasets)
+    
+    # 2 datasets per row -> 6 columns total (Input, Mask, Output) x 2
+    n_cols = 6  
+    n_rows = math.ceil(n_datasets / 2)
+
+    os.makedirs(os.path.dirname(save_path) or ".", exist_ok=True)
+
+    # Adjusted figsize for a 6-column layout to fit nicely in papers
+    fig, axs = plt.subplots(n_rows, n_cols, figsize=(14, 2.8 * n_rows))
+    
+    # Ensure axs is 2D even if there's only 1 row
+    if n_rows == 1:
+        axs = axs.reshape(1, -1)
+
+    # Column titles only on the first row
+    col_titles = ["Input", "Mask", "Output", "Input", "Mask", "Output"]
+    for j, t in enumerate(col_titles):
+        axs[0, j].set_title(t, fontsize=16, pad=10)
+
+    for i, ds_name in enumerate(datasets):
+        r = i // 2             # Row index
+        c_offset = (i % 2) * 3 # Column offset (0 for left dataset, 3 for right dataset)
+
+        # Load model
+        entry = models_dict[ds_name]
+        model = pickle.load(open(entry["model"], "rb"))
+        if hasattr(model, "to"):
+            model = model.to(device)
+
+        # Load dataset
+        data = CrackDataset(entry["image_path"], entry["mask_path"], resize_size=resize_size)
+
+        # Sample n_test indices
+        n_pick = min(n_test, len(data))
+        idxs = np.random.choice(len(data), size=n_pick, replace=False)
+
+        scored = []
+        for idx in idxs:
+            x, y = data[idx]
+            x_in = x.unsqueeze(0).to(device)
+            y_true = _to_true_prob_mask(y).to(device)
+
+            with torch.no_grad():
+                out = model.evaluate(x_in)
+                pred_prob = _model_to_pred_prob(out)
+
+            s = cl_iou_score(pred_prob, y_true, tau=tau)
+            scored.append((s, idx, x.detach().cpu(), y.detach().cpu(), pred_prob.detach().cpu()))
+
+        # Keep ONLY the best 1
+        scored.sort(key=lambda t: t[0], reverse=True)
+        best1 = scored[:1]
+
+        for s, idx, x_cpu, y_cpu, pred_prob_cpu in best1:
+            # Input image to numpy
+            x_np = x_cpu.numpy()
+            img = np.transpose(x_np, (1, 2, 0)) if x_np.ndim == 3 else x_np
+            if img.ndim == 3 and img.shape[-1] == 1:
+                img = img[..., 0]
+
+            # GT mask (white bg, black crack)
+            y_true_np = _to_true_prob_mask(y_cpu)[0, 0].numpy()
+            bg_gt = (1.0 - y_true_np).astype(np.float32)
+
+            # Pred mask (white bg, black crack)
+            bg_pred = _prob_to_bg_vis(pred_prob_cpu)
+
+            # 1. Plot Input
+            ax_in = axs[r, c_offset + 0]
+            ax_in.imshow(img, cmap="gray" if img.ndim == 2 else None)
+            ax_in.set_xticks([])
+            ax_in.set_yticks([])
+            for spine in ax_in.spines.values():
+                spine.set_visible(False)
+            # Add dataset name as the left-side label
+            ax_in.set_ylabel(ds_name, fontsize=16, weight="bold", labelpad=10)
+
+            # 2. Plot Ground Truth Mask
+            ax_gt = axs[r, c_offset + 1]
+            ax_gt.imshow(bg_gt, cmap="gray", vmin=0, vmax=1)
+            ax_gt.axis("off")
+
+            # 3. Plot Predicted Mask
+            ax_out = axs[r, c_offset + 2]
+            ax_out.imshow(bg_pred, cmap="gray", vmin=0, vmax=1)
+            ax_out.axis("off")
+
+    # If the number of datasets is odd, hide the empty subplots in the last row
+    if n_datasets % 2 != 0:
+        for j in range(3, 6):
+            axs[-1, j].axis("off")
+
+    plt.tight_layout()
+    plt.savefig(save_path, dpi=300, bbox_inches="tight")
+    plt.close()
+    print(f"[OK] Saved -> {save_path}")
+
 # Example call:
 # plot_two_examples_per_dataset(models_dict, save_path="plots/datasets_input_gt_pred.pdf", resize_size=(256,256), seed=0)
 
@@ -1584,65 +1894,65 @@ if __name__ == "__main__":
     import matplotlib.pyplot as plt
     from PIL import Image
 
-    # Root directory containing all datasets
-    ROOT_DIR = "data/crackseg9k_split"
+    # # Root directory containing all datasets
+    # ROOT_DIR = "data/crackseg9k_split"
 
-    # Dataset names in required order
-    DATASETS = ["AEL", "Crack500", "DeepCrack", "GAPS384", "cracktree200", "CrackSeg9k"]
+    # # Dataset names in required order
+    # DATASETS = ["AEL", "Crack500", "DeepCrack", "GAPS384", "cracktree200", "CrackSeg9k"]
 
-    NUM_IMAGES = 4  # images per dataset
+    # NUM_IMAGES = 4  # images per dataset
 
-    fig, axes = plt.subplots(
-        nrows=len(DATASETS),
-        ncols=NUM_IMAGES,
-        figsize=(10, 12), 
-        gridspec_kw={"wspace": 0.02, "hspace": 0.02}
-    )
+    # fig, axes = plt.subplots(
+    #     nrows=len(DATASETS),
+    #     ncols=NUM_IMAGES,
+    #     figsize=(10, 12), 
+    #     gridspec_kw={"wspace": 0.02, "hspace": 0.02}
+    # )
 
-    for row, dataset in enumerate(DATASETS):
-        images_dir = os.path.join(ROOT_DIR, dataset, "train", "images")
+    # for row, dataset in enumerate(DATASETS):
+    #     images_dir = os.path.join(ROOT_DIR, dataset, "train", "images")
         
-        # Get image files
-        try:
-            image_files = [
-                f for f in os.listdir(images_dir)
-                if f.lower().endswith((".png", ".jpg", ".jpeg"))
-            ]
-            selected_images = random.sample(image_files, NUM_IMAGES)
-        except (FileNotFoundError, ValueError):
-            # Fallback if directory is missing or empty
-            selected_images = [None] * NUM_IMAGES
+    #     # Get image files
+    #     try:
+    #         image_files = [
+    #             f for f in os.listdir(images_dir)
+    #             if f.lower().endswith((".png", ".jpg", ".jpeg"))
+    #         ]
+    #         selected_images = random.sample(image_files, NUM_IMAGES)
+    #     except (FileNotFoundError, ValueError):
+    #         # Fallback if directory is missing or empty
+    #         selected_images = [None] * NUM_IMAGES
 
-        for col, img_name in enumerate(selected_images):
-            ax = axes[row, col]
+    #     for col, img_name in enumerate(selected_images):
+    #         ax = axes[row, col]
             
-            if img_name:
-                img_path = os.path.join(images_dir, img_name)
-                img = Image.open(img_path).resize((512, 512))
-                ax.imshow(img)
+    #         if img_name:
+    #             img_path = os.path.join(images_dir, img_name)
+    #             img = Image.open(img_path).resize((512, 512))
+    #             ax.imshow(img)
             
-            # Remove ticks and spines for all images
-            ax.set_xticks([])
-            ax.set_yticks([])
-            for spine in ax.spines.values():
-                spine.set_visible(False)
+    #         # Remove ticks and spines for all images
+    #         ax.set_xticks([])
+    #         ax.set_yticks([])
+    #         for spine in ax.spines.values():
+    #             spine.set_visible(False)
 
-            # Apply label ONLY to the first column
-            if col == 0:
-                ax.set_ylabel(dataset, fontsize=14, fontweight='bold', rotation=90)
-                # Center the label vertically (0.5) and push it left (-0.1)
-                ax.yaxis.set_label_coords(-0.15, 0.5)
-                # Ensure the y-label is actually rendered
-                ax.yaxis.set_visible(True)
+    #         # Apply label ONLY to the first column
+    #         if col == 0:
+    #             ax.set_ylabel(dataset, fontsize=14, fontweight='bold', rotation=90)
+    #             # Center the label vertically (0.5) and push it left (-0.1)
+    #             ax.yaxis.set_label_coords(-0.15, 0.5)
+    #             # Ensure the y-label is actually rendered
+    #             ax.yaxis.set_visible(True)
 
-    # Adjust layout to make room for labels on the left
-    plt.tight_layout()
-    plt.subplots_adjust(left=0.1) 
+    # # Adjust layout to make room for labels on the left
+    # plt.tight_layout()
+    # plt.subplots_adjust(left=0.1) 
 
-    # Save the result
-    os.makedirs("plots", exist_ok=True)
-    plt.savefig("plots/dataset_samples.pdf", bbox_inches="tight")
-    exit()
+    # # Save the result
+    # os.makedirs("plots", exist_ok=True)
+    # plt.savefig("plots/dataset_samples.pdf", bbox_inches="tight")
+    # exit()
     root = "logs/pcnet_ge/100"
     # 
     plot_evolutionary_results(root)
@@ -1653,7 +1963,7 @@ if __name__ == "__main__":
     data = CrackDataset(image_path, mask_path, resize_size=(256, 256))
     m = pickle.load(open("logs/pcnet_ge/100/DeepCrack/3/pcnet-ge.pkl", "rb"))
     print(m)
-    # m = MultiPCNet(base_pcnet_cls=PCNet, n_experts=5)
+    # m = PCNet(base_pcnet_cls=PCNet, n_experts=5)
     rand_img = np.random.randint(0, len(data), 3)
     x = torch.stack([data[i][0] for i in rand_img], dim=0)
 
@@ -1661,39 +1971,39 @@ if __name__ == "__main__":
 
     pareto_file = "logs/Paretofront.csv"
     plot_pareto_front(pareto_file, save_path="plots/pareto_front_symbols.pdf")
-    plot_efficiency_barplot(pareto_file, save_path="plots/efficiency_barplot.pdf")
+    # plot_efficiency_barplot(pareto_file, save_path="plots/efficiency_barplot.pdf")
     # Comparison between the models
-    # models_dict = {
-    #     "AEL":{
-    #         "model":"logs/pcnet_ge/100/AEL/3/pcnet-ge.pkl",
-    #         "image_path":"data/crackseg9k_split/AEL/test/images/",
-    #         "mask_path":"data/crackseg9k_split/AEL/test/masks/"
-    #     },
-    #     "Crack500":{
-    #         "model":"logs/pcnet_ge/100/Crack500/1/pcnet-ge.pkl",
-    #         "image_path":"data/crackseg9k_split/Crack500/test/images/",
-    #         "mask_path":"data/crackseg9k_split/Crack500/test/masks/"
-    #     },
-    #     "DeepCrack":{
-    #         "model":"logs/pcnet_ge/100/DeepCrack/3/pcnet-ge.pkl",
-    #         "image_path":"data/crackseg9k_split/DeepCrack/test/images/",
-    #         "mask_path":"data/crackseg9k_split/DeepCrack/test/masks/"
-    #     },
-    #     "GAPS384":{
-    #         "model":"logs/pcnet_ge/100/GAPS384/1/pcnet-ge.pkl",
-    #         "image_path":"data/crackseg9k_split/GAPS384/test/images/",
-    #         "mask_path":"data/crackseg9k_split/GAPS384/test/masks/"
-    #     },
-    #     "cracktree200":{
-    #         "model":"logs/pcnet_ge/100/cracktree200/3/pcnet-ge.pkl",
-    #         "image_path":"data/crackseg9k_split/cracktree200/test/images/",
-    #         "mask_path":"data/crackseg9k_split/cracktree200/test/masks/"
-    #     },
-    #     "CrackSeg9k":{
-    #         "model":"logs/pcnet_ge/100/CrackSeg9k/5/pcnet-ge.pkl",
-    #         "image_path":"data/CrackSeg9k/test/images/",
-    #         "mask_path":"data/CrackSeg9k/test/masks/"
-    #     }
-    # }
+    models_dict = {
+        "AEL":{
+            "model":"logs/pcnet_ge/100/AEL/3/pcnet-ge.pkl",
+            "image_path":"data/crackseg9k_split/AEL/test/images/",
+            "mask_path":"data/crackseg9k_split/AEL/test/masks/"
+        },
+        "Crack500":{
+            "model":"logs/pcnet_ge/100/Crack500/1/pcnet-ge.pkl",
+            "image_path":"data/crackseg9k_split/Crack500/test/images/",
+            "mask_path":"data/crackseg9k_split/Crack500/test/masks/"
+        },
+        "DeepCrack":{
+            "model":"logs/pcnet_ge/100/DeepCrack/3/pcnet-ge.pkl",
+            "image_path":"data/crackseg9k_split/DeepCrack/test/images/",
+            "mask_path":"data/crackseg9k_split/DeepCrack/test/masks/"
+        },
+        "GAPS384":{
+            "model":"logs/pcnet_ge/100/GAPS384/1/pcnet-ge.pkl",
+            "image_path":"data/crackseg9k_split/GAPS384/test/images/",
+            "mask_path":"data/crackseg9k_split/GAPS384/test/masks/"
+        },
+        "cracktree200":{
+            "model":"logs/pcnet_ge/100/cracktree200/3/pcnet-ge.pkl",
+            "image_path":"data/crackseg9k_split/cracktree200/test/images/",
+            "mask_path":"data/crackseg9k_split/cracktree200/test/masks/"
+        },
+        "CrackSeg9k":{
+            "model":"logs/pcnet_ge/100/CrackSeg9k/5/pcnet-ge.pkl",
+            "image_path":"data/CrackSeg9k/test/images/",
+            "mask_path":"data/CrackSeg9k/test/masks/"
+        }
+    }
     
-    # plot_top2_by_cliou_per_dataset(models_dict, save_path="plots/comparison.pdf", resize_size=(256, 256), n_test=20, tau=4, seed=None, device=None)
+    plot_top1_by_cliou_per_dataset(models_dict, save_path="plots/comparison.pdf", resize_size=(256, 256), n_test=20, tau=4, seed=None, device=None)
