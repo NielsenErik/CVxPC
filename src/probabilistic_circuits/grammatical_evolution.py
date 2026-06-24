@@ -31,18 +31,7 @@ class ProdSpec:
     kind: str
     children: List["TreeSpec"]
 
-@dataclass
-class GateSpec:
-    kind: str
-    children: List["TreeSpec"]
-
-@dataclass
-class ResidualSpec:
-    kind: str
-    children: List["TreeSpec"]
-
-# ======= replace your TreeSpec line with this =======
-TreeSpec = Union[LeafSpec, SumSpec, ProdSpec, GateSpec, ResidualSpec]
+TreeSpec = Union[LeafSpec, SumSpec, ProdSpec]
 
 
 # ============================================================
@@ -91,7 +80,7 @@ class GEMapper:
             f = self._fallback_feature(idx, depth, n_features)
             return LeafSpec("input", f), idx, wraps
 
-        node_type = c % 5  # 0=leaf, 1=sum, 2=prod, 3=gate, 4=residual
+        node_type = c % 3  # 0=leaf, 1=sum, 2=prod
 
         # Leaf
         if node_type == 0:
@@ -129,25 +118,6 @@ class GEMapper:
                 children.insert(random.randint(0, len(children)), dup)
             return ProdSpec("prod", children), idx, wraps
 
-        # Gate (2 children)
-        elif node_type == 3:
-            a, idx, wraps = self._expand(codons, idx, wraps, n_features, max_depth, max_branching, depth + 1)
-            b, idx, wraps = self._expand(codons, idx, wraps, n_features, max_depth, max_branching, depth + 1)
-            return GateSpec("gate", [a, b]), idx, wraps
-
-        # Residual (2 children)
-        elif node_type == 4:
-            base, idx, wraps = self._expand(codons, idx, wraps, n_features, max_depth, max_branching, depth + 1)
-            sub,  idx, wraps = self._expand(codons, idx, wraps, n_features, max_depth, max_branching, depth + 1)
-            return ResidualSpec("res", [base, sub]), idx, wraps
-        else:
-            n_child = 2 + (c % max(1, max_branching - 1))
-            children = []
-            for _ in range(n_child):
-                ch, idx, wraps = self._expand(codons, idx, wraps, n_features, max_depth, max_branching, depth + 1)
-                children.append(ch)
-            return ProdSpec("prod", children), idx, wraps
-
 
 # ============================================================
 # --- PC Builder (TreeSpec → PCNet DAG) ---
@@ -173,33 +143,39 @@ class PCBuilder:
 
         walk(t)
         return out
+
     def build_classifier(self, trees, inputs):
         feats = sorted(set(f for t in trees for f in self._collect_features(t)))
+        
+        # Instantiate InputNodes 
+        # (the fit() method might need spatial format but we'll adapt depending on inputs dimension)
+        self.pc.leaves = nn.ModuleList()
+        current_inps = []
         for f in feats:
             if f not in self.input_cache:
-                node = InputNode(f, device=self.pc.device)
+                node = InputNode(f)
                 node.fit(inputs)
                 self.input_cache[f] = node
-                self.pc.add_node(node)
+                current_inps.append(node)
+                
+        # Fill self.pc.leaves to track parameters
+        self.pc.leaves.extend(current_inps)
 
         # Build once per unique subtree thanks to memoization
         subcircuits = [self._build_subtree(t) for t in trees]
 
         root = ClassifierNode(subcircuits)
-        self.pc.add_node(root)
-        for c in subcircuits:
-            self.pc.add_edge(root, c)
-        self.pc.set_root(root)
+        
+        # In current PCNet, we just set root and track params inside
+        self.pc.root = root
 
-        # collect params (unchanged)
+        # Re-initialize tracked params manually if there relies on it
         self.pc.params = []
-        for n in self.pc.get_nodes():
-            if isinstance(n, nn.Module):
-                if hasattr(n, "get_learnable_params"):
-                    self.pc.params += list(n.get_learnable_params())
-                else:
-                    for _, p in n.named_parameters(recurse=False):
-                        if p.requires_grad:
+        for n in self.pc.modules():
+            if isinstance(n, (InputNode, SumNode, ProductNode, ClassifierNode, AttentionalSumNode, MultiHeadAttentionalSumNode)):
+                for p in n.parameters():
+                    if p.requires_grad:
+                        if not any(p is existing_p for existing_p in self.pc.params):
                             self.pc.params.append(p)
         return root
 
@@ -217,37 +193,21 @@ class PCBuilder:
 
         elif isinstance(t, SumSpec):
             kids = [self._build_subtree(c) for c in t.children]
-            node = SumNode(kids, weights=torch.rand(len(kids), device=self.pc.device), device=self.pc.device)
-            self.pc.add_node(node)
-            for c in kids:
-                self.pc.add_edge(node, c)
+            
+            # Use AttentionalSumNode if device implies Attentional PCNet, otherwise basic SumNode
+            if hasattr(self.pc, "num_heads") and hasattr(self.pc, "embed_dim"):
+                node = MultiHeadAttentionalSumNode(kids, input_dim=self.pc.in_channels, embed_dim=self.pc.embed_dim, num_heads=self.pc.num_heads)
+            elif hasattr(self.pc, "embed_dim"):
+                node = AttentionalSumNode(kids, input_dim=self.pc.in_channels, embed_dim=self.pc.embed_dim)
+            else:
+                node = SumNode(kids)
+                
             self._memo[key] = node
             return node
 
         elif isinstance(t, ProdSpec):
             kids = [self._build_subtree(c) for c in t.children]
             node = ProductNode(kids)
-            self.pc.add_node(node)
-            for c in kids:
-                self.pc.add_edge(node, c)
-            self._memo[key] = node
-            return node
-
-        elif isinstance(t, GateSpec):
-            left, right = [self._build_subtree(c) for c in t.children]
-            node = GateNode(left, right, device=self.pc.device)
-            self.pc.add_node(node)
-            self.pc.add_edge(node, left)
-            self.pc.add_edge(node, right)
-            self._memo[key] = node
-            return node
-
-        elif isinstance(t, ResidualSpec):
-            base, sub = [self._build_subtree(c) for c in t.children]
-            node = ResidualNode(base, sub, device=self.pc.device)
-            self.pc.add_node(node)
-            self.pc.add_edge(node, base)
-            self.pc.add_edge(node, sub)
             self._memo[key] = node
             return node
 
@@ -272,15 +232,15 @@ class GEOptimizer:
         crossover_rate=0.9,
         mutation_rate=0.05,
         elite_k=2,
-        n_classes=1,
+        n_classes=2,
         device="cpu",
         seed=42,
         n_jobs=None,
         report=None,
         log_path=None,
-        model_type="multi_pcnet",   # "pcnet" or "multi_pcnet"
-        n_experts=5,
-        selector_mode="soft", # "soft" or "hard"
+        model_type="pcnet",
+        embed_dim=16,
+        num_heads=4
     ):
         self.pop_size = pop_size
         self.genome_len = genome_len
@@ -296,13 +256,17 @@ class GEOptimizer:
         self.n_jobs = n_jobs or os.cpu_count()
         self.report = report
         self.log_path = log_path
+        self.model_type = model_type
+        self.embed_dim = embed_dim
+        self.num_heads = num_heads
+        
+        if log_path:
+            os.makedirs(log_path, exist_ok=True)
+            
         self.evolution_report = os.path.join(log_path, "evolution_report.txt") if log_path else None
         if self.evolution_report:
             with open(self.evolution_report, "w") as f:
                 f.write("Generation,Avg_Fitness,Best_Fitness,Avg_Complexity,Best_Complexity,All_Time_Best_Fitness\n")
-        self.model_type = model_type
-        self.n_experts = n_experts
-        self.selector_mode = selector_mode
     # -----------------------------------------------------
     # GA primitives
     # -----------------------------------------------------
@@ -336,61 +300,67 @@ class GEOptimizer:
 
         # Map → DAG grammar
         trees = self.mapper.map_model(genome, inputs.shape[1], self.max_depth, self.max_branching)
-
-        if self.model_type == "multi_pcnet":
-            # ---- MULTI-PCNET VARIANT ----
-            base_pc_cls = PCNet  # or pass in from config
-            pc = MultiPCNet(
-                base_pcnet_cls=base_pc_cls,
-                n_experts=self.n_experts,
-                input_size=inputs.shape[1:],
-                n_classes=n_classes,
-                device=self.device,
-                max_depth=self.max_depth,
-                max_branching=self.max_branching,
-                selector_mode=self.selector_mode,
-                bootstrap=True,  # encourages diversity
+        
+        # Instantiate base PCNet to hold the structure
+        if self.model_type == "multihead_attentional_pcnet":
+            pc = MultiHeadAttentionalPCNet(
+                in_channels=inputs.shape[1], n_classes=n_classes, 
+                max_depth=self.max_depth, max_branching=self.max_branching, 
+                embed_dim=self.embed_dim, num_heads=self.num_heads
             )
-            # Initialize all experts using the same input distribution
-            pc.init_network(inputs, labels)
+        elif self.model_type == "attentional_pcnet":
+            pc = AttentionalPCNet(
+                in_channels=inputs.shape[1], n_classes=n_classes, 
+                max_depth=self.max_depth, max_branching=self.max_branching, embed_dim=self.embed_dim
+            )
         else:
-            # ---- CLASSIC PCNET ----
             pc = PCNet(
-                input_size=inputs.shape[1:], n_classes=n_classes, device=self.device,
-                max_depth=self.max_depth, max_branching=self.max_branching
+                n_classes=n_classes, max_depth=self.max_depth, max_branching=self.max_branching
             )
-            builder = PCBuilder(pc)
-            builder.build_classifier(trees, inputs)
+
+        # Build structurally onto the pc using our Graph tools
+        builder = PCBuilder(pc)
+        builder.build_classifier(trees, inputs)
+        pc = pc.to(self.device)
 
         if param_bank is not None and sig in param_bank:
             try:
                 pc.load_state_dict(param_bank[sig], strict=False)
             except Exception as e:
                 print(f"⚠️ Reuse failed: {e}")
-        # train/val split
+                
+        # Train/Val Split (80/20)
         split = int(0.8 * len(inputs))
-        
         x_tr, y_tr = inputs[:split].to(self.device), labels[:split].to(self.device)
         x_va, y_va = inputs[split:].to(self.device), labels[split:].to(self.device)
+        
+        # In current PCNet design, builder populates pc.params
         opt = torch.optim.Adam(pc.params, lr=lr, weight_decay=1e-4)
 
         train_loader = self.get_dataloader(x_tr, y_tr)
         val_loader = self.get_dataloader(x_va, y_va)
 
+        # Basic NLL Optimization Training Loop
+        pc.train()
         for _ in range(train_steps):
             for xb, yb in train_loader:
-                logits = pc.evaluate(xb)
-                loss = criterion(logits, yb)
+                if yb.ndim == 3:
+                    yb = yb.unsqueeze(1)
+                log_probs = pc(xb)
+                loss = criterion(log_probs, yb)
                 opt.zero_grad()
                 loss.backward()
                 opt.step()
 
-        # validation
+        # Validation Evaluation
+        pc.eval()
         with torch.no_grad():
             val_loss = 0.0
             for xb, yb in val_loader:
-                logits = pc.evaluate(xb)
-                val_loss += criterion(logits, yb).item()
+                if yb.ndim == 3:
+                    yb = yb.unsqueeze(1)
+                log_probs = pc(xb)
+                val_loss += criterion(log_probs, yb).item()
             val_loss /= max(1, len(val_loader))
 
         if param_bank is not None:
@@ -462,8 +432,7 @@ class GEOptimizer:
             complexities = []
             for genome in population:
                 trees = self.mapper.map_model(genome, inputs.shape[1], self.max_depth, self.max_branching)
-                dummy_pc = PCNet(input_size=inputs.shape[1:], n_classes=n_classes, device=self.device,
-                                max_depth=self.max_depth, max_branching=self.max_branching)
+                dummy_pc = PCNet(n_classes=n_classes, max_depth=self.max_depth, max_branching=self.max_branching)
                 PCBuilder(dummy_pc).build_classifier(trees, inputs)
                 complexities.append(sum(p.numel() for p in getattr(dummy_pc, "params", [])))
 
@@ -514,9 +483,23 @@ class GEOptimizer:
             f.close()
         # --- Final refinement of best genome ---
         trees = self.mapper.map_model(best_genome, inputs.shape[1], self.max_depth, self.max_branching)
-        final_pc = PCNet(input_size=inputs.shape[1:], n_classes=n_classes,
-                        device=self.device, max_depth=self.max_depth, max_branching=self.max_branching)
+        
+        if self.model_type == "multihead_attentional_pcnet":
+            final_pc = MultiHeadAttentionalPCNet(
+                in_channels=inputs.shape[1], n_classes=n_classes, 
+                max_depth=self.max_depth, max_branching=self.max_branching, 
+                embed_dim=self.embed_dim, num_heads=self.num_heads
+            ).to(self.device)
+        elif self.model_type == "attentional_pcnet":
+            final_pc = AttentionalPCNet(
+                in_channels=inputs.shape[1], n_classes=n_classes, 
+                max_depth=self.max_depth, max_branching=self.max_branching, embed_dim=self.embed_dim
+            ).to(self.device)
+        else:
+            final_pc = PCNet(
+                n_classes=n_classes, max_depth=self.max_depth, max_branching=self.max_branching
+            ).to(self.device)
+            
         PCBuilder(final_pc).build_classifier(trees, inputs)
         
         return final_pc, best_genome, {"loss": history, "complexity": complexity_hist}
-

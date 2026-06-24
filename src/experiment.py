@@ -5,39 +5,34 @@ import os
 import mlflow
 from networks import *
 from probabilistic_circuits.probabilistic_circuits import *
-from probabilistic_circuits.grammatical_evolution import *
-from nnunet_pipeline import *
 import abc
 from torch.utils.data import DataLoader
 import tqdm
 from tqdm import trange
 import torch
 import matplotlib.pyplot as plt
+import torchvision.models as models
 from scipy.stats import norm
 from utils import *
 import pickle
 import torch.nn.functional as F
 from torch.utils.data import TensorDataset
-from skimage.filters import frangi
-
-from joblib import Parallel, delayed
 import json
+
+from upcracknet.model import Generator, Discriminator
+from upcracknet.PS_loss import StyleLoss, PerceptualLoss
+from upcracknet.msgms_loss import MSGMS_Loss
+from torch.autograd import Variable
+import math
 
 import pandas as pd
 from crackdata_processing import CrackDataset
 
-from cv_modules.factories import CVModuleFactory
-
-from probabilistic_circuits.grammatical_evolution_unsupervised import UnsupervisedGEOptimizer
-
 import torch
 import torch.distributed as dist
 from torch.nn.parallel import DistributedDataParallel as DDP
-from torch.utils.data import DataLoader, DistributedSampler, TensorDataset
-from torch.utils.data.distributed import DistributedSampler
-from torch import multiprocessing as mp
-import multiprocessing
-import time
+from torch.utils.data import DataLoader, TensorDataset
+from torch import optim
 
 def average_gradients_across_workers(params):
     """All-reduce gradients in-place and divide by world_size."""
@@ -78,18 +73,60 @@ def run_experiment(config):
         experiment = ExperimentDeepCrackZ(config)
         experiment.run()
 
-    elif config["algorithm"] == "pcnet":
-        experiment = ExperimentPC(config)
+    elif config["algorithm"] in ["spatial_pcnet"]:
+        experiment = ExperimentSpatialPCNet(config)
         experiment.run()
-
-    elif config["algorithm"] == "pcnet_ge":
+    
+        
+    elif config["algorithm"] in ["attentional_pcnet"]:
+        experiment = ExperimentAttentionalPCNet(config)
+        experiment.run()
+        
+    elif config["algorithm"] in ["pcnet", "vanilla_pcnet"]:
+        experiment = ExperimentPCNet(config)
+        experiment.run()
+        
+    elif config["algorithm"] in ["attentional_pcnet_random_ensemble"]:
+        experiment = ExperimentAttentionalPCNetRandomEnsemble(config)
+        experiment.run()
+        
+    elif config["algorithm"] in ["random_ensemble_pcnet"]:
+        experiment = ExperimentRandomEnsemblePCNet(config)
+        experiment.run()
+        
+    elif config["algorithm"] in ["ge_pcnet", "ge_attentional_pcnet"]:
         experiment = ExperimentGEPC(config)
         experiment.run()
-
-    elif config["algorithm"] == "pcnet_ge_unsupervised":
-        experiment = ExperimentUnsupervisedGEPC(config)
+    
+        
+    elif config["algorithm"] in ["hybrid_pcnet"]:
+        experiment = ExperimentHybridPCNet(config)
         experiment.run()
 
+    elif config["algorithm"] in ["hybrid_pcnet_random_ensemble"]:
+        experiment = ExperimentHybridPCNetRandomEnsemble(config)
+        experiment.run()
+
+    elif config["algorithm"] in ["attentional_robust_structural_pcnet"]:
+        experiment = ExperimentAttentionalRobustStructuralPCNet(config)
+        experiment.run()
+
+    elif config["algorithm"] in ["robust_structural_pcnet"]:
+        experiment = ExperimentRobustStructuralPCNet(config)
+        experiment.run()
+    
+    elif config["algorithm"] in ["multihead_attentional_pcnet"]:
+        experiment = ExperimentMultiHeadAttentionalPCNet(config)
+        experiment.run()
+    elif config["algorithm"] in ["ge_pcnet"]:
+        experiment = ExperimentGEPC(config)
+        experiment.run()
+    elif config["algorithm"] in ["ge_multihead_pcnet"]:
+        experiment = ExperimentGEMultiHeadPC(config)
+        experiment.run()
+    elif config["algorithm"].lower() in ["upcracknet", "up-cracknet"]:
+        experiment = ExperimentUPCrackNet(config)
+        experiment.run()
     else:
         raise ValueError(f"Algorithm {config['algorithm']} not supported")
     
@@ -223,7 +260,10 @@ class DiceCELoss(nn.Module):
             target = target.unsqueeze(1).float()
         else:
             pred_prob = torch.softmax(pred, dim=1)
-            target = F.one_hot(target, num_classes=pred.size(1)).permute(0,3,1,2).float()
+            
+            # Squeeze channel dim if needed before one_hot
+            o_tgt = target.squeeze(1).long() if target.ndim == 4 and target.size(1) == 1 else target.long()
+            target = F.one_hot(o_tgt, num_classes=pred.size(1)).permute(0,3,1,2).float()
         inter = (pred_prob * target).sum(dim=(2,3))
         denom = pred_prob.sum(dim=(2,3)) + target.sum(dim=(2,3))
         dice = (2. * inter + smooth) / (denom + smooth)
@@ -238,14 +278,14 @@ class DiceCELoss(nn.Module):
             tgt_prob = target.float()
             cl = soft_clDice(pred_prob, tgt_prob)
         else:
-            ce = self.ce(pred, target)
+            ce_target = target.squeeze(1) if target.ndim == 4 and target.size(1) == 1 else target
+            ce = self.ce(pred, ce_target.long())
             # treat class 1 as foreground for clDice; adapt if needed
             pred_prob = torch.softmax(pred, dim=1)[:,1:2]
-            tgt_prob = (target==1).unsqueeze(1).float()
+            tgt_prob = (ce_target==1).unsqueeze(1).float()
             cl = soft_clDice(pred_prob, tgt_prob)
         dl = self.dice_loss(pred, target)
         return 0.2*ce + 0.1*dl + self.gamma*(1 - cl)
-
 
 class UnsupervisedPCNetLoss(nn.Module):
     """
@@ -349,9 +389,6 @@ class UnsupervisedPCNetLoss(nn.Module):
 
         return loss
 
-
-
-    
 class Experiment:
     def __init__(self, config):
         self.config = config
@@ -427,8 +464,8 @@ class Experiment:
                 "test": len(self.test_data) if test_path is not None else 0
             }
         elif self.execution_mode == "test":
-            self.images_path = test_path + "/images/"
-            self.ground_truth_path = test_path + "/masks/"
+            self.test_images_path = test_path + "/images/"
+            self.test_ground_truth_path = test_path + "/masks/"
             self.test_data = CrackDataset(self.test_images_path, self.test_ground_truth_path,sample_size=self.test_size, resize_size=(self.resize_size[0], self.resize_size[1]), preprocessing=self.preprocessing)
             print_info(f"Test samples: {len(self.test_data)}")
             self.experiment_dict["dataset_size"] = {
@@ -446,144 +483,90 @@ class Experiment:
     # Metrics
     # ----------------------------
 
-    def dice_coef(self, logits, targets, smooth=1.0):
-        """
-        logits:  (B, C, H_pred, W_pred)
-        targets: (B, H_gt,  W_gt) or (H, W)
-        """
+    def dice_coef(self, pred_mask, true_mask, smooth=1e-6):
+        pm = pred_mask.contiguous().view(-1).float()
+        tm = true_mask.contiguous().view(-1).float()
+        intersection = (pm * tm).sum()
+        return (2. * intersection + smooth) / (pm.sum() + tm.sum() + smooth)
 
-        # ---------------------------------------------------------
-        # 1. Make sure targets has batch dimension
-        # ---------------------------------------------------------
-        if targets.dim() == 2:  # (H, W)
-            targets = targets.unsqueeze(0)  # (1, H, W)
+    def iou_score(self, pred_mask, true_mask, num_classes=2):
+        pm = pred_mask.contiguous().view(-1).long()
+        tm = true_mask.contiguous().view(-1).long()
 
-        # ---------------------------------------------------------
-        # 2. Resize logits to match GT spatial size
-        # ---------------------------------------------------------
-        if logits.shape[-2:] != targets.shape[-2:]:
-            logits = F.interpolate(
-                logits,
-                size=targets.shape[-2:],
-                mode="bilinear",
-                align_corners=False
-            )
-
-        B, C, H, W = logits.shape
-
-        # ---------------------------------------------------------
-        # 3. Binary Dice
-        # ---------------------------------------------------------
-        if C == 1:
-            probs = torch.sigmoid(logits)              # (B,1,H,W)
-            targets = targets.unsqueeze(1).float()     # (B,1,H,W)
-
-            intersection = (probs * targets).sum(dim=(2,3))
-            denominator   = probs.sum(dim=(2,3)) + targets.sum(dim=(2,3))
-
-            dice = (2 * intersection + smooth) / (denominator + smooth)
-            return dice.mean()
-
-        # ---------------------------------------------------------
-        # 4. Multi-class Dice (macro Dice)
-        #    One-hot encode ground truth
-        # ---------------------------------------------------------
-        probs = torch.softmax(logits, dim=1)  # (B,C,H,W)
-
-        # one-hot: (B,H,W,C) → (B,C,H,W)
-        targets_1h = F.one_hot(targets, num_classes=C).permute(0, 3, 1, 2).float()
-
-        intersection = (probs * targets_1h).sum(dim=(2,3))      # (B,C)
-        denominator  = probs.sum(dim=(2,3)) + targets_1h.sum(dim=(2,3))
-
-        dice = (2 * intersection + smooth) / (denominator + smooth)  # (B,C)
-
-        # Mean across classes + batch
-        return dice.mean()
-
-
-
-
-    def iou_score(self, logits, targets, num_classes=None):
-        """
-        logits:  (N, C, H_pred, W_pred)
-        targets: (N, H_gt,  W_gt)
-        """
-
-        # ----------------------------------------------
-        # 1. Resize logits if spatial dimensions differ
-        # ----------------------------------------------
-        if logits.shape[-2:] != targets.shape[-2:]:
-            logits = torch.nn.functional.interpolate(
-                logits,
-                size=targets.shape[-2:],
-                mode="bilinear",
-                align_corners=False
-            )
-
-        # ----------------------------------------------
-        # 2. Convert logits → predicted class indices
-        # ----------------------------------------------
-        preds = torch.argmax(logits, dim=1)   # (N, H, W)
-
-        # ----------------------------------------------
-        # 3. Flatten for vectorized IoU computation
-        # ----------------------------------------------
-        preds = preds.view(-1)
-        targets = targets.view(-1)
-
-        # ----------------------------------------------
-        # 4. Determine number of classes
-        # ----------------------------------------------
-        if num_classes is None:
-            num_classes = int(logits.shape[1])
-
-        # ----------------------------------------------
-        # 5. Compute confusion matrix
-        # ----------------------------------------------
         confusion = torch.bincount(
-            num_classes * targets + preds,
+            num_classes * tm + pm,
             minlength=num_classes ** 2
-        ).reshape(num_classes, num_classes)
+        ).reshape(num_classes, num_classes).float()
 
         TP = confusion.diag()
         FP = confusion.sum(0) - TP
         FN = confusion.sum(1) - TP
 
         IoU = TP / (TP + FP + FN + 1e-7)
-        mIoU = IoU.mean()
-        return mIoU
+        return IoU.mean().item()
 
+    def cl_iou_score(self, pred_mask, true_mask, tau=4):
+        import skimage.morphology as morph
+        import cv2
+        import numpy as np
+        import torch
+        import torch.nn.functional as F
+        
+        if pred_mask.dim() == 3: pred_mask = pred_mask.unsqueeze(1)
+        if true_mask.dim() == 3: true_mask = true_mask.unsqueeze(1)
+        
+        if pred_mask.shape[-2:] != true_mask.shape[-2:]:
+            pred_mask = F.interpolate(pred_mask.float(), size=true_mask.shape[-2:], mode='nearest')
 
-
-    def cl_iou_score(self,pred_mask, true_mask, tau=4):
-        """
-        pred_mask, true_mask: (B,1,H,W)
-        """
         B = pred_mask.shape[0]
         device = pred_mask.device
-        pred_mask = (pred_mask > 0.5).float()
-        true_mask = (true_mask > 0.5).float()
+        
+        pm_np = (pred_mask > 0.5).cpu().numpy().astype(bool)
+        tm_np = (true_mask > 0.5).cpu().numpy().astype(bool)
+        
+        skel_pred_np = np.zeros_like(pm_np)
+        skel_true_np = np.zeros_like(tm_np)
+        
+        for b in range(B):
+            skel_pred_np[b, 0] = morph.skeletonize(pm_np[b, 0])
+            skel_true_np[b, 0] = morph.skeletonize(tm_np[b, 0])
+            
+        skel_pred = torch.tensor(skel_pred_np, dtype=torch.float32, device=device)
+        skel_true = torch.tensor(skel_true_np, dtype=torch.float32, device=device)
 
-        # Skeletonization approximation
-        kernel_3 = torch.ones((1, 1, 3, 3), device=device)
-        eroded_true = F.max_pool2d(1 - true_mask, 3, 1, 1)
-        eroded_pred = F.max_pool2d(1 - pred_mask, 3, 1, 1)
-        skel_true = torch.relu(true_mask - (1 - eroded_true))
-        skel_pred = torch.relu(pred_mask - (1 - eroded_pred))
-
-        # --- Dilation ---
         k_np = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (2*tau+1, 2*tau+1))
         k = torch.tensor(k_np, dtype=torch.float32, device=device)[None, None, :, :]
+        
         dil_true = (F.conv2d(skel_true, k, padding=tau, groups=1) > 0).float()
         dil_pred = (F.conv2d(skel_pred, k, padding=tau, groups=1) > 0).float()
 
-        TPcl = (skel_true * dil_pred).sum(dim=(1,2,3))
-        FPcl = (skel_pred * (1 - dil_true)).sum(dim=(1,2,3))
-        FNcl = (skel_true * (1 - dil_pred)).sum(dim=(1,2,3))
+        TPcl = (skel_true * dil_pred).sum(dim=(1, 2, 3))
+        FPcl = (skel_pred * (1 - dil_true)).sum(dim=(1, 2, 3))
+        FNcl = (skel_true * (1 - dil_pred)).sum(dim=(1, 2, 3))
 
         cl_iou = TPcl / (TPcl + FPcl + FNcl + 1e-8)
         return cl_iou.mean().item()
+
+    def classification_metrics(self, pred_mask, true_mask):
+        pm = pred_mask.contiguous().view(-1).long()
+        tm = true_mask.contiguous().view(-1).long()
+
+        tp = ((pm == 1) & (tm == 1)).sum().float()
+        fp = ((pm == 1) & (tm == 0)).sum().float()
+        fn = ((pm == 0) & (tm == 1)).sum().float()
+        tn = ((pm == 0) & (tm == 0)).sum().float()
+
+        accuracy = (tp + tn) / (tp + tn + fp + fn + 1e-8)
+        precision = tp / (tp + fp + 1e-8)
+        recall = tp / (tp + fn + 1e-8)
+        f1_score = 2 * precision * recall / (precision + recall + 1e-8)
+        
+        return {
+            "accuracy": accuracy.item(),
+            "precision": precision.item(),
+            "recall": recall.item(),
+            "f1_score": f1_score.item()
+        }
 
 
     from torch.utils.data import DataLoader, TensorDataset
@@ -657,9 +640,6 @@ class Experiment:
     def log_results(self):
         pass
 
-
-
-
 class ExperimentDL(Experiment):
     def __init__(self, config):
         super().__init__(config)
@@ -689,44 +669,7 @@ class ExperimentDL(Experiment):
     # Training loop
     # ----------------------------
 
-    def iou_score(self, logits, targets, num_classes=None):
 
-        # Resize if sizes do not match
-        if logits.shape[-2:] != targets.shape[-2:]:
-            logits = F.interpolate(
-                logits,
-                size=targets.shape[-2:],
-                mode="bilinear",
-                align_corners=False
-            )
-
-        # Decide number of classes
-        if num_classes is None:
-            num_classes = 2 if logits.shape[1] == 1 else logits.shape[1]
-
-        # Predictions
-        if logits.shape[1] == 1:   # binary
-            preds = (torch.sigmoid(logits) > 0.5).long().squeeze(1)
-        else:                      # multiclass
-            preds = torch.argmax(logits, dim=1)
-
-        # Flatten + convert
-        preds = preds.view(-1).long()
-        targets = targets.view(-1).long()
-
-        # Compute confusion matrix
-        bins = num_classes * targets + preds
-        confusion = torch.bincount(
-            bins,
-            minlength=num_classes ** 2
-        ).reshape(num_classes, num_classes)
-
-        TP = confusion.diag()
-        FP = confusion.sum(0) - TP
-        FN = confusion.sum(1) - TP
-
-        IoU = TP / (TP + FP + FN + 1e-7)
-        return IoU.mean()
 
     def train(self, model, train_data, val_data=None, 
             loss_function=None, optimizer=None, scheduler=None, 
@@ -758,10 +701,16 @@ class ExperimentDL(Experiment):
                 loss.backward()
                 optimizer.step()
 
+                if outputs.shape[1] == 1:
+                    pred_mask = (torch.sigmoid(outputs) > self.threshold).float()
+                else:
+                    pred_mask = torch.argmax(outputs, dim=1).float()
+                true_mask = masks.float()
+
                 epoch_loss += loss.item()
-                epoch_dice += self.dice_coef(outputs, masks).item()
-                epoch_iou  += self.iou_score(outputs, masks).item()
-                epoch_cl_iou += self.cl_iou_score(outputs, masks)
+                epoch_dice += float(self.dice_coef(pred_mask, true_mask))
+                epoch_iou  += float(self.iou_score(pred_mask, true_mask))
+                epoch_cl_iou += float(self.cl_iou_score(pred_mask, true_mask))
 
             train_loss = epoch_loss / len(train_loader)
             train_dice = epoch_dice / len(train_loader)
@@ -780,9 +729,15 @@ class ExperimentDL(Experiment):
                         images, masks = images.to(device), masks.to(device)
                         outputs = model(images)
                         val_loss += loss_function(outputs, masks).item()
-                        val_dice += self.dice_coef(outputs, masks).item()
-                        val_iou  += self.iou_score(outputs, masks).item()
-                        val_cl_iou += self.cl_iou_score(outputs, masks)
+                        if outputs.shape[1] == 1:
+                            pred_mask = (torch.sigmoid(outputs) > self.threshold).float()
+                        else:
+                            pred_mask = torch.argmax(outputs, dim=1).float()
+                        true_mask = masks.float()
+
+                        val_dice += float(self.dice_coef(pred_mask, true_mask))
+                        val_iou  += float(self.iou_score(pred_mask, true_mask))
+                        val_cl_iou += float(self.cl_iou_score(pred_mask, true_mask))
 
                 val_loss /= len(val_loader)
                 val_dice /= len(val_loader)
@@ -869,43 +824,28 @@ class ExperimentDL(Experiment):
                 outputs = model(images)
                 loss = loss_function(outputs, masks)
         
-                dice_score = self.dice_coef(outputs, masks)
-                iou_score = self.iou_score(outputs, masks)
-                cl_iou_score = self.cl_iou_score(outputs, masks)
-                prob = torch.sigmoid(outputs)
-                pred_mask = (prob > self.threshold).float()
+                if outputs.shape[1] == 1:
+                    prob = torch.sigmoid(outputs)
+                    pred_mask = (prob > self.threshold).float()
+                else:
+                    pred_mask = torch.argmax(outputs, dim=1).float()
                 true_mask = masks.float()
 
-                # Flatten predictions and targets
-                pm = pred_mask.view(-1).long()
-                tm = true_mask.view(-1).long()
-
-                tp = ((pm == 1) & (tm == 1)).sum()
-                fp = ((pm == 1) & (tm == 0)).sum()
-                fn = ((pm == 0) & (tm == 1)).sum()
-                tn = ((pm == 0) & (tm == 0)).sum()
-
-                # Accuracy
-                accuracy = (tp + tn) / (tp + tn + fp + fn + 1e-8)
-
-                # Precision = TP / (TP + FP)
-                precision = tp / (tp + fp + 1e-8)
-
-                # Recall = TP / (TP + FN)
-                recall = tp / (tp + fn + 1e-8)
-
-                # F1 = harmonic mean
-                f1_score = 2 * precision * recall / (precision + recall + 1e-8)
+                dice_score = float(self.dice_coef(pred_mask, true_mask))
+                iou_score = float(self.iou_score(pred_mask, true_mask))
+                cl_iou_score = float(self.cl_iou_score(pred_mask, true_mask))
+                
+                metrics = self.classification_metrics(pred_mask, true_mask)
 
                 losses.append(loss.item())
-                dices.append(float(torch.as_tensor(dice_score).mean()))
-                ious.append(float(torch.as_tensor(iou_score).mean()))
-                clious.append(float(torch.as_tensor(cl_iou_score)))
+                dices.append(dice_score)
+                ious.append(iou_score)
+                clious.append(cl_iou_score)
 
-                accuracies.append(accuracy.item())
-                precisions.append(precision.item())
-                recalls.append(recall.item())
-                f1_scores.append(f1_score.item())
+                accuracies.append(metrics["accuracy"])
+                precisions.append(metrics["precision"])
+                recalls.append(metrics["recall"])
+                f1_scores.append(metrics["f1_score"])
 
         print_info("✅ Testing complete.")
         print_info(f"Test Loss: {np.mean(losses):.4f}, Dice: {np.mean(dices):.4f}, IoU: {np.mean(ious):.4f}, CL IoU: {np.mean(clious):.4f}")
@@ -1053,8 +993,9 @@ class UNetExperiment(ExperimentDL):
     def set_algorithm(self):
         self.model = UNet(n_classes=1)
     
-    def save_model(self, model_name="unet"):
-        torch.save(self.model.state_dict(), os.path.join(self.save_path, f"{model_name}.pth"))
+    def save_model(self, model_name=None):
+        name = model_name if model_name else self.model_name
+        torch.save(self.model.state_dict(), os.path.join(self.save_path, f"{name}.pth"))
 
     def load_model(self, model_name="unet"):
         self.model.load_state_dict(torch.load(os.path.join(self.save_path, f"{model_name}.pth")))
@@ -1076,8 +1017,9 @@ class ConvAEExperiment(ExperimentDL):
     def set_algorithm(self):
         self.model = ConvAutoEncoder(input_channels=self.input_channels, hidden_channels=self.hidden_channels, n_classes=self.n_classes, kernel_size=self.kernel_size, stride=self.stride, padding=self.padding, dropout=self.dropout)
 
-    def save_model(self, model_name="convae"):
-        torch.save(self.model.state_dict(), os.path.join(self.save_path, f"{model_name}.pth"))
+    def save_model(self, model_name=None):
+        name = model_name if model_name else self.model_name
+        torch.save(self.model.state_dict(), os.path.join(self.save_path, f"{name}.pth"))
 
     def load_model(self, model_name="convae"):
         self.model.load_state_dict(torch.load(os.path.join(self.save_path, f"{model_name}.pth")))
@@ -1125,922 +1067,324 @@ class ExperimentDeepCrackZ(ExperimentDL):
     def load_model(self, model_name="deepcrackL"):
         self.model.load_state_dict(torch.load(os.path.join(self.save_path, f"{model_name}.pth")))
 
-# import os
-# import json
-# import torch
-# from torch.utils.data import Subset
-
-# from crackdata_processing import CrackDataset  # your class
-# from nnunetv2.training.nnUNetTrainer.nnUNetTrainer import nnUNetTrainer
-
-# class nnUNetTrainer_Epochs(nnUNetTrainer):
-#     """
-#     Custom trainer to control 'epochs' in nnUNet v2 by defining:
-#       - num_iterations_per_epoch
-#       - num_epochs
-#     Total training iterations = num_epochs * num_iterations_per_epoch
-#     """
-
-#     def __init__(self, plans, configuration, fold, dataset_json, unpack_dataset=True,
-#                  device=None, **kwargs):
-#         super().__init__(plans, configuration, fold, dataset_json,
-#                          unpack_dataset=unpack_dataset, device=device, **kwargs)
-
-#         # Read custom values passed via kwargs (nnUNet forwards unknown args into trainer kwargs)
-#         self._custom_num_epochs = int(kwargs.get("epochs", 100))
-#         self._custom_iters_per_epoch = int(kwargs.get("num_iterations_per_epoch", 250))
-
-#     @property
-#     def num_iterations_per_epoch(self) -> int:
-#         return self._custom_iters_per_epoch
-
-#     @property
-#     def num_epochs(self) -> int:
-#         return self._custom_num_epochs
-
-
-# class ExperimentNNUNet(Experiment):
-#     def __init__(self, config):
-#         super().__init__(config)
-
-#         # nnUNet config
-#         self.dataset_id = int(config.get("nnunet_dataset_id", 777))
-#         self.dataset_name = config.get("nnunet_dataset_name", "Cracks")
-#         self.nn_cfg = config.get("nnunet_config", "2d")
-#         self.folds = config.get("nnunet_folds", [0])
-#         self.num_gpus = int(config.get("nnunet_num_gpus", 1))
-#         self.trainer = config.get("nnunet_trainer", "nnUNetTrainer")
-#         self.plans = config.get("nnunet_plans", "nnUNetPlans")
-
-#         # Ensure writable nnUNet dirs (falls back to ./nnunet_data/* if needed)
-#         resolve_nnunet_paths(self.config)
-
-#         self.nnUNet_raw = self.config["nnUNet_raw"]
-#         self.nnUNet_preprocessed = self.config["nnUNet_preprocessed"]
-#         self.nnUNet_results = self.config["nnUNet_results"]
-
-#         self._env = os.environ.copy()
-#         self._env["nnUNet_raw"] = self.nnUNet_raw
-#         self._env["nnUNet_preprocessed"] = self.nnUNet_preprocessed
-#         self._env["nnUNet_results"] = self.nnUNet_results
-
-
-#         self.model_name = config.get("model_name", "nnunet")  # only for logging labeling
-
-#     def set_algorithm(self):
-#         # nnUNet decides architecture/training internally
-#         pass
-
-#     def setup(self, pos_weight=1.0):
-#         pass
-
-#     def save(self):
-#         pass
-
-#     def load(self):
-#         pass
-
-#     def validate(self):
-#         pass
-
-#     def resolve_sample_count(self, sample_size, n_total: int) -> int:
-#         if sample_size is None:
-#             return n_total
-#         s = float(sample_size)
-#         if 0 < s <= 1:
-#             return max(1, int(round(s * n_total)))
-#         return int(min(s, n_total))
-
-#     def _build_train_subset(self):
-#         full = self.data
-#         n = len(full)
-#         k = self.resolve_sample_count(self.sample_size, n)
-
-#         g = torch.Generator()
-#         g.manual_seed(int(self.config.get("seed", 42)))
-#         idx = torch.randperm(n, generator=g)[:k].tolist()
-#         return torch.utils.data.Subset(full, idx)
-
-#     def set_dataset(self, train_path, test_path=None):
-#         # Keep your same folder conventions
-
-#         self.images_path = os.path.join(train_path, "images")
-#         self.ground_truth_path = os.path.join(train_path, "masks")
-
-#         self.data = CrackDataset(
-#             self.images_path,
-#             self.ground_truth_path,
-#             sample_size=None,  # we handle sample_size via Subset for seed control
-#             resize_size=(self.resize_size[0], self.resize_size[1]),
-#             preprocessing=self.preprocessing
-#         )
-
-#         self.train_data = self._build_train_subset()
-
-#         # nnUNet doesn't need your val split; it does its own CV folds.
-#         # We keep val_data for compatibility, but don't use it.
-#         self.val_data = None
-
-#         if test_path is not None:
-#             test_images = os.path.join(test_path, "images")
-#             test_masks = os.path.join(test_path, "masks")
-#             self.test_data = CrackDataset(
-#                 test_images,
-#                 test_masks,
-#                 sample_size=self.test_size,
-#                 resize_size=(self.resize_size[0], self.resize_size[1]),
-#                 preprocessing=self.preprocessing
-#             )
-#         else:
-#             self.test_data = None
-
-#     def train(self):
-#         # export subset to nnUNet_raw
-#         export_crackdataset_subset_to_nnunet_raw(
-#             train_ds=self.train_data,
-#             test_ds=self.test_data,
-#             nnunet_raw_dir=self.nnUNet_raw,
-#             dataset_id=self.dataset_id,
-#             dataset_name=self.dataset_name,
-#             input_channels=int(self.config.get("input_channels", 3))
-#         )
-
-#         nnunet_plan_preprocess(self.dataset_id, env=self._env)
-
-#         # You can train "all" folds for proper nnUNet CV, but it’s expensive.
-#         # If you want faster learning-curve sweeps, train only fold 0:
-#         folds_to_train = self.config.get("nnunet_train_folds", "0")  # "all" or "0"
-#         device = self.config.get("nnunet_device", None)  # allow override
-#         nnunet_train(
-#             dataset_id=self.dataset_id,
-#             cfg=self.nn_cfg,
-#             folds=folds_to_train,
-#             trainer=self.trainer,
-#             plans=self.plans,
-#             num_gpus=self.num_gpus,
-#             env=self._env,
-#             device=device,
-#             num_epochs=int(self.config.get("epochs",80)),
-#             num_iterations_per_epoch=int(self.config.get("nnunet_iter_per_epoch", 250)),
-#         )
-
-#     def evaluate(self):
-#         if self.test_data is None:
-#             print("[INFO] No test set provided; skipping.")
-#             return None
-
-#         ds_folder = f"Dataset{self.dataset_id:03d}_{self.dataset_name}"
-#         raw_base = os.path.join(self.nnUNet_raw, ds_folder)
-#         in_dir = os.path.join(raw_base, "imagesTs")
-
-#         out_dir = os.path.join(self.nnUNet_results, ds_folder, "pred_imagesTs_seed" + str(self.config.get("seed", 0)))
-#         nnunet_predict(
-#             dataset_id=self.dataset_id,
-#             in_dir=in_dir,
-#             out_dir=out_dir,
-#             cfg=self.nn_cfg,
-#             folds=self.folds,
-#             trainer=self.trainer,
-#             plans=self.plans,
-#             env=self._env
-#         )
-
-#         # compute Dice/IoU
-#         dices, ious = [], []
-#         for j in range(len(self.test_data)):
-#             case_id = f"case_{100000 + j:06d}"
-#             pred_path = os.path.join(out_dir, f"{case_id}.nii.gz")
-#             pred = np.squeeze(nib.load(pred_path).get_fdata())  # (H,W) or float
-#             pred01 = (pred > 0.5).astype(np.uint8)
-
-#             _, gt = self.test_data[j]
-#             if isinstance(gt, torch.Tensor):
-#                 gt = gt.detach().cpu().numpy()
-#             gt = np.squeeze(gt)
-#             gt01 = (gt > 0.5).astype(np.uint8)
-
-#             d, i = dice_iou_binary(pred01, gt01)
-#             dices.append(d)
-#             ious.append(i)
-
-#         results = {
-#             "test_dice": float(np.mean(dices)),
-#             "test_iou": float(np.mean(ious)),
-#             "n_train": int(len(self.train_data)),
-#             "seed": int(self.config.get("seed", 0))
-#         }
-
-#         print(f"[nnUNet] n_train={results['n_train']} seed={results['seed']} "
-#               f"Dice={results['test_dice']:.4f} IoU={results['test_iou']:.4f}")
-
-#         # write to your log_dir
-#         with open(os.path.join(self.log_path, "nnunet_results.json"), "w") as f:
-#             json.dump(results, f, indent=2)
-
-#         return results
-
-#     def run(self):
-        self.set_dataset(self.data_path, self.test_path)
-
-        if self.execution_mode == "train":
-            self.train()
-            self.evaluate()
-
-        elif self.execution_mode == "test":
-            self.evaluate()
-
-        else:
-            raise ValueError(f"Execution mode {self.execution_mode} not supported for nnUNet")
-
 class ExperimentPC(Experiment):
     def __init__(self, config):
         super().__init__(config)
-        self.model_name = self.config.get("model_name", "unet")
-        self.input_channels = self.config.get("input_channels", 3)
-        self.max_depth = self.config.get("max_depth", 5)
-        self.max_branching = self.config.get("max_branching", 2)
+        self.model_name = self.config.get("model_name", "pcnet")
+        
+        # PCNet Specific Config
         self.n_classes = self.config.get("n_classes", 2)
-        self.input_nodes = []
-
+        self.max_depth = self.config.get("max_depth", 4)
+        self.max_branching = self.config.get("max_branching", 2)
+        
+        # Experiment Config
         self.epochs = self.config.get("epochs", 10)
-        self.cv_epochs = self.config.get("cv_epochs", 5)
-
+        self.batch_size = self.config.get("batch_size", 32)
+        self.learning_rate = self.config.get("learning_rate", 1e-2)
         self.seed = self.config.get("seed", 42)
-        self.feature_extractor = self.config.get("feature_extractor", "handcrafted")
-        self.filter_sizes = self.config.get("filter_sizes", (3, 7, 15))
-        self.n_cpus = self.config.get("n_cpus", None)
-        self.batch_size = self.config.get("batch_size", 4)
-        self.learning_rate = self.config.get("learning_rate", 1e-3)
-        self.n_cv_modules = self.config.get("n_cv_modules", 32)
-        self.n_filters = self.config.get("n_filters", 4)
+        self.device = "cuda" if torch.cuda.is_available() else "cpu"
+        self.data_type = self.config.get("data_type", "image")  # 'image' or 'tabular'
+        
+        # State flags
+        self.is_initialized = False
+        
+        # Keyword arguments for the model's forward pass
+        self.forward_kwargs = {}
+        
+        # Initialize the algorithm wrapper (PCNet itself is built in train/init_network)
         self.set_algorithm()
-        self._setup_cpu_env()
-        self.cv_factory = None
 
-
-        # cache for conv filter bank tensor
-        self.cached_filter_tensor = None
-
-    # --------------------------------------------------------
-    # Algorithm
-    # --------------------------------------------------------
     def set_algorithm(self):
-        self.model = PCNet(
-            n_classes=self.n_classes,
-            distribution=None,
-            device="cpu",
-            max_depth=self.max_depth,
-            max_branching=self.max_branching,
-            seed=self.seed,
-            cv_module = None
-        )
-
+        pass
     # --------------------------------------------------------
-    # Threading & environment setup
+    # Data Handling
     # --------------------------------------------------------
-    def _setup_cpu_env(self):
-        if self.n_cpus is None or self.n_cpus < 1:
-            self.n_cpus = multiprocessing.cpu_count()
-        # unify threads across libs
-        torch.set_num_threads(self.n_cpus)
-        os.environ["OMP_NUM_THREADS"] = str(self.n_cpus)
-        os.environ["MKL_NUM_THREADS"] = str(self.n_cpus)
-        print(f"⚙️ Using {self.n_cpus} CPU cores (torch threads)")
-
-    # --------------------------------------------------------
-    # Feature extraction
-    # --------------------------------------------------------
-    def get_filter_bank(self):
-        """Comprehensive crack-oriented filter bank."""
-        filters = {
-            # Basic edge filters
-            "sobel_x": np.array([[-1, 0, 1],
-                                 [-2, 0, 2],
-                                 [-1, 0, 1]], np.float32),
-            "sobel_y": np.array([[-1, -2, -1],
-                                 [ 0,  0,  0],
-                                 [ 1,  2,  1]], np.float32),
-            "laplacian": np.array([[-1, -1, -1],
-                                   [-1,  8, -1],
-                                   [-1, -1, -1]], np.float32),
-            "sharpen": np.array([[ 0, -1,  0],
-                                 [-1,  5, -1],
-                                 [ 0, -1,  0]], np.float32),
-            "gauss3": (cv2.getGaussianKernel(3, 0.8) @
-                       cv2.getGaussianKernel(3, 0.8).T).astype(np.float32),
-        }
-
-        # Directional Gabor filters
-        for theta in np.linspace(0, np.pi, 6, endpoint=False):
-            gabor = cv2.getGaborKernel((9, 9), 3.0, theta, 5.0, 0.5, 0, ktype=cv2.CV_32F)
-            filters[f"gabor_{int(theta * 180 / np.pi)}"] = gabor
-
-        return filters
-
-    # --------------------------------------------------------
-    # Conv filter tensor building and caching
-    # --------------------------------------------------------
-    def _build_filter_tensor_once(self, filters, device="cpu"):
-        if self.cached_filter_tensor is not None:
-            return self.cached_filter_tensor
-
-        filt_list = list(filters.values())
-        max_h = max(k.shape[0] for k in filt_list)
-        max_w = max(k.shape[1] for k in filt_list)
-
-        def pad_to(k, H, W):
-            out = np.zeros((H, W), np.float32)
-            h, w = k.shape
-            y0, x0 = (H - h) // 2, (W - w) // 2
-            out[y0:y0 + h, x0:x0 + w] = k
-            return out
-
-        filt_padded = [pad_to(k, max_h, max_w) for k in filt_list]
-        filt_tensor = torch.from_numpy(np.stack(filt_padded)).float().unsqueeze(1)
-        filt_tensor = filt_tensor.repeat(1, 3, 1, 1).to(device)
-        self.cached_filter_tensor = filt_tensor
-        return self.cached_filter_tensor
-
-    # --------------------------------------------------------
-    # Convolutional feature computation
-    # --------------------------------------------------------
-    def compute_conv_features(self, images, filters, device="cpu"):
-        if isinstance(images, list):
-            images = torch.from_numpy(np.stack(images)).float()
-        elif isinstance(images, np.ndarray):
-            images = torch.from_numpy(images).float()
-
-        # Normalize to BCHW (3 channels)
-        if images.ndim != 4:
-            raise ValueError(f"Expected 4D images, got {images.shape}")
-        if images.shape[1] != 3 and images.shape[-1] == 3:
-            images = images.permute(0, 3, 1, 2)
-        elif images.shape[1] not in (1, 3):
-            if images.shape[1] == 1:
-                images = images.repeat(1, 3, 1, 1)
-            elif images.shape[-1] in (1, 3):
-                images = images.permute(0, 3, 1, 2)
-            else:
-                raise ValueError(f"Unexpected image shape: {tuple(images.shape)}")
-
-        images = images.to(device)
-        filt_tensor = self._build_filter_tensor_once(filters, device=device)
-        conv = F.conv2d(images, filt_tensor, padding="same")  # (B, K, H, W)
-        return conv
-
-    # --------------------------------------------------------
-    # Multi-scale pooling
-    # --------------------------------------------------------
-    def multi_scale_pooling(self, feat_maps, pool_sizes=(3, 7, 15), modes=("avg", "max")):
-        pooled = []
-        for k in pool_sizes:
-            if k <= 1:
-                continue
-            for mode in modes:
-                if mode == "avg":
-                    out = F.avg_pool2d(feat_maps, kernel_size=k, stride=1, padding=k // 2)
-                elif mode == "max":
-                    out = F.max_pool2d(feat_maps, kernel_size=k, stride=1, padding=k // 2)
-                else:
-                    raise ValueError(f"Unknown pooling mode: {mode}")
-                pooled.append(out)
-        return torch.cat(pooled, dim=1) if pooled else feat_maps
-
-    # --------------------------------------------------------
-    # Handcrafted features
-    # --------------------------------------------------------
-    def get_handcrafted_features(self, images, n_jobs=8, prune_features_idx=None):
-        """Compute handcrafted features for images in parallel."""
-        def process_one(img):
-            if isinstance(img, torch.Tensor):
-                img = img.detach().cpu().numpy()
-            img = img.astype(np.float32)
-            if img.max() > 1.0:
-                img /= 255.0
-
-            # Normalize to HWC
-            if img.ndim == 2:
-                img_hwc = np.stack([img] * 3, axis=-1)
-            elif img.ndim == 3 and img.shape[0] == 3 and img.shape[-1] != 3:
-                img_hwc = np.transpose(img, (1, 2, 0))
-            elif img.ndim == 3 and img.shape[-1] == 3:
-                img_hwc = img
-            else:
-                raise ValueError(f"Unexpected image shape: {img.shape}")
-
-            gray = cv2.cvtColor((img_hwc * 255).astype(np.uint8),
-                                cv2.COLOR_RGB2GRAY).astype(np.float32) / 255.0
-            lab = cv2.cvtColor((img_hwc * 255).astype(np.uint8),
-                               cv2.COLOR_RGB2LAB).astype(np.float32) / 255.0
-            hsv = cv2.cvtColor((img_hwc * 255).astype(np.uint8),
-                               cv2.COLOR_RGB2HSV).astype(np.float32) / 255.0
-
-            feats = [
-                gray,
-                lab[..., 0], lab[..., 1], lab[..., 2],
-                hsv[..., 0], hsv[..., 1], hsv[..., 2],
-                cv2.Sobel(gray, cv2.CV_32F, 1, 0),
-                cv2.Sobel(gray, cv2.CV_32F, 0, 1),
-                cv2.Laplacian(gray, cv2.CV_32F),
-            ]
-
-            # Gabor filters (4 orientations)
-            for theta in [0, np.pi / 4, np.pi / 2, 3 * np.pi / 4]:
-                kernel = cv2.getGaborKernel((9, 9), 2.0, theta, 4.0, 0.5, 0, ktype=cv2.CV_32F)
-                feats.append(cv2.filter2D(gray, cv2.CV_32F, kernel))
-
-            # Optional Frangi (line enhancement)
-            # if self.use_frangi:
-            frangi_resp = frangi(gray, sigmas=(1, 5), scale_step=2,
-                                    beta=0.5)
-            feats.append(frangi_resp.astype(np.float32))
-
-            # Optional High-pass
-            # if self.use_highpass:
-            blurred = cv2.GaussianBlur(gray, (0, 0), 5)
-            highpass = cv2.subtract(gray, blurred)
-            feats.append(highpass.astype(np.float32))
-
-            return np.stack(feats, axis=0).astype(np.float32)
-
-        workers = min(n_jobs if n_jobs else multiprocessing.cpu_count(), 16)
-        print(f"⚙️ Using {workers} CPU workers for handcrafted feature extraction...")
-        feats_list = Parallel(n_jobs=workers, backend="loky", verbose=10)(
-            delayed(process_one)(img) for img in images
-        )
-        feats = np.stack(feats_list, axis=0)  # (B, C, H, W)
-
-        # Conv bank (batched)
-        conv_feats = self.compute_conv_features(images, self.get_filter_bank(), device=self.device)
-        conv_feats = conv_feats.detach().cpu().numpy()
-
-        base_feats = np.concatenate([feats, conv_feats], axis=1)
-        base_tensor = torch.from_numpy(base_feats).float().to(self.device)
-
-        pooled_feats = self.multi_scale_pooling(base_tensor,
-                                                pool_sizes=self.filter_sizes,
-                                                modes=("avg", "max"))
-        pooled_feats = pooled_feats.cpu().numpy()
-        final_feats = np.concatenate([base_feats, pooled_feats], axis=1)
-        if prune_features_idx is not None:
-            final_feats = final_feats[:, prune_features_idx, :, :]
-
-        return final_feats
-
-    # TODO one process per module
-    def eval_cv_pop(self, modules, images):
-        with multiprocessing.Pool(processes=self.n_cpus) as pool:
-            results = pool.starmap(
-                self._worker_process_wrapper,
-                [(idx, module, images) for idx, module in enumerate(modules)]
-            )
-
-        return [fit for fit, _ in results]
-
-    def _worker_process_wrapper(self, idx, module, imgs):
-        
-        print_debugging(f"[{time.strftime('%H:%M:%S')}] Worker {idx} starting...")
-        try:
-            feats = [module.get_output(img, return_map=True) for img in imgs]
-            var = np.stack(feats).var()
-            return (float(var), idx)
-        except Exception as e:
-            print(f"[Worker {idx}] error: {e}")
-            return (float("-inf"), idx)
-
-    def convolution_modules_tensor(
-        self, images, cv_factory, return_maps=True, n_jobs=None, verbose=0, prune_features=None
-    ):
+    def _prepare_input(self, x):
         """
-        Torchrun-friendly version with multiprocessing image parallelism.
-        - Each rank processes a disjoint shard of images.
-        - Each shard is processed in parallel using multiprocessing (per-image chunks).
-        - Results are gathered with torch.distributed all_gather on tensors.
-        - Output shape: [N_images, C, H, W] or [N_images, H, W] depending on your modules.
+        Unifies input shapes for PCNet:
+        - Image: (B, C, H, W) -> Stays (B, C, H, W)
+        - Tabular: (B, D)     -> Becomes (B, D, 1, 1)
         """
-        import multiprocessing as mp
-        from joblib import Parallel, delayed
-        import torch.distributed as dist
-        import numpy as np
-        import os
+        if x.dim() == 2:
+            return x.unsqueeze(-1).unsqueeze(-1)
+        return x
 
-        # ---------------------------------------------------------
-        # Normalize input to numpy
-        # ---------------------------------------------------------
-        if isinstance(images, torch.Tensor):
-            images = images.detach().cpu().numpy()
-        if images.ndim == 3:
-            images = np.expand_dims(images, 0)  # [1, H, W]
-        total_images = len(images)
-        
-
-        # ---------------------------------------------------------
-        # Optimize module via variance (if no pruning provided)
-        # ---------------------------------------------------------
-        if prune_features is None:
-            # ---------------------------------------------------------
-            # CMA-ES optimization loop
-            # ---------------------------------------------------------
-            # Multiprocessing parallelization over MODULES
-            modules = cv_factory.ask_pop()
-            n_procs = min(n_jobs, len(modules))
-            print_info(f"⚙️ Using {n_procs} processes for convolution module evaluation...")
-            for epoch in trange(self.cv_epochs, desc="CV Module Optimization", disable=verbose == 0):
-                print_debugging(f"Epoch {epoch}")
-                modules = cv_factory.ask_pop()
-                if not isinstance(modules, list):
-                    modules = [modules]               
-
-                fitness = self.eval_cv_pop(modules, images)
-
-                print_debugging(f"Module fitness values: {fitness}")
-                # CMA-ES update
-                cv_factory.tell_pop(fitness)
-
-        # ---------------------------------------------------------
-        # Best module and final extraction
-        # ---------------------------------------------------------
-        module = cv_factory.best_module()
-
-        feats_np = [module.get_output(img, return_map=return_maps) for img in images]
-        feats_np = np.stack(feats_np, axis=0)  # [N, C, H, W] or [N, H, W]
-
-        # ---------------------------------------------------------
-        # Feature pruning and normalization
-        # ---------------------------------------------------------
-        if prune_features is not None:
-            if feats_np.ndim == 4:  # [N, C, H, W]
-                feats_np = feats_np[:, prune_features, :, :]
-            else:
-                feats_np = feats_np[prune_features, :, :]
-
-        print_debugging(
-            f"Convolution module features shape: {feats_np.shape}, "
-            f"value range: {feats_np.min()} to {feats_np.max()}, var: {feats_np.var()}"
-        )
-        feats_np = (feats_np - feats_np.mean()) / (feats_np.std() + 1e-8)
-        return feats_np
-    
-    def get_cv_module(
-        self, images, cv_factory, return_maps=True, n_jobs=None, verbose=0, prune_features=None
-    ):
+    # --------------------------------------------------------
+    # Pipeline Orchestration (The requested method)
+    # --------------------------------------------------------
+    def run(self):
         """
-        Torchrun-friendly version with multiprocessing image parallelism.
-        - Each rank processes a disjoint shard of images.
-        - Each shard is processed in parallel using multiprocessing (per-image chunks).
-        - Results are gathered with torch.distributed all_gather on tensors.
-        - Output shape: [N_images, C, H, W] or [N_images, H, W] depending on your modules.
+        Main entry point for the experiment pipeline.
+        Handles Setup -> Data -> Train/Test -> Save/Viz.
         """
-        import multiprocessing as mp
-        from joblib import Parallel, delayed
-        import torch.distributed as dist
-        import numpy as np
-        import os
-
-        # ---------------------------------------------------------
-        # Normalize input to numpy
-        # ---------------------------------------------------------
-        if isinstance(images, torch.Tensor):
-            images = images.detach().cpu().numpy()
-        if images.ndim == 3:
-            images = np.expand_dims(images, 0)  # [1, H, W]
-        total_images = len(images)
-        
-
-        # ---------------------------------------------------------
-        # Optimize module via variance (if no pruning provided)
-        # ---------------------------------------------------------
-        if prune_features is None:
-            # ---------------------------------------------------------
-            # CMA-ES optimization loop
-            # ---------------------------------------------------------
-            # Multiprocessing parallelization over MODULES
-            modules = cv_factory.ask_pop()
-            n_procs = min(n_jobs, len(modules))
-            print_info(f"⚙️ Using {n_procs} processes for convolution module evaluation...")
-            for epoch in trange(self.cv_epochs, desc="CV Module Optimization", disable=verbose == 0):
-                print_debugging(f"Epoch {epoch}")
-                modules = cv_factory.ask_pop()
-                if not isinstance(modules, list):
-                    modules = [modules]               
-
-                fitness = self.eval_cv_pop(modules, images)
-
-                print_debugging(f"Module fitness values: {fitness}")
-                # CMA-ES update
-                cv_factory.tell_pop(fitness)
-
-        # ---------------------------------------------------------
-        # Best module and final extraction
-        # ---------------------------------------------------------
-        module = cv_factory.best_module()
-
-        return module
-
-
-
-    def get_feature_tensor(self, images, prune_features=None):
-        if self.feature_extractor == "handcrafted":
-            return self.get_handcrafted_features(images, n_jobs=self.n_cpus, prune_features_idx=prune_features)
-        elif self.feature_extractor == "cv_modules":
-            if self.cv_factory is None:
-                self.cv_factory = CVModuleFactory(
-                    Optimizer={"class_name": "CMAES", "kwargs": {"n_params": 128, "lambda_": self.n_cv_modules, "seed": self.seed}},
-                    CVModule={"class_name": "ConvolutionModule", "kwargs": {"n_filters": self.n_filters, "filter_sizes": 3, "device": self.device}}
-                )
-            return self.convolution_modules_tensor(images, self.cv_factory, return_maps=True, n_jobs=self.n_cpus, prune_features=prune_features)
-
+        # 1. Environment & Seeding
+        if hasattr(self, '_setup_cpu_env'):
+            self._setup_cpu_env()
         else:
-            raise ValueError(f"Unknown feature extractor {self.feature_extractor}")
-    
-    def init_cv_module(self, images):
-        self.cv_factory = CVModuleFactory(
-                    Optimizer={"class_name": "CMAES", "kwargs": {"n_params": 128, "lambda_": self.n_cv_modules, "seed": self.seed}},
-                    CVModule={"class_name": "ConvolutionModule", "kwargs": {"n_filters": self.n_filters, "filter_sizes": 3, "device": self.device}}
-                )
-        return self.get_cv_module(images, self.cv_factory, return_maps=True, n_jobs=self.n_cpus)
+            torch.manual_seed(self.seed)
+            np.random.seed(self.seed)
+            random.seed(self.seed)
+
+        print_info(f"🚀 Execution Mode: {self.execution_mode.upper()} | Device: {self.device}")
+
+        # 2. Data Loading
+        # self.set_dataset must populate self.train_loader / self.test_loader
+        self.set_dataset(self.data_path, self.test_path)
         
-    def set_criterion(self, target):
-        if target.dim() == 4 and target.size(1) == 1:
-            target = target.squeeze(1)
-        pos_weight = self.compute_pos_weight(target)
-        self.criterion = DiceCELoss(pos_weight=pos_weight.float().to(self.device))
-    # --------------------------------------------------------
-    # Training & Evaluation
-    # --------------------------------------------------------
-    def train(self, model, epochs=10, lr=1e-3, n_cpus=None):
-        """
-        Train PCNet model with unified threading, validation, and logging.
-        Keeps print_info() calls for continuity.
-        """
-        # --------------------------------------------------------
-        # Environment setup
-        # --------------------------------------------------------
-        self._setup_cpu_env()
-        device = getattr(model, "device", "cpu")
-        print_info(f"🧮 Using device: {device}")
+        # 3. Execution Flow
+        if self.execution_mode == "train":
+            # A. Training Phase
+            # Note: init_network() happens inside train() on the first batch
+            self.train()
+            
+            # B. Save the learned structure and weights
+            self.save_model()
+            if self.val_data is not None:
+                val_loader = self.get_dataloaders(self.val_data, batch_size=self.batch_size)
+                self.calibrate_threshold(val_loader)
+            print_info("\n📊 Running Post-Training Evaluation...")
+            self.test_loader = self.get_dataloaders(self.test_data, batch_size=self.batch_size)
+            self.test(self.model, self.test_loader)
+            self.show_prediction(self.model)
 
-        # --------------------------------------------------------
-        # Count learnable parameters
-        # --------------------------------------------------------
-
-        # Collect parameters from all nodes
+        elif self.execution_mode == "test":
+            # A. Load Model 
+            # Crucial: Must load the full object to restore the dynamic graph structure
+            if not os.path.exists(os.path.join(self.log_path, f"{self.model_name}.pkl")):
+                print_info(f"❌ Model not found at {self.log_path}. Please train first.")
+                return
+            
+            self.load_model()
+            self.test_loader = self.get_dataloaders(self.test_data, batch_size=self.batch_size)
+            self.calibrate_threshold(self.test_loader)
+            # B. Evaluate
+            self.test(self.model, self.test_loader)
+            
+            # C. Visualize
+            self.show_prediction(self.model)
         
-        print_info(f"🔢 Model has {len(model.params)} learnable parameter tensors.")
+        else:
+            raise ValueError(f"Unknown execution_mode: {self.execution_mode}")
 
-        optimizer = torch.optim.Adam(model.params, lr=lr, weight_decay=1e-4)
+    # --------------------------------------------------------
+    # Training Loop
+    # --------------------------------------------------------
+    def train(self):
+        print_info(f"⚙️ Starting Training for {self.epochs} epochs...")
+        
+        # FIX: Do NOT create the optimizer here. 
+        # The model has no parameters yet! They are created in init_network().
+        optimizer = None
+        
+        self.model.train()
+        self.train_loader = self.get_dataloaders(self.train_data, batch_size=self.batch_size)
+        
+        for epoch in range(self.epochs):
+            epoch_loss = 0.0
+            batch_count = 0
+            
+            for i, batch in enumerate(self.train_loader):
+                # Handle (x, y) or just x
+                x = batch[0] if isinstance(batch, (list, tuple)) else batch
+                x = x.to(self.device)
+                x = self._prepare_input(x)
 
-        # --------------------------------------------------------
-        # Prepare data
-        # --------------------------------------------------------
-        feature_tensor = torch.from_numpy(self.feature_tensor).float()
-        target = torch.from_numpy(self.train_masks).long()
-        if target.dim() == 4 and target.size(1) == 1:
-            target = target.squeeze(1)
+                # --- Dynamic Initialization ---
+                # PCNet needs the first batch of data to build its graph structure
+                if not self.is_initialized:
+                    print_info(f"🔨 Initializing PCNet structure with input shape {x.shape}...")
+                    self.model.init_network(x)
+                    self.model = self.model.to(self.device)
+                    
+                    # FIX: Create the optimizer NOW, after parameters exist
+                    optimizer = optim.Adam(self.model.parameters(), lr=self.learning_rate)
+                    self.is_initialized = True
 
-        train_loader = self.get_dataloaders(
-            TensorDataset(feature_tensor, target),
-            shuffle=True,
-            batch_size=self.batch_size
-        )
-
-        val_loader = None
-        if getattr(self, "val_feature_tensor", None) is not None and getattr(self, "val_masks", None) is not None:
-            val_feature_tensor = torch.from_numpy(self.val_feature_tensor).float()
-            val_target = torch.from_numpy(self.val_masks).long()
-            if val_target.dim() == 4 and val_target.size(1) == 1:
-                val_target = val_target.squeeze(1)
-            val_loader = self.get_dataloaders(
-                TensorDataset(val_feature_tensor, val_target),
-                shuffle=False,
-                batch_size=self.batch_size
-            )
-
-        # --------------------------------------------------------
-        # Logs
-        # --------------------------------------------------------
-        train_losses, val_losses = [], []
-        train_dices, val_dices = [], []
-        train_ious, val_ious = [], []
-        train_clious, val_clious = [], []
-        gates_over_epochs = []
-
-        # --------------------------------------------------------
-        # Epoch loop
-        # --------------------------------------------------------
-        pbar = tqdm.tqdm(range(epochs), desc="Training PCNet")
-
-        for epoch in pbar:
-            batch_losses, batch_dices, batch_ious, batch_clious = [], [], [], []
-
-            for ft_batch, t_batch in train_loader:
-                ft_batch, t_batch = ft_batch.to(device), t_batch.to(device)
+                # Safety check: If for some reason init failed, skip
+                if optimizer is None:
+                    continue
 
                 optimizer.zero_grad()
-                logits = model.evaluate(ft_batch)  # (B, C, H, W)
-                loss = self.criterion(logits, t_batch)
+                
+                # --- Forward & Loss ---
+                # PCNet outputs Log-Likelihoods
+                log_probs = self.model(x, **self.forward_kwargs)
+                
+                # Maximizing Likelihood == Minimizing Negative Log-Likelihood
+                loss = -torch.mean(log_probs)
+                
                 loss.backward()
+                
+                # Gradient clipping to stabilize learning of unconstrained log_sigmas
+                torch.nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=5.0)
+                
                 optimizer.step()
+                
+                epoch_loss += loss.item()
+                batch_count += 1
 
-                # Metrics
-                with torch.no_grad():
-                    pred_mask = torch.argmax(logits, dim=1, keepdim=True).float()
-                    true_mask = t_batch.unsqueeze(1).float()
+            # Avoid division by zero if loader is empty
+            avg_loss = epoch_loss / max(1, batch_count)
+            print_info(f"Epoch [{epoch+1}/{self.epochs}] | NLL Loss: {avg_loss:.4f}")
 
-                    dice_score = self.dice_coef(logits, t_batch)
-                    iou_score = self.iou_score(logits, t_batch)
-                    cl_iou_score = self.cl_iou_score(pred_mask, true_mask)
+        # Save the trained model
+        self.save_model()
+    # --------------------------------------------------------
+    # Testing & Metrics
+    # --------------------------------------------------------
 
-                batch_losses.append(loss.item())
-                batch_dices.append(float(torch.as_tensor(dice_score).mean()))
-                batch_ious.append(float(torch.as_tensor(iou_score).mean()))
-                batch_clious.append(float(torch.as_tensor(cl_iou_score).mean()))
+    def calibrate_threshold(self, val_loader):
+        print_info("🔍 Calibrating optimal threshold to maximize F1-Score...")
+        self.model.eval()
+        all_probs, all_targets = [], []
+        
+        with torch.no_grad():
+            for batch in val_loader:
+                if isinstance(batch, (list, tuple)):
+                    x, y = batch[0].to(self.device), batch[1]
+                else: continue
+                
+                log_probs = self.model(self._prepare_input(x), **self.forward_kwargs)
+                anomaly_map = -log_probs
+                
+                # Squeeze extra dims
+                if anomaly_map.dim() == 5 and anomaly_map.shape[2] == 1: 
+                    anomaly_map = anomaly_map.squeeze(2)
+                if anomaly_map.dim() == 4 and anomaly_map.shape[1] > 1: 
+                    anomaly_map = anomaly_map.mean(dim=1, keepdim=True)
+                if anomaly_map.shape[-2:] != y.shape[-2:]:
+                    anomaly_map = F.interpolate(anomaly_map, size=y.shape[-2:], mode='bilinear', align_corners=False)
+                
+                # Min-Max Normalization per batch
+                B = anomaly_map.shape[0]
+                flat = anomaly_map.view(B, -1)
+                mins = flat.min(dim=1, keepdim=True)[0].view(B, 1, 1, 1)
+                maxs = flat.max(dim=1, keepdim=True)[0].view(B, 1, 1, 1)
+                probs = (anomaly_map - mins) / (maxs - mins + 1e-8)
+                
+                all_probs.append(probs.cpu().numpy())
+                all_targets.append(y.numpy())
+                
+        # Flatten all predictions and targets across the entire validation set
+        all_probs = np.concatenate(all_probs).flatten()
+        all_targets = np.concatenate(all_targets).flatten()
+        
+        # Sweep thresholds from 0.02 to 0.98
+        best_f1, best_t = 0.0, 0.5
+        thresholds = np.linspace(0.02, 0.98, 50)
+        
+        for t in thresholds:
+            preds = (all_probs > t).astype(int)
+            tp = ((preds == 1) & (all_targets == 1)).sum()
+            fp = ((preds == 1) & (all_targets == 0)).sum()
+            fn = ((preds == 0) & (all_targets == 1)).sum()
+            
+            p = tp / (tp + fp + 1e-8)
+            r = tp / (tp + fn + 1e-8)
+            f1 = 2 * p * r / (p + r + 1e-8)
+            
+            if f1 > best_f1:
+                best_f1 = f1
+                best_t = t
+                
+        self.threshold = best_t  # Save the optimal threshold!
+        print_info(f"✅ Calibration complete! Best Threshold: {self.threshold:.4f} (Val F1: {best_f1:.4f})")
 
-            # Collect gate values (if present)
-            gates_values = []
-            for n in model.get_nodes():
-                if hasattr(n, "gate"):
-                    with torch.no_grad():
-                        gates_values.append(float(torch.sigmoid(n.gate).item()))
-            if gates_values:
-                gates_over_epochs.append(gates_values)
-
-            # Epoch metrics
-            epoch_loss = np.mean(batch_losses) if batch_losses else 0.0
-            epoch_dice = np.mean(batch_dices) if batch_dices else 0.0
-            epoch_iou = np.mean(batch_ious) if batch_ious else 0.0
-            epoch_cl_iou = np.mean(batch_clious) if batch_clious else 0.0
-
-            train_losses.append(epoch_loss)
-            train_dices.append(epoch_dice)
-            train_ious.append(epoch_iou)
-            train_clious.append(epoch_cl_iou)
-
-            print_info(f"Epoch [{epoch+1}/{epochs}] — Train loss: {epoch_loss:.4f}, Dice: {epoch_dice:.4f}, IoU: {epoch_iou:.4f}, CL-IoU: {epoch_cl_iou:.4f}")
-
-            # --------------------------------------------------------
-            # Validation
-            # --------------------------------------------------------
-            if val_loader is not None:
-                val_loss, val_dice, val_iou, val_cl_iou = self.evaluate(model, val_loader)
-                val_losses.append(val_loss)
-                val_dices.append(val_dice)
-                val_ious.append(val_iou)
-                val_clious.append(val_cl_iou)
-
-                print_info(f"Validation — Loss: {val_loss:.4f}, Dice: {val_dice:.4f}, IoU: {val_iou:.4f}, CL-IoU: {val_cl_iou:.4f}")
-
-            # Progress bar
-            pbar.set_postfix({
-                "train_loss": f"{epoch_loss:.4f}",
-                "val_loss": f"{val_losses[-1]:.4f}" if val_loader and val_losses else None
-            })
-
-            # Report to file every 5 epochs
-            if (epoch + 1) % 5 == 0:
-                with open(self.experiment_report, "a") as f:
-                    f.write(f"{epoch+1}\ttrain\t{epoch_loss:.4f}\t{epoch_cl_iou:.4f}\n")
-                    if val_loader:
-                        f.write(f"\tval\t{val_losses[-1]:.4f}\t{val_clious[-1]:.4f}\n")
-
-        # --------------------------------------------------------
-        # Save logs to CSV
-        # --------------------------------------------------------
-        df_train = pd.DataFrame({
-            "train_loss": train_losses,
-            "train_dice": train_dices,
-            "train_iou": train_ious,
-            "train_cl_iou": train_clious
-        })
-        df_train.to_csv(os.path.join(self.log_path, "training.csv"), index=False)
-
-        if val_loader:
-            df_val = pd.DataFrame({
-                "val_loss": val_losses,
-                "val_dice": val_dices,
-                "val_iou": val_ious,
-                "val_cl_iou": val_clious
-            })
-            df_val.to_csv(os.path.join(self.log_path, "validation.csv"), index=False)
-
-        # --------------------------------------------------------
-        # Save gates (if any)
-        # --------------------------------------------------------
-        if gates_over_epochs:
-            max_len = max(len(g) for g in gates_over_epochs)
-            gates_array = np.array([
-                np.pad(g, (0, max_len - len(g)), constant_values=np.nan)
-                for g in gates_over_epochs
-            ])
-            df_gates = pd.DataFrame(gates_array, columns=[f"gate_{i}" for i in range(gates_array.shape[1])])
-            df_gates.to_csv(os.path.join(self.log_path, "gates.csv"), index=False)
-
-        # --------------------------------------------------------
-        # Plots
-        # --------------------------------------------------------
-        import matplotlib.pyplot as plt
-
-        def _plot_metric(train, val, title, fname):
-            plt.figure(figsize=(8, 5))
-            plt.plot(train, label="Train")
-            if val_loader:
-                plt.plot(val, label="Val")
-            plt.title(title)
-            plt.legend()
-            plt.tight_layout()
-            plt.savefig(os.path.join(self.log_path, fname))
-            plt.close()
-
-        _plot_metric(train_losses, val_losses, "Training Loss over Epochs", "training_plot.png")
-        _plot_metric(train_dices, val_dices, "Dice over Epochs", "dice_plot.png")
-        _plot_metric(train_ious, val_ious, "IoU over Epochs", "iou_plot.png")
-        _plot_metric(train_clious, val_clious, "CL-IoU over Epochs", "cliou_plot.png")
-
-        # --------------------------------------------------------
-        # Final summary
-        # --------------------------------------------------------
-        print_info("✅ Training complete.")
-        self.experiment_dict["training"] = {
-            "final_loss": train_losses[-1],
-            "final_dice": train_dices[-1],
-            "final_iou": train_ious[-1],
-            "final_cl_iou": train_clious[-1]
-        }
-        with open(self.experiment_report, "a") as f:
-            f.write(f"Final Training — Loss: {train_losses[-1]:.4f}, Dice: {train_dices[-1]:.4f}, IoU: {train_ious[-1]:.4f}, CL-IoU: {train_clious[-1]:.4f}\n")
-            if val_loader:
-                f.write(f"Final Validation — Loss: {val_losses[-1]:.4f}, Dice: {val_dices[-1]:.4f}, IoU: {val_ious[-1]:.4f}, CL-IoU: {val_clious[-1]:.4f}\n")
-
-        return model
-
-
-    @torch.no_grad()
-    def evaluate(self, model, dataloader):
-        losses, dices, ious, clious = [], [], [], []
-        for ft_batch, t_batch in dataloader:
-            logits = model.evaluate(ft_batch)
-            loss = self.criterion(logits, t_batch)
-            dice_score = self.dice_coef(logits, t_batch)
-            iou_score = self.iou_score(logits, t_batch)
-            pred_mask = torch.argmax(logits, dim=1, keepdim=True).float()
-            true_mask = t_batch.unsqueeze(1).float()
-            cl_iou_score = self.cl_iou_score(pred_mask, true_mask)
-
-            losses.append(loss.item())
-            dices.append(float(torch.as_tensor(dice_score).mean()))
-            ious.append(float(torch.as_tensor(iou_score).mean()))
-            clious.append(float(torch.as_tensor(cl_iou_score)))
-
-        return float(np.mean(losses)), float(np.mean(dices)), float(np.mean(ious)), float(np.mean(clious))
-    
+    # =========================================================
+    # Updated Test Method
+    # =========================================================
     @torch.no_grad()
     def test(self, model, dataloader):
+        model.eval()
+        model.to(self.device)
+        
+        # Metric Lists
         losses, dices, ious, clious = [], [], [], []
         accuracies, precisions, recalls, f1_scores = [], [], [], []
-        for ft_batch, t_batch in dataloader:
-            logits = model.evaluate(ft_batch)
-            loss = self.criterion(logits, t_batch)
-            dice_score = self.dice_coef(logits, t_batch)
-            iou_score = self.iou_score(logits, t_batch)
-            pred_mask = torch.argmax(logits, dim=1, keepdim=True).float()
-            true_mask = t_batch.unsqueeze(1).float()
-            cl_iou_score = self.cl_iou_score(pred_mask, true_mask)
+        
+        print_info("🧪 Starting Evaluation with Full Metrics...")
+        
+        for batch in dataloader:
+            if isinstance(batch, (list, tuple)):
+                images, masks = batch[0], batch[1]
+            else:
+                # If no masks provided, we can't compute these metrics
+                continue
 
-            # Flatten predictions and targets
-            pm = pred_mask.view(-1).long()
-            tm = true_mask.view(-1).long()
+            images = images.to(self.device)
+            masks = masks.to(self.device)
 
-            tp = ((pm == 1) & (tm == 1)).sum()
-            fp = ((pm == 1) & (tm == 0)).sum()
-            fn = ((pm == 0) & (tm == 1)).sum()
-            tn = ((pm == 0) & (tm == 0)).sum()
+            # 1. Forward Pass (Get Log-Likelihood)
+            # Output shape: (B, 1, H, W) or (B, 2, H, W)
+            log_probs = model(self._prepare_input(images), **self.forward_kwargs)
+            
+            # 2. Calculate Loss (NLL)
+            # We treat NLL as the "loss" for reporting
+            loss = -torch.mean(log_probs)
+            
+            # 3. Process Outputs for Segmentation Metrics
+            # A. Convert Log-Likelihood to Anomaly Score (Higher = More Anomalous)
+            anomaly_map = -log_probs
+            
+            # Squeeze extra dims if log_probs is (B, C, 1, H, W)
+            if anomaly_map.dim() == 5 and anomaly_map.shape[2] == 1:
+                anomaly_map = anomaly_map.squeeze(2)
+                
+            if anomaly_map.dim() == 4 and anomaly_map.shape[1] > 1:
+                anomaly_map = anomaly_map.mean(dim=1, keepdim=True)
+                
+            # Upsample the anomaly map to match the target mask spatial resolution if it differs
+            if anomaly_map.shape[-2:] != masks.shape[-2:]:
+                anomaly_map = F.interpolate(anomaly_map, size=masks.shape[-2:], mode='bilinear', align_corners=False)
+            
+            # B. Normalize Score to [0, 1] for Thresholding
+            # (Min-Max normalization per batch to create a pseudo-probability)
+            B = anomaly_map.shape[0]
+            flat = anomaly_map.contiguous().view(B, -1)
+            mins = flat.min(dim=1, keepdim=True)[0]
+            maxs = flat.max(dim=1, keepdim=True)[0]
+            
+            # Dynamically reshape to match anomaly_map's dimensions for safe broadcasting
+            view_shape = [B] + [1] * (anomaly_map.dim() - 1)
+            mins = mins.view(*view_shape)
+            maxs = maxs.view(*view_shape)
+            
+            probs = (anomaly_map - mins) / (maxs - mins + 1e-8)
+            
+            # C. Generate Predictions
+            pred_mask = (probs > self.threshold).float()
+            true_mask = masks.float()
+            
+            # Ensure shapes match (handle channel dims and spatial mismatches)
+            if pred_mask.shape[-2:] != true_mask.shape[-2:]:
+                pred_mask = F.interpolate(pred_mask, size=true_mask.shape[-2:], mode='nearest')
+                
+            if pred_mask.shape != true_mask.shape:
+                # Usually masks are (B, H, W), preds are (B, 1, H, W)
+                if pred_mask.dim() >= 2 and pred_mask.shape[1] == 1: pred_mask = pred_mask.squeeze(1)
+                if true_mask.ndim == 4 and true_mask.shape[1] == 1: true_mask = true_mask.squeeze(1)
 
-            # Accuracy
-            accuracy = (tp + tn) / (tp + tn + fp + fn + 1e-8)
+            # 4. Compute Metrics
+            # Dice / IoU (using float masks)
+            dice_score = float(self.dice_coef(pred_mask, true_mask))
+            iou_score = float(self.iou_score(pred_mask, true_mask))
+            cl_iou_score = float(self.cl_iou_score(pred_mask, true_mask))
 
-            # Precision = TP / (TP + FP)
-            precision = tp / (tp + fp + 1e-8)
+            metrics = self.classification_metrics(pred_mask, true_mask)
 
-            # Recall = TP / (TP + FN)
-            recall = tp / (tp + fn + 1e-8)
-
-            # F1 = harmonic mean
-            f1_score = 2 * precision * recall / (precision + recall + 1e-8)
-
+            # 5. Append Results
             losses.append(loss.item())
-            dices.append(float(torch.as_tensor(dice_score).mean()))
-            ious.append(float(torch.as_tensor(iou_score).mean()))
-            clious.append(float(torch.as_tensor(cl_iou_score)))
+            dices.append(dice_score)
+            ious.append(iou_score)
+            clious.append(cl_iou_score)
+            
+            accuracies.append(metrics["accuracy"])
+            precisions.append(metrics["precision"])
+            recalls.append(metrics["recall"])
+            f1_scores.append(metrics["f1_score"])
 
-            accuracies.append(accuracy.item())
-            precisions.append(precision.item())
-            recalls.append(recall.item())
-            f1_scores.append(f1_score.item())
-
-        print_info("✅ Testing complete.")
-        print_info(f"Test Loss: {np.mean(losses):.4f}, Dice: {np.mean(dices):.4f}, IoU: {np.mean(ious):.4f}, CL IoU: {np.mean(clious):.4f}")
-        print_info(f"Test Accuracy: {np.mean(accuracies):.4f}, Precision: {np.mean(precisions):.4f}, Recall: {np.mean(recalls):.4f}, F1-Score: {np.mean(f1_scores):.4f}")
-        self.experiment_dict["results"] = {
+        # 6. Logging & Saving
+        results = {
             "test_loss": np.mean(losses),
             "test_dice": np.mean(dices),
             "test_iou": np.mean(ious),
@@ -2050,770 +1394,593 @@ class ExperimentPC(Experiment):
             "test_recall": np.mean(recalls),
             "test_f1_score": np.mean(f1_scores)
         }
-        n_trainable_params = sum(p.numel() for p in model.params if p.requires_grad)
+
+        print_info("✅ Testing complete.")
+        print_info(f"Test Loss: {results['test_loss']:.4f}, Dice: {results['test_dice']:.4f}, IoU: {results['test_iou']:.4f}, CL IoU: {results['test_cl_iou']:.4f}")
+        print_info(f"Test Accuracy: {results['test_accuracy']:.4f}, Precision: {results['test_precision']:.4f}, Recall: {results['test_recall']:.4f}, F1-Score: {results['test_f1_score']:.4f}")
+
+        self.experiment_dict["results"] = results
+        
+        # Calculate Params
+        n_trainable_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
         self.experiment_dict["n_trainable_params"] = n_trainable_params
+        
+        # Write to report
         with open(self.experiment_report, "a") as f:
-            f.write(f"Test Loss: {np.mean(losses):.4f}, Dice: {np.mean(dices):.4f}, IoU: {np.mean(ious):.4f}, CL IoU: {np.mean(clious):.4f}\n")
-            f.write(f"Test Accuracy: {np.mean(accuracies):.4f}, Precision: {np.mean(precisions):.4f}, Recall: {np.mean(recalls):.4f}, F1-Score: {np.mean(f1_scores):.4f}\n")
+            f.write(f"Test Loss: {results['test_loss']:.4f}, Dice: {results['test_dice']:.4f}, IoU: {results['test_iou']:.4f}, CL IoU: {results['test_cl_iou']:.4f}\n")
+            f.write(f"Test Accuracy: {results['test_accuracy']:.4f}, Precision: {results['test_precision']:.4f}, Recall: {results['test_recall']:.4f}, F1-Score: {results['test_f1_score']:.4f}\n")
+
         return float(np.mean(losses)), float(np.mean(dices)), float(np.mean(ious)), float(np.mean(clious))
 
     # --------------------------------------------------------
-    # I/O
+    # I/O Helpers
     # --------------------------------------------------------
-    def show_prediction(self, model):
-        with open(self.experiment_report, "a") as f:
-            f.write(str(model) + "\n")
-
-        predictions_path = os.path.join(self.log_path, "predictions")
-        os.makedirs(predictions_path, exist_ok=True)
-
-        imgs = [self.test_data[i][0] for i in range(len(self.test_data))]
-
-        # Process images in groups of 3
-        max_pred = 15
-        group_size = 3
-        for j in range(0, max_pred):
-            start_idx = random.randint(0, len(self.test_inputs) - group_size)
-            end_idx = min(start_idx + group_size, len(self.test_inputs))
-            group = list(zip(
-                imgs[start_idx:end_idx],
-                self.test_inputs[start_idx:end_idx],
-                self.test_ground_truth[start_idx:end_idx]
-            ))
-            fig, axes = plt.subplots(3, group_size, figsize=(4 * group_size, 9))
-
-            for col, (img, inputs, gt) in enumerate(group):
-                mask = model.predict(inputs)
-                img_np = img.squeeze().permute(1, 2, 0).cpu().numpy()
-                gt_np = gt.squeeze().cpu().numpy()
-                mask_np = mask[0][0] if isinstance(mask, (list, tuple)) else mask.squeeze()
-
-                # Row 1 → Input
-                axes[0, col].imshow(img_np)
-                axes[0, col].set_title(f"Input {start_idx + col}")
-                axes[0, col].axis("off")
-
-                # Row 2 → Ground Truth
-                axes[1, col].imshow(gt_np, cmap="gray")
-                axes[1, col].set_title(f"Ground Truth {start_idx + col}")
-                axes[1, col].axis("off")
-
-                # Row 3 → Prediction
-                axes[2, col].imshow(mask_np, cmap="cool")
-                axes[2, col].set_title(f"Prediction {start_idx + col}")
-                axes[2, col].axis("off")
-
-            # Hide any unused columns (in case last group < 3)
-            for col in range(len(group), group_size):
-                axes[0, col].axis("off")
-                axes[1, col].axis("off")
-                axes[2, col].axis("off")
-
-            plt.savefig(os.path.join(predictions_path, f"predictions_{start_idx//group_size}.png"), bbox_inches="tight")
-            plt.close(fig)
-
-        print_debugging(self.log_path)
-        # model.visualize(save_path=self.log_path)
-
-    def finetune(self):
-        pass
-
-    def save_model(self, model_name="pcnet"):
-        with open(os.path.join(self.log_path, f"{model_name}.pkl"), "wb") as f:
+    def save_model(self, model_name=None):
+        """Pickles the entire model object (structure + weights)"""
+        name = model_name if model_name else self.model_name
+        save_path = os.path.join(self.log_path, f"{name}.pkl")
+        with open(save_path, "wb") as f:
             pickle.dump(self.model, f)
-        with open(os.path.join(self.save_path, f"{model_name}.pkl"), "wb") as f:
-            pickle.dump(self.model, f)
+        print_info(f"💾 Model saved to {save_path}")
 
-    def load_model(self, model_name="pcnet"):
-        with open(model_name, "rb") as f:
+    def load_model(self):
+        """Loads the pickled model object"""
+        load_path = os.path.join(self.log_path, f"{self.model_name}.pkl")
+        print_info(f"📂 Loading model from {load_path}")
+        with open(load_path, "rb") as f:
             self.model = pickle.load(f)
+        self.is_initialized = True
 
-    # --------------------------------------------------------
-    # Orchestration
-    # --------------------------------------------------------
-    def run(self):
-        self._setup_cpu_env()
-        self.set_dataset(self.data_path, self.test_path)
-        print_info("Dataset size:", len(self.data))
-        if self.execution_mode == "train":
-            self.set_algorithm()
-            self.feature_tensor = self.get_feature_tensor(np.array([self.train_data[i][0] for i in range(len(self.train_data))]))
-            self.train_masks = np.array([self.train_data[i][1] for i in range(len(self.train_data))])
-            self.val_feature_tensor = self.get_feature_tensor(np.array([self.val_data[i][0] for i in range(len(self.val_data))]))
-            self.val_masks = np.array([self.val_data[i][1] for i in range(len(self.val_data))]) if self.validation_split > 0 else None
-            self.set_criterion(torch.from_numpy(self.train_masks).float().to(self.device))
+    def show_prediction(self, model):
+        """
+        Visualizes: Input | Ground Truth | Anomaly Score (NLL) | Predicted Mask
+        """
+        if self.data_type == "tabular": 
+            return
 
-            self.model.init_network(self.feature_tensor, self.train_masks)
-            with open(self.experiment_report, "a") as f:
-                f.write(str(self.model) + "\n")
-            if self.device == "cuda":
-                self.model = self.train(self.model, epochs=self.epochs, lr=self.learning_rate, n_cpus=self.n_cpus)
+        print_info("🖼️ Generating prediction visualizations...")
+        model.eval()
+        save_dir = os.path.join(self.log_path, "predictions")
+        os.makedirs(save_dir, exist_ok=True)
+        
+        # 1. Get Data
+        try:
+            # We need the full batch (x, y) to show Ground Truth
+            batch = next(iter(self.test_loader))
+        except StopIteration:
+            return
+
+        if isinstance(batch, (list, tuple)):
+            x, y = batch[0], batch[1]
+        else:
+            x, y = batch, None # Unsupervised only (no GT)
+
+        x = x.to(self.device)
+        
+        # 2. Model Inference
+        with torch.no_grad():
+            log_probs = model(self._prepare_input(x), **self.forward_kwargs)
+            
+            # Raw Anomaly Score (Negative Log Likelihood)
+            anomaly_map = -log_probs 
+            
+            # Squeeze extra dims if log_probs is (B, C, 1, H, W)
+            if anomaly_map.dim() == 5 and anomaly_map.shape[2] == 1:
+                anomaly_map = anomaly_map.squeeze(2)
+            
+            # Collapse channels if necessary (e.g. if n_classes=2)
+            if anomaly_map.dim() == 4:
+                anomaly_map = anomaly_map.mean(dim=1) # (B, H, W)
+
+        # 3. Calculate Threshold for Binary Classification
+        # In a real scenario, this is calibrated on a validation set.
+        # Here, we use the 95th percentile of the BATCH to highlight the "worst"
+        # Create Binary Mask
+        pred_mask = (anomaly_map > self.threshold).float()
+
+        # 4. Plotting
+        n_vis = min(4, x.shape[0])
+        fig, axes = plt.subplots(n_vis, 4, figsize=(16, 4*n_vis)) # 4 Columns
+        
+        # Handle single sample case (axes logic)
+        if n_vis == 1: axes = np.expand_dims(axes, axis=0)
+
+        for i in range(n_vis):
+            # --- Prepare Data ---
+            # A. Input Image
+            img = x[i].cpu().permute(1, 2, 0).numpy()
+            if img.shape[2] == 1: img = img.squeeze()
+            
+            # B. Ground Truth (if exists)
+            if y is not None:
+                gt = y[i].cpu().numpy()
+                if gt.ndim == 3: gt = gt.squeeze()
             else:
-                self.model = self.train_parallel(self.model, epochs=self.epochs, lr=self.learning_rate, n_cpus=self.n_cpus)
-            self.save_model()
+                gt = np.zeros_like(img) # Placeholder
 
-            if self.test_path is not None:
-                self.test_inputs = torch.from_numpy(self.get_feature_tensor(np.array([self.test_data[i][0] for i in range(len(self.test_data))]))).float().to(self.device)
-                self.test_ground_truth = torch.from_numpy(np.array([self.test_data[i][1] for i in range(len(self.test_data))])).long().to(self.device)
-                if self.test_ground_truth.dim() == 4 and self.test_ground_truth.size(1) == 1:
-                    self.test_ground_truth = self.test_ground_truth.squeeze(1)
+            # C. Anomaly Score (Heatmap)
+            score = anomaly_map[i].cpu().numpy()
+            
+            # D. Predicted Mask (Binary)
+            p_mask = pred_mask[i].cpu().numpy()
 
-                test_loader = self.get_dataloaders(TensorDataset(self.test_inputs, self.test_ground_truth), shuffle=False, batch_size=self.batch_size)
-                loss, dice, iou, cl_iou = self.evaluate(self.model, test_loader)
-                print_info("Test Loss:", loss, "Dice:", dice, "IoU:", iou, "CL IoU:", cl_iou)
-                with open(self.experiment_report, "a") as f:
-                    f.write(f"Test Loss: {loss}, Dice: {dice}, IoU: {iou}, CL IoU: {cl_iou}\n")
-                self.show_prediction(self.model)
-        elif self.execution_mode == "test":
-            self.load_model(self.model_name)
-            self.test_inputs = torch.from_numpy(self.get_feature_tensor(np.array([self.test_data[i][0] for i in range(len(self.test_data))]))).float().to(self.device)
-            self.test_ground_truth = torch.from_numpy(np.array([self.test_data[i][1] for i in range(len(self.test_data))])).long().to(self.device)
-            if self.test_ground_truth.dim() == 4 and self.test_ground_truth.size(1) == 1:
-                self.test_ground_truth = self.test_ground_truth.squeeze(1)
-            self.show_prediction(self.model)
+            # --- Plot Columns ---
+            
+            # Col 1: Input
+            ax = axes[i, 0]
+            ax.imshow(img, cmap='gray' if img.ndim == 2 else None)
+            ax.set_title("Input Image")
+            ax.axis('off')
+            
+            # Col 2: Ground Truth
+            ax = axes[i, 1]
+            ax.imshow(gt, cmap='gray')
+            ax.set_title("Ground Truth")
+            ax.axis('off')
+            
+            # Col 3: Anomaly Score (Heatmap)
+            ax = axes[i, 2]
+            im = ax.imshow(score, cmap='inferno') # 'inferno' highlights high values well
+            ax.set_title("Anomaly Score (NLL)")
+            ax.axis('off')
+            # Optional: Add colorbar to the last plot or individually
+            # plt.colorbar(im, ax=ax) 
 
+            # Col 4: Predicted Mask
+            ax = axes[i, 3]
+            ax.imshow(p_mask, cmap='Reds', interpolation='nearest')
+            ax.set_title(f"Pred Mask (>{self.threshold:.1f})")
+            ax.axis('off')
+
+        plt.tight_layout()
+        save_path = os.path.join(save_dir, "vis_full_pipeline.png")
+        plt.savefig(save_path)
+        plt.close()
+        print_info(f"✅ Full visualization saved to {save_path}")
 
 class ExperimentGEPC(ExperimentPC):
     def __init__(self, config):
+        config["model_name"] = config.get("model_name", "ge_pcnet")
         super().__init__(config)
-        self.ge_config = self.config.get("ge", {"generations": 10, "pop_size": 8, "genome_len": 96, "crossover_rate": 0.9, "mutation_rate": 0.05, "elite_k": 2, "train_split": 0.05})
-        self.ge = GEOptimizer(
-                    pop_size=self.ge_config["pop_size"],
-                    genome_len=self.ge_config["genome_len"],
-                    max_depth=self.max_depth,          # search budget
-                    max_branching=self.max_branching,      # upper bound for sum fan-in
-                    crossover_rate=self.ge_config["crossover_rate"],
-                    mutation_rate=self.ge_config["mutation_rate"],
-                    elite_k=self.ge_config["elite_k"],
-                    n_classes=self.n_classes,
-                    device=self.device,
-                    n_jobs=self.n_cpus,
-                    report=self.experiment_report,
-                    log_path = self.log_path
-                )
         
-    def get_prune_features_idx(self, model):
-        feats = []
-        new_name = 0
-        for n in model.get_nodes():
-            if isinstance(n, InputNode):
-                feats.append(n.feature_idx)
-                n.feature_name = f"feat_{new_name}"
-                n.feature_idx = new_name
-                new_name += 1
+    def set_algorithm(self):
+        # We don't initialize a static PCNet here, the GE optimizer will build one.
+        self.model = None
 
-        return feats
-    
-    def worker_cv_module_process(self, model, module, X_np, Y_t, device, prune_idx, queue):
-        """
-        Worker that evaluates one or more modules on all training images.
-        Returns list of fitness values (one per module).
-        """
+    def train(self):
+        from probabilistic_circuits.grammatical_evolution import GEOptimizer
+        print_info(f"⚙️ Starting GE Optimization for {self.epochs} generations...")
+        
+        ge_model_type = "pcnet"
+        algo = self.config.get("algorithm", "").lower()
+        if "multihead_attentional" in algo:
+            ge_model_type = "multihead_attentional_pcnet"
+        elif "attentional" in algo:
+            ge_model_type = "attentional_pcnet"
+
+        ge = GEOptimizer(
+            pop_size=self.config.get("pop_size", 16),
+            genome_len=self.config.get("genome_len", 64),
+            max_depth=self.config.get("max_depth", 4),
+            max_branching=self.config.get("max_branching", 4),
+            crossover_rate=self.config.get("crossover_rate", 0.9),
+            mutation_rate=self.config.get("mutation_rate", 0.05),
+            elite_k=self.config.get("elite_k", 2),
+            n_classes=self.config.get("n_classes", 2),
+            device=self.device,
+            seed=self.config.get("seed", 42),
+            n_jobs=self.config.get("n_cpus", os.cpu_count()),
+            log_path=self.config.get("log_dir", "logs/ge_pcnet"),
+            model_type=ge_model_type,
+            embed_dim=self.config.get("embed_dim", 16),
+            num_heads=self.config.get("num_heads", 4)
+        )
+
+        # Pull all training data into memory for GE
+        # Typically GE expects (N, C, H, W) and (N,)
+        self.train_loader = self.get_dataloaders(self.train_data, batch_size=len(self.train_data))
+        for batch in self.train_loader:
+            x_train = batch[0].to(self.device)
+            y_train = batch[1].to(self.device) if isinstance(batch, (list, tuple)) else None
+            break
             
-        # Extract features for this module
-        feats = []
-        for img in X_np:
-            out = module.get_output(img, return_map=True)
-            feats.append(torch.from_numpy(out))
-        X_tensor = torch.stack(feats).float().to(device)
+        x_train_prep = self._prepare_input(x_train)
 
-        if prune_idx is not None:
-            X_tensor = X_tensor[:, prune_idx, :, :]
-    
-        dataset = TensorDataset(X_tensor, Y_t)
-        loader = DataLoader(dataset, batch_size=16, shuffle=True, num_workers=0)
+        # Using the custom DiceCELoss with soft_clDice
+        criterion = DiceCELoss()
+            
+        best_pc, best_genome, metrics = ge.evolve(
+            inputs=x_train_prep,
+            labels=y_train,
+            criterion=criterion,
+            generations=self.epochs,
+            n_classes=self.config.get("n_classes", 2),
+            train_steps=self.config.get("ge_train_steps", 10),
+            lr=self.learning_rate
+        )
 
-        loss_total, cliou_total = 0.0, 0.0
+        self.model = best_pc
+        self.experiment_dict["ge_best_genome"] = best_genome
+        self.experiment_dict["ge_metrics"] = metrics
+        
+        # Save the finalized GE model
+        self.save_model(model_name=self.model_name)
+
+class ExperimentGEMultiHeadPC(ExperimentGEPC):
+    def __init__(self, config):
+        config["model_name"] = config.get("model_name", "ge_multihead_pcnet")
+        super().__init__(config)
+
+
+class ExperimentPCNet(ExperimentPC):
+    def __init__(self, config):
+        config["model_name"] = config.get("model_name", "vanilla_pcnet")
+        super().__init__(config)
+        
+    def set_algorithm(self):
+        self.model = PCNet(
+            n_classes=self.config.get("n_classes", 2),
+            max_depth=self.config.get("max_depth", 4),
+            max_branching=self.config.get("max_branching", 3),
+            seed=self.config.get("seed", 42)
+        )
+        
+class ExperimentAttentionalPCNet(ExperimentPC):
+    def __init__(self, config):
+        config["model_name"] = config.get("model_name", "attentional_pcnet")
+        super().__init__(config)
+        
+    def set_algorithm(self):
+        from probabilistic_circuits.probabilistic_circuits import AttentionalPCNet
+        self.model = AttentionalPCNet(
+            in_channels=self.config.get("input_channels", 3),
+            n_classes=self.config.get("n_classes", 2),
+            max_depth=self.config.get("max_depth", 4),
+            max_branching=self.config.get("max_branching", 3),
+            seed=self.config.get("seed", 42),
+            embed_dim=self.config.get("embed_dim", 32)
+        )
+
+class ExperimentAttentionalPCNetRandomEnsemble(ExperimentPC):
+    def __init__(self, config):
+        config["model_name"] = config.get("model_name", "attentional_pcnet_random_ensemble")
+        super().__init__(config)
+        
+    def set_algorithm(self):
+        from probabilistic_circuits.probabilistic_circuits import RandomEnsembleAttentionalPCNet
+        self.model = RandomEnsembleAttentionalPCNet(
+            n_models=self.config.get("n_models", 5),
+            device=self.device,
+            input_channels=self.config.get("input_channels", 3),
+            n_classes=self.config.get("n_classes", 2),
+            max_depth=self.config.get("max_depth", 4),
+            max_branching=self.config.get("max_branching", 3),
+            seed=self.config.get("seed", 42),
+            embed_dim=self.config.get("embed_dim", 32),
+            ensemble_mode=self.config.get("ensemble_mode", "diversity"),
+            diversity_weight=self.config.get("diversity_weight", 1.0)
+        )
+
+class ExperimentMultiHeadAttentionalPCNet(ExperimentPC):
+    """
+    Experiment running the Multi-Head Attentional PCNet.
+    This version uses multiple 'heads' in each Sum node to attend to different 
+    feature subspaces of the input image simultaneously.
+    """
+    def __init__(self, config):
+        # Default name if not provided
+        config["model_name"] = config.get("model_name", "multihead_attentional_pcnet")
+        super().__init__(config)
+        
+        # Multi-Head specific hyperparameters
+        self.embed_dim = self.config.get("embed_dim", 32)
+        self.num_heads = self.config.get("num_heads", 4)
+        
+    def set_algorithm(self):
+        """
+        Instantiates the Multi-Head Attentional model.
+        Note: The actual graph structure is built during the first forward pass 
+        via init_network() in the parent train() method.
+        """
+        # Ensure the architecture class 'MultiHeadAttentionalPCNet' is available
+        self.model = MultiHeadAttentionalPCNet(
+            in_channels=self.config.get("input_channels", 3),
+            n_classes=self.config.get("n_classes", 2),
+            max_depth=self.config.get("max_depth", 4),
+            max_branching=self.config.get("max_branching", 3),
+            seed=self.config.get("seed", 42),
+            embed_dim=self.config.get("embed_dim", 32),
+            num_heads=self.config.get("num_heads", 4)
+        )
+
+    def log_results(self):
+        """
+        Optional: Custom logging to check head-weight distributions.
+        This helps confirm if the heads are actually specializing or collapsing.
+        """
+        super().log_results()
+        print_info("📊 Checking Multi-Head specialization...")
         with torch.no_grad():
-            for Xb, Yb in loader:
-                Xb, Yb = Xb.to(device), Yb.to(device)
-                logits = model.evaluate(Xb)
-                loss_total += float(self.criterion(logits, Yb.squeeze(1)).item())
-                cliou_total += float(
-                    self.cl_iou_score(
-                        torch.argmax(logits, dim=1, keepdim=True).float(), Yb
-                    )
-                )
-        avg_loss = loss_total / max(1, len(loader))
-        return avg_loss
-    
-    def train_cv_modules(self, model, X_train, Y_train, prune_features=None, epochs=10, lr=1e-2, n_cpus=8):
-        self.cv_factory._optimizer.best = None  # reset best found solution
-        self.cv_factory._optimizer.best_fitness = -np.inf  # reset best found solution
+            for name, param in self.model.named_parameters():
+                if "head_mix" in name:
+                    probs = torch.softmax(param, dim=0)
+                    print_info(f"Node: {name} | Head Weights: {probs.cpu().numpy()}")
+def gaussian(window_size, sigma):
+    gauss = torch.Tensor([math.exp(-(x - window_size//2)**2/float(2*sigma**2)) for x in range(window_size)])
+    return gauss/gauss.sum()
 
-        for epoch in trange(epochs, desc="Training CV Modules"):
-            print_info(f"CV Modules Training Epoch {epoch + 1}/{epochs}")
-            modules = self.cv_factory.ask_pop()
-            if not isinstance(modules, list):
-                modules = [modules]
+def create_window(window_size, channel):
+    _1D_window = gaussian(window_size, 1.5).unsqueeze(1)
+    _2D_window = _1D_window.mm(_1D_window.t()).float().unsqueeze(0).unsqueeze(0)
+    window = Variable(_2D_window.expand(channel, 1, window_size, window_size).contiguous())
+    return window
 
-            # Split modules into chunks for each worker
-            n_procs = min(n_cpus, len(modules))
-            with multiprocessing.Pool(n_procs) as pool:
-                fitnesses = pool.starmap(
-                    self.worker_cv_module_process,
-                    [(model, module, X_train, Y_train, self.device, prune_features, None) for module in modules]
-                )
-            print_info(f"   CV Module Fitnesses: {fitnesses}")
-            self.cv_factory.tell_pop(fitnesses)
+def _ssim(img1, img2, window, window_size, channel, size_average = True):
+    mu1 = F.conv2d(img1, window, padding = window_size//2, groups = channel)
+    mu2 = F.conv2d(img2, window, padding = window_size//2, groups = channel)
 
-        return self.cv_factory.best_module()
-        
-    def run(self):
-        
-        self.set_dataset(self.data_path, self.test_path)
-        # print_info("Dataset size:", len(self.data))
-        if self.execution_mode == "train":
-            self.set_algorithm()
-            
+    mu1_sq = mu1.pow(2)
+    mu2_sq = mu2.pow(2)
+    mu1_mu2 = mu1*mu2
 
-            ge_train_size = int(self.ge_config["train_split"] * len(self.train_data))
-            print_info("GE Training size:", ge_train_size)
-            print_info(len(self.train_data))
-            ge_data = []
-            ge_masks = []
-            for i in range(ge_train_size):
-                try:
-                    x = self.train_data[i]
-                    ge_data.append(x[0])
-                    ge_masks.append(x[1])
-                except Exception as e:
-                    print_error(f"Error processing training sample {i}: {e}")
-            ge_X_train = np.array(ge_data)
-            ge_masks = np.array(ge_masks)
-            ge_X_train = torch.from_numpy(ge_X_train).float().to(self.device)
-            ge_Y_train = torch.from_numpy(ge_masks).long().to(self.device)
-            self.set_criterion(ge_Y_train)
-            best_pc, best_genome, history = self.ge.evolve(ge_X_train, ge_Y_train, criterion=self.criterion, generations = self.ge_config["generations"], n_classes=self.n_classes, train_steps=50, lr=self.learning_rate)
-            print_info("Best genome:", best_genome)
-            print_info("Best PC:", str(best_pc))
-            with open(self.experiment_report, "a") as f:
-                f.write(str(best_pc) + "\n")
-                f.write(f"History: {history}\n")
-                f.write(f"Best genome: {best_genome}\n")
+    sigma1_sq = F.conv2d(img1*img1, window, padding = window_size//2, groups = channel) - mu1_sq
+    sigma2_sq = F.conv2d(img2*img2, window, padding = window_size//2, groups = channel) - mu2_sq
+    sigma12 = F.conv2d(img1*img2, window, padding = window_size//2, groups = channel) - mu1_mu2
 
-            self.experiment_dict["ge"] = {}
-            self.experiment_dict["ge"]["best_genome"] = best_genome
-            self.experiment_dict["ge"]["history"] = history
+    C1 = 0.01**2
+    C2 = 0.03**2
 
-            self.model = best_pc
-            f.close()
-            self.model.cv_module = None
-            train_data = []
-            train_masks = []
-            for i in range(len(self.train_data)):
-                try:
-                    x = self.train_data[i]
-                    train_data.append(x[0])
-                    train_masks.append(x[1])
-                except Exception as e:
-                    print_error(f"Error processing training sample {i}: {e}")
+    ssim_map = ((2*mu1_mu2 + C1)*(2*sigma12 + C2))/((mu1_sq + mu2_sq + C1)*(sigma1_sq + sigma2_sq + C2))
 
-            self.feature_tensor = np.array(train_data)
-            self.train_masks = np.array(train_masks)
+    if size_average:
+        return ssim_map.mean()
+    else:
+        return ssim_map.mean(1).mean(1).mean(1)
 
-            val_data = []
-            val_masks = []
-            for i in range(len(self.val_data)):
-                try:
-                    x = self.val_data[i]
-                    val_data.append(x[0])
-                    val_masks.append(x[1])
-                except Exception as e:
-                    print_error(f"Error processing validation sample {i}: {e}")
+def ssim_loss_func(img1, img2, window_size=11, size_average=True):
+    (_, channel, _, _) = img1.size()
+    window = create_window(window_size, channel)
+    if img1.is_cuda:
+        window = window.cuda(img1.get_device())
+    window = window.type_as(img1)
+    return _ssim(img1, img2, window, window_size, channel, size_average)
 
-            self.val_feature_tensor = np.array(val_data)
-            self.val_masks = np.array(val_masks)
-            self.set_criterion(torch.from_numpy(self.train_masks).long().to(self.device))
-            if self.device == "cuda":
-                self.model = self.train(self.model, epochs=self.epochs, lr=self.learning_rate, n_cpus=self.n_cpus)
-            else:
-                self.model = self.train(self.model, epochs=self.epochs, lr=self.learning_rate, n_cpus=self.n_cpus)
-            self.save_model("pcnet-ge")
-            if self.test_path is not None:
-                test_data = []
-                test_masks = []
-                for i in range(len(self.test_data)):
-                    try:
-                        x = self.test_data[i]
-                        test_data.append(x[0])
-                        test_masks.append(x[1])
-                    except Exception as e:
-                        print_error(f"Error processing validation sample {i}: {e}")
-                self.test_inputs = torch.from_numpy(np.array(test_data)).float().to(self.device)
-                self.test_ground_truth = torch.from_numpy(np.array(test_masks)).long().to(self.device)
-                if self.test_ground_truth.dim() == 4 and self.test_ground_truth.size(1) == 1:
-                    self.test_ground_truth = self.test_ground_truth.squeeze(1)
-                
-                test_loader = self.get_dataloaders(TensorDataset(self.test_inputs, self.test_ground_truth), shuffle=False, batch_size=self.batch_size)
-                loss, dice, iou, cl_iou = self.test(self.model, test_loader)
-                json.dump(self.experiment_dict, open(os.path.join(self.config["log_dir"], "experiment.json"), "w"), indent=4)
-                self.show_prediction(self.model)
-        elif self.execution_mode == "test":
-            self.model_path = self.config["model_path"]
-            self.load_model(self.model_path)
-            test_data = []
-            test_masks = []
-            for i in range(len(self.test_data)):
-                try:
-                    x = self.test_data[i]
-                    test_data.append(x[0])
-                    test_masks.append(x[1])
-                except Exception as e:
-                    print_error(f"Error processing validation sample {i}: {e}")
-            self.test_inputs = torch.from_numpy(np.array(test_data)).float().to(self.device)
-            self.test_ground_truth = torch.from_numpy(np.array(test_masks)).long().to(self.device)
-            self.set_criterion(self.test_ground_truth)
-            if self.test_ground_truth.dim() == 4 and self.test_ground_truth.size(1) == 1:
-                self.test_ground_truth = self.test_ground_truth.squeeze(1)
-            test_loader = self.get_dataloaders(TensorDataset(self.test_inputs, self.test_ground_truth), shuffle=False, batch_size=self.batch_size)
-            loss, dice, iou, cl_iou = self.test(self.model, test_loader)
-            json.dump(self.experiment_dict, open(os.path.join(self.config["log_dir"], "experiment.json"), "w"), indent=4)
-
-
-class ExperimentUnsupervisedGEPC(ExperimentPC):
+class ExperimentUPCrackNet(Experiment):
     def __init__(self, config):
         super().__init__(config)
+        self.model_name = self.config.get("model_name", "upcracknet")
+        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        
+        self.ngf = self.config.get("ngf", 64)
+        self.ndf = self.config.get("ndf", 64)
+        
+        self.lrG = self.config.get("lrG", 0.0008)
+        self.lrD = self.config.get("lrD", 0.0002)
+        self.lamb = self.config.get("lamb", 100)
+        self.beta1 = self.config.get("beta1", 0.5)
+        self.beta2 = self.config.get("beta2", 0.999)
+        self.loss_L1 = self.config.get("loss_L1", False)
+        self.loss_L1_SSIM_GMS_Style = self.config.get("loss_L1_SSIM_GMS_Style", True)
+        
+    def set_algorithm(self):
+        self.G = Generator(3, self.ngf, 3) # (in_c, ngf, out_c)
+        self.D = Discriminator(6, self.ndf, 1) # (in_c*2, ndf, 1)
+        self.model = self.G # For testing phase
+        
+    def save_model(self, model_name="upcracknet"):
+        torch.save(self.G.state_dict(), os.path.join(self.save_path, f"{model_name}_G.pth"))
+        torch.save(self.D.state_dict(), os.path.join(self.save_path, f"{model_name}_D.pth"))
 
-        self.ge_config = self.config.get(
-            "ge",
-            {
-                "generations": 10,
-                "pop_size": 8,
-                "genome_len": 96,
-                "crossover_rate": 0.9,
-                "mutation_rate": 0.05,
-                "elite_k": 2,
-                "train_split": 0.05,
-            },
-        )
+    def load_model(self, model_name="upcracknet"):
+        self.G.load_state_dict(torch.load(os.path.join(self.save_path, f"{model_name}_G.pth")))
+        
+    def setup(self, pos_weight=1.0):
+        self.G.normal_weight_init(mean=0.0, std=0.02)
+        self.D.normal_weight_init(mean=0.0, std=0.02)
+        
+        self.BCE_loss = torch.nn.BCEWithLogitsLoss().to(self.device)
+        self.L1_loss = torch.nn.L1Loss().to(self.device)
+        self.L2_loss = torch.nn.MSELoss().to(self.device)
+        
+        self.perceptual_loss = PerceptualLoss().to(self.device)
+        self.style_loss = StyleLoss().to(self.device)
+        self.msgms_loss = MSGMS_Loss().to(self.device)
+        
+        self.G_optimizer = torch.optim.Adam(self.G.parameters(), lr=self.lrG, betas=(self.beta1, self.beta2))
+        self.D_optimizer = torch.optim.Adam(self.D.parameters(), lr=self.lrD, betas=(self.beta1, self.beta2))
 
-        self.ge = UnsupervisedGEOptimizer(
-            pop_size=self.ge_config["pop_size"],
-            genome_len=self.ge_config["genome_len"],
-            max_depth=self.max_depth,
-            max_branching=self.max_branching,
-            crossover_rate=self.ge_config["crossover_rate"],
-            mutation_rate=self.ge_config["mutation_rate"],
-            elite_k=self.ge_config["elite_k"],
-            n_classes=self.n_classes,
-            device=self.device,
-            n_jobs=self.n_cpus,
-            report=self.experiment_report,
-            log_path=self.log_path,
-        )
-
-    # --------------------------------------------------------
-    # SET UNSUPERVISED CRITERION
-    # --------------------------------------------------------
-    def set_criterion(self):
-        self.criterion = UnsupervisedPCNetLoss()
-
-    # --------------------------------------------------------
-    # TRAIN (uses only X for loss, Y for metrics)
-    # --------------------------------------------------------
-    def train(self, model, epochs=10, lr=1e-3, n_cpus=None):
-        """
-        Train PCNet model (UNSUPERVISED loss, supervised metrics).
-        Loss = criterion(logits, ft_batch)
-        Metrics use t_batch only for evaluation.
-        """
-        self._setup_cpu_env()
-        device = model.device
-
-        print_info(f"🧮 Using device: {device}")
-        print_info(f"🔢 Model has {len(model.params)} learnable parameter tensors.")
-
-        optimizer = torch.optim.Adam(model.params, lr=lr, weight_decay=1e-4)
-
-        # ------------------------------
-        # Data preparation
-        # ------------------------------
-        X = torch.from_numpy(self.feature_tensor).float()
-        Y = torch.from_numpy(self.train_masks).long()
-
-        if Y.dim() == 4 and Y.size(1) == 1:
-            Y = Y.squeeze(1)
-
-        train_loader = self.get_dataloaders(
-            TensorDataset(X, Y),
-            shuffle=True,
-            batch_size=self.batch_size,
-        )
-
-        val_loader = None
-        if hasattr(self, "val_feature_tensor") and self.val_feature_tensor is not None:
-            Xv = torch.from_numpy(self.val_feature_tensor).float()
-            Yv = torch.from_numpy(self.val_masks).long()
-            if Yv.dim() == 4 and Yv.size(1) == 1:
-                Yv = Yv.squeeze(1)
-
-            val_loader = self.get_dataloaders(
-                TensorDataset(Xv, Yv),
-                shuffle=False,
-                batch_size=self.batch_size,
-            )
-
-        # ------------------------------
-        # Training loop
-        # ------------------------------
-        train_losses, val_losses = [], []
-        train_dices, val_dices = [], []
-        train_ious, val_ious = [], []
-        train_clious, val_clious = [], []
-        gates_over_epochs = []
-
-        pbar = tqdm.tqdm(range(epochs), desc="Training PCNet (unsupervised loss)")
-
-        for epoch in pbar:
-            batch_losses, batch_dices, batch_ious, batch_clious = [], [], [], []
-
-            for ft_batch, t_batch in train_loader:
-                ft_batch = ft_batch.to(device)
-                t_batch = t_batch.to(device)
-
-                optimizer.zero_grad()
-
-                logits = model.evaluate(ft_batch)
-                # UNSUPERVISED loss
-                loss = self.criterion(logits, ft_batch)
-                loss.backward()
-                optimizer.step()
-
-                with torch.no_grad():
-                    pred_mask = torch.argmax(logits, 1, keepdim=True).float()
-                    print_debugging(pred_mask.unique(return_counts=True))
-                    true_mask = t_batch.unsqueeze(1).float()
-
-                    dice_score = self.dice_coef(logits, t_batch)
-                    iou_score = self.iou_score(logits, t_batch)
-                    cl_iou_score = self.cl_iou_score(pred_mask, true_mask)
-
-                batch_losses.append(loss.item())
-                batch_dices.append(float(dice_score))
-                batch_ious.append(float(iou_score))
-                batch_clious.append(float(cl_iou_score))
-
-            epoch_loss = np.mean(batch_losses)
-            epoch_dice = np.mean(batch_dices)
-            epoch_iou = np.mean(batch_ious)
-            epoch_cl_iou = np.mean(batch_clious)
-
-            train_losses.append(epoch_loss)
-            train_dices.append(epoch_dice)
-            train_ious.append(epoch_iou)
-            train_clious.append(epoch_cl_iou)
-
-            print_info(f"Epoch {epoch+1}: Loss={epoch_loss:.4f}, Dice={epoch_dice:.4f}")
-
-            if val_loader is not None:
-                val_loss, val_dice, val_iou, val_cl_iou = self.evaluate(model, val_loader)
-                val_losses.append(val_loss)
-                val_dices.append(val_dice)
-                val_ious.append(val_iou)
-                val_clious.append(val_cl_iou)
-
-                print_info(f"Validation Loss={val_loss:.4f}, Dice={val_dice:.4f}")
-
-            pbar.set_postfix({"loss": epoch_loss})
-
-        # Save CSV logs, plots, etc. (unchanged)
-        # super()._finalize_training_logs(
-        #     train_losses, train_dices, train_ious, train_clious,
-        #     val_losses, val_dices, val_ious, val_clious, gates_over_epochs
-        # )
-
-        print_info("✅ Training complete.")
-        return model
-    
-    @torch.no_grad()
-    def evaluate(self, model, dataloader):
-        losses, dices, ious, clious = [], [], [], []
-
-        for ft_batch, t_batch in dataloader:
-            ft_batch = ft_batch.to(self.device).float()    # PCNet expects float features
-            t_batch = t_batch.to(self.device).long()       # masks for metrics only
-
-            # -------------------------------------------------------
-            # Forward pass (PCNet requires evaluate(), not model(x))
-            # -------------------------------------------------------
-            logits = model.evaluate(ft_batch)   # (B, C, H, W) in log-space
-
-            # -------------------------------------------------------
-            # Unsupervised loss uses **features**, NOT labels
-            # -------------------------------------------------------
-            loss = self.criterion(logits, ft_batch)
-            losses.append(loss.item())
-
-            # -------------------------------------------------------
-            # Supervised metrics for monitoring only
-            # -------------------------------------------------------
-            dice_score = self.dice_coef(logits, t_batch)
-            iou_score  = self.iou_score(logits, t_batch)
-
-            pred_mask = torch.argmax(logits, dim=1, keepdim=True).float()
-            true_mask = t_batch.unsqueeze(1).float()
-
-            cl_iou_score = self.cl_iou_score(pred_mask, true_mask)
-
-            dices.append(float(dice_score))
-            ious.append(float(iou_score))
-            clious.append(float(cl_iou_score))
-
-        return (
-            float(np.mean(losses)),
-            float(np.mean(dices)),
-            float(np.mean(ious)),
-            float(np.mean(clious)),
-        )
-
-    @torch.no_grad()
-    def test(self, model, dataloader):
-        losses, dices, ious, clious = [], [], [], []
-        accuracies, precisions, recalls, f1_scores = [], [], [], []
-
-        for ft_batch, t_batch in dataloader:
-            ft_batch = ft_batch.to(self.device).float()   # features for loss
-            t_batch = t_batch.to(self.device).long()      # masks for metrics
-
-            # ---------------------------------------------------------
-            # Forward pass
-            # ---------------------------------------------------------
-            logits = model.evaluate(ft_batch)
-
-            # ---------------------------------------------------------
-            # UNSUPERVISED LOSS (depends ONLY on images)
-            # ---------------------------------------------------------
-            loss = self.criterion(logits, ft_batch)
-            losses.append(loss.item())
-
-            # ---------------------------------------------------------
-            # SUPERVISED METRICS (compare vs. masks)
-            # ---------------------------------------------------------
-            dice_score = self.dice_coef(logits, t_batch)
-            iou_score = self.iou_score(logits, t_batch)
-
-            pred_mask = torch.argmax(logits, dim=1, keepdim=True).float()
-            true_mask = t_batch.unsqueeze(1).float()
-
-            cl_iou_score = self.cl_iou_score(pred_mask, true_mask)
-
-            dices.append(float(dice_score))
-            ious.append(float(iou_score))
-            clious.append(float(cl_iou_score))
-
-            # ---------------------------------------------------------
-            # Classification metrics per pixel
-            # ---------------------------------------------------------
-            pm = pred_mask.view(-1).long()
-            tm = true_mask.view(-1).long()
-
-            tp = ((pm == 1) & (tm == 1)).sum()
-            fp = ((pm == 1) & (tm == 0)).sum()
-            fn = ((pm == 0) & (tm == 1)).sum()
-            tn = ((pm == 0) & (tm == 0)).sum()
-
-            accuracy = (tp + tn) / (tp + tn + fp + fn + 1e-8)
-            precision = tp / (tp + fp + 1e-8)
-            recall = tp / (tp + fn + 1e-8)
-            f1_score = (2 * precision * recall) / (precision + recall + 1e-8)
-
-            accuracies.append(float(accuracy))
-            precisions.append(float(precision))
-            recalls.append(float(recall))
-            f1_scores.append(float(f1_score))
-
-        # ---------------------------------------------------------
-        # Aggregate results
-        # ---------------------------------------------------------
-        mean_loss = float(np.mean(losses))
-        mean_dice = float(np.mean(dices))
-        mean_iou = float(np.mean(ious))
-        mean_cl_iou = float(np.mean(clious))
-        mean_acc = float(np.mean(accuracies))
-        mean_prec = float(np.mean(precisions))
-        mean_rec = float(np.mean(recalls))
-        mean_f1 = float(np.mean(f1_scores))
-
-        # ---------------------------------------------------------
-        # Print nicely
-        # ---------------------------------------------------------
-        print_info("✅ Testing complete.")
-        print_info(
-            f"Test Loss: {mean_loss:.4f}, Dice: {mean_dice:.4f}, IoU: {mean_iou:.4f}, "
-            f"CL-IoU: {mean_cl_iou:.4f}"
-        )
-        print_info(
-            f"Test Accuracy: {mean_acc:.4f}, Precision: {mean_prec:.4f}, "
-            f"Recall: {mean_rec:.4f}, F1-Score: {mean_f1:.4f}"
-        )
-
-        # ---------------------------------------------------------
-        # Save to experiment_dict
-        # ---------------------------------------------------------
-        self.experiment_dict["results"] = {
-            "test_loss": mean_loss,
-            "test_dice": mean_dice,
-            "test_iou": mean_iou,
-            "test_cl_iou": mean_cl_iou,
-            "test_accuracy": mean_acc,
-            "test_precision": mean_prec,
-            "test_recall": mean_rec,
-            "test_f1_score": mean_f1,
-        }
-
-        # ---------------------------------------------------------
-        # Also save #params info
-        # ---------------------------------------------------------
-        n_trainable_params = sum(
-            p.numel() for p in model.params if p.requires_grad
-        )
-        self.experiment_dict["n_trainable_params"] = n_trainable_params
-
-        # ---------------------------------------------------------
-        # Log to file
-        # ---------------------------------------------------------
-        with open(self.experiment_report, "a") as f:
-            f.write(
-                f"Test Loss: {mean_loss:.4f}, Dice: {mean_dice:.4f}, IoU: {mean_iou:.4f}, "
-                f"CL-IoU: {mean_cl_iou:.4f}\n"
-            )
-            f.write(
-                f"Accuracy: {mean_acc:.4f}, Precision: {mean_prec:.4f}, "
-                f"Recall: {mean_rec:.4f}, F1: {mean_f1:.4f}\n"
-            )
-
-        return mean_loss, mean_dice, mean_iou, mean_cl_iou
-
-
-
-    # --------------------------------------------------------
-    # RUN PIPELINE
-    # --------------------------------------------------------
+    def adjust_learning_rate(self, optimizer, base_lr, epoch):
+        lr = base_lr * (0.99 ** epoch)
+        for param_group in optimizer.param_groups:
+            param_group['lr'] = lr
+            
     def run(self):
-
-        # Load training/validation/test sets
-        self.set_dataset(self.data_path, self.test_path)
-
+        self.set_algorithm()
+        self.G.to(self.device)
+        self.D.to(self.device)
+        
         if self.execution_mode == "train":
-            self.set_algorithm()
-            self.set_criterion()
-
-            # ------------------------------
-            # GE SEARCH DATASET
-            # ------------------------------
-            ge_train_size = int(self.ge_config["train_split"] * len(self.train_data))
-            print_info(f"GE Training size: {ge_train_size}")
-
-            ge_data = []
-            for i in range(ge_train_size):
-                x, _ = self.train_data[i]       # ignore masks
-                ge_data.append(x)
-
-            ge_X_train = torch.from_numpy(np.array(ge_data)).float().to(self.device)
-
-            # ------------------------------
-            # RUN GE EVOLUTION (UNSUPERVISED)
-            # ------------------------------
-            best_pc, best_genome, history = self.ge.evolve(
-                ge_X_train,
-                criterion=self.criterion,
-                generations=self.ge_config["generations"],
-                n_classes=self.n_classes,
-                train_steps=50,
-                lr=self.learning_rate,
-            )
-
-            print_info("Best genome:", best_genome)
-            print_info("Best PC:", str(best_pc))
-
-            self.experiment_dict["ge"] = {
-                "best_genome": best_genome,
-                "history": history
-            }
-
-            self.model = best_pc
-
-            # ------------------------------
-            # FULL TRAIN DATASET FOR PCNet TRAINING
-            # ------------------------------
-            train_data = [x for (x, y) in self.train_data]
-            train_masks = [y for (x, y) in self.train_data]
-
-            self.feature_tensor = np.array(train_data)
-            self.train_masks = np.array(train_masks)
-
-            val_data = [x for (x, y) in self.val_data]
-            val_masks = [y for (x, y) in self.val_data]
-
-            self.val_feature_tensor = np.array(val_data)
-            self.val_masks = np.array(val_masks)
-
-            # DO NOT PASS LABELS TO CRITERION ANYMORE
-            self.set_criterion()
-
-            # ------------------------------
-            # TRAIN FINAL PCNet
-            # ------------------------------
-            self.model = self.train(self.model, epochs=self.epochs, lr=self.learning_rate)
-
-            # Save
-            self.save_model("pcnet-ge")
-
-            # ------------------------------
-            # TEST
-            # ------------------------------
+            self.set_dataset(self.data_path, self.test_path)
+            self.setup()
+            self.train()
             if self.test_path is not None:
-                test_data = [x for (x, y) in self.test_data]
-                test_masks = [y for (x, y) in self.test_data]
-
-                self.test_inputs = torch.from_numpy(np.array(test_data)).float().to(self.device)
-                self.test_ground_truth = torch.from_numpy(np.array(test_masks)).long().to(self.device)
-
-                if self.test_ground_truth.dim() == 4 and self.test_ground_truth.size(1) == 1:
-                    self.test_ground_truth = self.test_ground_truth.squeeze(1)
-
-                test_loader = self.get_dataloaders(
-                    TensorDataset(self.test_inputs, self.test_ground_truth),
-                    shuffle=False, batch_size=self.batch_size
-                )
-
-                loss, dice, iou, cl_iou = self.test(self.model, test_loader)
-
-                json.dump(
-                    self.experiment_dict,
-                    open(os.path.join(self.config["log_dir"], "experiment.json"), "w"),
-                    indent=4
-                )
-
-                self.show_prediction(self.model)
-
-        # --------------------------------------------------------
-        # TEST MODE
-        # --------------------------------------------------------
+                self.evaluate(self.G, self.test_data)
+                json.dump(self.experiment_dict, open(os.path.join(self.log_path, "experiment_results.json"), "w"), indent=4)
         elif self.execution_mode == "test":
-            self.load_model(self.config["model_path"])
+            self.set_dataset(self.data_path, self.test_path)
+            self.set_algorithm()
+            self.load_model(self.model_name)
+            self.setup()
+            self.evaluate(self.G, self.test_data)
+            json.dump(self.experiment_dict, open(os.path.join(self.log_path, "experiment_results.json"), "w"), indent=4)
 
-            test_data = [x for (x, y) in self.test_data]
-            test_masks = [y for (x, y) in self.test_data]
+    def train(self, model=None, train_data=None, val_data=None, loss_function=None, optimizer=None, device="cuda", epochs=50, batch_size=8):
+        self.G.to(self.device)
+        self.D.to(self.device)
+        
+        train_loader = self.get_dataloaders(self.train_data, batch_size=self.batch_size)
+        val_loader = self.get_dataloaders(self.val_data, batch_size=self.batch_size) if self.val_data else None
 
-            self.test_inputs = torch.from_numpy(np.array(test_data)).float().to(self.device)
-            self.test_ground_truth = torch.from_numpy(np.array(test_masks)).long().to(self.device)
+        D_losses, G_losses, D_losses_mean, G_losses_mean = [], [], [], []
+        
+        best_val_loss = float('inf')
 
-            if self.test_ground_truth.dim() == 4 and self.test_ground_truth.size(1) == 1:
-                self.test_ground_truth = self.test_ground_truth.squeeze(1)
+        for epoch in range(self.epochs):
+            self.adjust_learning_rate(self.G_optimizer, self.lrG, epoch)
+            self.adjust_learning_rate(self.D_optimizer, self.lrD, epoch)
+            
+            self.G.train()
+            self.D.train()
+            
+            epoch_D_loss = 0
+            epoch_G_loss = 0
+            
+            for i, (images, masks) in enumerate(train_loader):
+                if masks.dim() == 3:
+                    masks = masks.unsqueeze(1)
+                
+                # Expand binary mask to 3 channels to match Generator output dims for UP-CrackNet
+                masks = masks.repeat(1, 3, 1, 1).float()
+                
+                x_ = images.to(self.device)
+                y_ = masks.to(self.device)
+                
+                # ------ Train Discriminator ------
+                self.D_optimizer.zero_grad()
+                D_real_decision = self.D(x_, y_).squeeze()
+                real_ = torch.ones_like(D_real_decision).to(self.device)
+                D_real_loss = self.BCE_loss(D_real_decision, real_)
 
-            self.set_criterion()
+                gen_image = self.G(x_)
+                D_fake_decision = self.D(x_, gen_image.detach()).squeeze()
+                fake_ = torch.zeros_like(D_fake_decision).to(self.device)
+                D_fake_loss = self.BCE_loss(D_fake_decision, fake_)
 
-            test_loader = self.get_dataloaders(
-                TensorDataset(self.test_inputs, self.test_ground_truth),
-                shuffle=False, batch_size=self.batch_size,
-            )
+                D_loss = (D_real_loss + D_fake_loss) * 0.5
+                D_loss.backward()
+                self.D_optimizer.step()
+                
+                # ------ Train Generator ------
+                self.G_optimizer.zero_grad()
+                gen_image = self.G(x_)
+                D_fake_decision = self.D(x_, gen_image).squeeze()
+                G_fake_loss = self.BCE_loss(D_fake_decision, real_)
+                
+                l1_loss = 0
+                if self.loss_L1:
+                    l1_loss = self.lamb * self.L1_loss(gen_image, y_)
+                elif self.loss_L1_SSIM_GMS_Style:
+                    loss_MSGMS = self.msgms_loss(gen_image, y_)
+                    loss_SSIM = 1 - ssim_loss_func(gen_image, y_)
+                    gen_style_loss = self.style_loss(gen_image, y_) * 10
+                    l_rec = gen_style_loss + loss_MSGMS + loss_SSIM + self.L1_loss(gen_image, y_)
+                    l1_loss = self.lamb * l_rec
 
-            loss, dice, iou, cl_iou = self.test(self.model, test_loader)
+                G_loss = G_fake_loss + l1_loss
+                G_loss.backward()
+                self.G_optimizer.step()
+                
+                epoch_D_loss += D_loss.item()
+                epoch_G_loss += G_loss.item()
 
-            json.dump(
-                self.experiment_dict,
-                open(os.path.join(self.config["log_dir"], "experiment.json"), "w"),
-                indent=4
-            )
+            print(f"Epoch [{epoch+1}/{self.epochs}] | D_loss: {epoch_D_loss/len(train_loader):.4f} | G_loss: {epoch_G_loss/len(train_loader):.4f}")
+            
+            D_losses.append(epoch_D_loss/len(train_loader))
+            G_losses.append(epoch_G_loss/len(train_loader))
+            
+            # Validation
+            if val_loader:
+                self.G.eval()
+                val_loss = 0
+                with torch.no_grad():
+                    for images, masks in val_loader:
+                        if masks.dim() == 3:
+                            masks = masks.unsqueeze(1)
+                        masks = masks.repeat(1, 3, 1, 1).float()
+                        x_ = images.to(self.device)
+                        y_ = masks.to(self.device)
+                        
+                        gen_image = self.G(x_)
+                        
+                        if self.loss_L1:
+                            l1_val = self.L1_loss(gen_image, y_)
+                        elif self.loss_L1_SSIM_GMS_Style:
+                            loss_MSGMS = self.msgms_loss(gen_image, y_)
+                            loss_SSIM = 1 - ssim_loss_func(gen_image, y_)
+                            gen_style_loss = self.style_loss(gen_image, y_) * 10
+                            l_rec = gen_style_loss + loss_MSGMS + loss_SSIM + self.L1_loss(gen_image, y_)
+                            l1_val = self.lamb * l_rec
+                            
+                        val_loss += l1_val.item()
+                        
+                val_loss /= len(val_loader)
+                if val_loss < best_val_loss:
+                    best_val_loss = val_loss
+                    self.save_model(model_name=self.model_name + "_best")
+
+        # Save latest model
+        self.save_model(self.model_name)
+        return self.G
+
+    def evaluate(self, model, test_data, loss_function=None):
+        test_loader = self.get_dataloaders(test_data, batch_size=self.batch_size, shuffle=False)
+        self.G.eval()
+        self.G.to(self.device)
+        
+        dices, ious, clious = [], [], []
+        accuracies, precisions, recalls, f1_scores = [], [], [], []
+        
+        with torch.no_grad():
+            for images, masks in test_loader:
+                images = images.to(self.device)
+                masks = masks.to(self.device)
+                
+                outputs = self.G(images)
+                # Generator outputs 3 channels in [-1, 1] range (tanh).
+                # Take average over channels and threshold for binary crack prediction.
+                # Assuming crack is positive, we convert to [0,1]
+                outputs_prob = (outputs.mean(dim=1, keepdim=True) + 1.0) / 2.0
+                
+                pred_mask = (outputs_prob > self.threshold).float()
+                
+                # Masks is (B, 1, H, W) or (B, H, W)
+                if masks.dim() == 3: masks = masks.unsqueeze(1)
+                true_mask = masks.float()
+
+                dice_score = float(self.dice_coef(pred_mask, true_mask))
+                iou_score = float(self.iou_score(pred_mask, true_mask))
+                cl_iou_score = float(self.cl_iou_score(pred_mask, true_mask))
+                
+                metrics = self.classification_metrics(pred_mask, true_mask)
+
+                dices.append(dice_score)
+                ious.append(iou_score)
+                clious.append(cl_iou_score)
+
+                accuracies.append(metrics["accuracy"])
+                precisions.append(metrics["precision"])
+                recalls.append(metrics["recall"])
+                f1_scores.append(metrics["f1_score"])
+
+        print_info("✅ Testing complete.")
+        print_info(f"Dice: {np.mean(dices):.4f}, IoU: {np.mean(ious):.4f}, CL IoU: {np.mean(clious):.4f}")
+        print_info(f"Accuracy: {np.mean(accuracies):.4f}, Precision: {np.mean(precisions):.4f}, Recall: {np.mean(recalls):.4f}, F1: {np.mean(f1_scores):.4f}")
+        
+        self.experiment_dict["results"] = {
+            "test_dice": np.mean(dices),
+            "test_iou": np.mean(ious),
+            "test_cl_iou": np.mean(clious),
+            "test_accuracy": np.mean(accuracies),
+            "test_precision": np.mean(precisions),
+            "test_recall": np.mean(recalls),
+            "test_f1_score": np.mean(f1_scores)
+        }
+        
+        with open(self.experiment_report, "a") as f:
+            f.write(f"Test Dice: {np.mean(dices):.4f}, IoU: {np.mean(ious):.4f}, CL IoU: {np.mean(clious):.4f}\n")
+            f.write(f"Test Accuracy: {np.mean(accuracies):.4f}, Precision: {np.mean(precisions):.4f}, Recall: {np.mean(recalls):.4f}, F1-Score: {np.mean(f1_scores):.4f}\n")
+            
+        return np.mean(dices)
+        
+    def validate(self):
+        pass

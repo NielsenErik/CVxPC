@@ -1,0 +1,25 @@
+{
+    "mlflow": null,
+    "experiment": "crack_segmentation",
+    "algorithm": "upcracknet",
+    "device": "cpu",
+    "data_path": "data/crackseg9k_split/DeepCrack/train",
+    "test_path": "data/crackseg9k_split/DeepCrack/test",
+    "save_path": "models/",
+    "validation_split": 0.2,
+    "epochs": 20,
+    "batch_size": 2,
+    "sample_size": 0.1,
+    "resize_size": [
+        256,
+        256
+    ],
+    "input_channels": 3,
+    "n_classes": 2,
+    "execution_mode": "train",
+    "loss_L1": false,
+    "loss_L1_SSIM_GMS_Style": true,
+    "seed": 1,
+    "preprocessing": false,
+    "log_dir": "logs/upcracknet/DeepCrack/1"
+}

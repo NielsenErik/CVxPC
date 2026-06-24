@@ -1,0 +1,4 @@
+Experiment Configurations: {'mlflow': None, 'experiment': 'crack_segmentation', 'algorithm': 'upcracknet', 'device': 'cpu', 'data_path': 'data/crackseg9k_split/DeepCrack/train', 'test_path': 'data/crackseg9k_split/DeepCrack/test', 'save_path': 'models/', 'validation_split': 0.2, 'epochs': 2, 'sample_size': 0.05, 'batch_size': 2, 'resize_size': [256, 256], 'input_channels': 3, 'n_classes': 2, 'execution_mode': 'train', 'loss_L1': False, 'loss_L1_SSIM_GMS_Style': True, 'seed': 4, 'preprocessing': False, 'log_dir': 'logs/upcracknet/DeepCrack/4'}
+Dataset sizes: {'train': 17, 'val': 4, 'test': 89}
+Test Dice: 0.2068, IoU: 0.4481, CL IoU: 0.0410
+Test Accuracy: 0.7817, Precision: 0.1283, Recall: 0.6831, F1-Score: 0.2068

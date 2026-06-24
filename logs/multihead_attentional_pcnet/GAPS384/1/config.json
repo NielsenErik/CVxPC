@@ -1,0 +1,32 @@
+{
+    "mlflow": null,
+    "experiment": "crack_segmentation",
+    "algorithm": "multihead_attentional_pcnet",
+    "n_models": 5,
+    "embed_dim": 8,
+    "device": "cpu",
+    "n_cpus": 0,
+    "data_path": "data/crackseg9k_split/GAPS384/train",
+    "test_path": "data/crackseg9k_split/GAPS384/test",
+    "save_path": "models/",
+    "validation_split": 0.2,
+    "epochs": 50,
+    "batch_size": 16,
+    "resize_size": [
+        256,
+        256
+    ],
+    "input_channels": 3,
+    "n_classes": 2,
+    "max_depth": 3,
+    "max_branching": 3,
+    "lambda_pc": 0.05,
+    "learning_rate_ae": 0.0001,
+    "execution_mode": "train",
+    "learning_rate": 0.01,
+    "ensemble_mode": "diversity",
+    "diversity_weight": 0.5,
+    "seed": 1,
+    "preprocessing": false,
+    "log_dir": "logs/multihead_attentional_pcnet/GAPS384/1"
+}
