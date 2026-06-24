@@ -2,7 +2,10 @@
 # Imports
 # ============================================================
 import random
+import math
 from abc import ABC, abstractmethod
+from dataclasses import dataclass
+from typing import FrozenSet, List, Optional, Union
 import os
 
 import cv2
@@ -23,25 +26,185 @@ from collections import Counter
 from utils import print_configs, print_debugging, print_info
 
 
+# ======================================================================
+# THE FOUR PROBABILISTIC-CIRCUIT PROPERTIES (enforced by this module)
+# ----------------------------------------------------------------------
+# A probabilistic circuit is a VALID, TRACTABLE density p(x) only if its
+# structure satisfies the structural properties of Choi, Vergari & Van den
+# Broeck, "Probabilistic Circuits: A Unifying Framework for Tractable
+# Probabilistic Models" (2020). For this project the queries we need are
+# (i) exact log p(x) for per-pixel scoring/segmentation and (ii) exact
+# MARGINALS over arbitrary feature subsets — the latter is the explicit
+# requirement of Khosravi, Vergari & Van den Broeck, "Why Is This an
+# Outlier? Explaining Outliers by Submodular Optimization of Marginal
+# Distributions" (TPM 2022): outlier-feature detection queries the joint
+# p_theta(x_S) for many subsets S, which is tractable *iff* the circuit is
+# smooth + decomposable.
+#
+#   1. SMOOTHNESS (completeness): every SumNode's children share ONE scope.
+#        -> enforced in SumNode.__init__ ; checked by validate_smoothness.
+#        Needed so a sum integrates to a normalized mixture (and so
+#        marginalizing a variable is exact).
+#
+#   2. DECOMPOSABILITY: every ProductNode's children have DISJOINT scopes.
+#        -> enforced in ProductNode.__init__ ; checked by
+#        validate_decomposability. Needed so a product factorizes the
+#        density over disjoint blocks (and so a marginal factorizes too).
+#
+#   3. DETERMINISM (selectivity): for any complete input at most one child
+#        of each sum is non-zero. Only required for exact MAP/MPE. Our sum
+#        nodes are SOFT mixtures of full-support leaves, so determinism is
+#        intentionally NOT satisfied (validate_determinism documents this).
+#
+#   4. STRUCTURED DECOMPOSABILITY: every product over a given scope splits
+#        it the SAME way, prescribed by a single vtree. We build every
+#        sub-circuit top-down from one shared vtree, so this holds by
+#        construction; checked by validate_structured_decomposability.
+#
+# Normalization (Z = 1) is a consequence, not a separate property: the
+# leaves are normalized univariate densities and every mixture weight is a
+# (log_)softmax, so smoothness + decomposability + normalized leaves give a
+# circuit with partition function 1. The previous implementation broke this
+# by multiplying each leaf log-density by a learnable `gate`; that scaling
+# is removed here (the `gate` attribute is kept, fixed to 1.0, only for
+# checkpoint / diagnostic back-compat).
+# ======================================================================
+
+
+# ======================================================================
+# JIT math kernels (normalized univariate log-densities)
+# ======================================================================
+@torch.jit.script
+def log_gaussian_jit(x: torch.Tensor, mu: torch.Tensor, sigma: torch.Tensor) -> torch.Tensor:
+    # 0.5 * log(2*pi) ~= 0.9189385
+    return -0.5 * ((x - mu) / sigma) ** 2 - torch.log(sigma) - 0.9189385
+
+
+@torch.jit.script
+def log_laplace_jit(x: torch.Tensor, mu: torch.Tensor, sigma: torch.Tensor) -> torch.Tensor:
+    # scale b = sigma / sqrt(2); log(2b) = log(sigma) + 0.5*log(2) = log(sigma) + 0.3465736
+    b = sigma * 0.70710678
+    return -torch.abs(x - mu) / b - (torch.log(sigma) + 0.3465736)
+
+
+@torch.jit.script
+def log_student_jit(x: torch.Tensor, mu: torch.Tensor, sigma: torch.Tensor, nu: torch.Tensor) -> torch.Tensor:
+    z = (x - mu) / (sigma + 1e-12)
+    term1 = torch.lgamma((nu + 1) * 0.5)
+    term2 = torch.lgamma(nu * 0.5)
+    term3 = 0.5 * torch.log(nu * 3.14159265)
+    term4 = torch.log(sigma + 1e-12)
+    term5 = ((nu + 1) * 0.5) * torch.log1p((z ** 2) / nu)
+    return term1 - term2 - term3 - term4 - term5
+
+
+def _scope_of(node) -> FrozenSet[int]:
+    """Scope of a circuit child, tolerant of non-Node wrappers (e.g. SubPCNet
+    experts in MultiPCNet) which expose no scope."""
+    return getattr(node, "scope", frozenset())
+
+
+# ======================================================================
+# Vtree (variable-tree): the single scope-partition hierarchy that makes
+# every product node decompose identically -> structured decomposability.
+# ======================================================================
+@dataclass(eq=True)
+class VtreeLeaf:
+    feature_idx: int
+
+    @property
+    def scope(self) -> FrozenSet[int]:
+        return frozenset({self.feature_idx})
+
+
+@dataclass(eq=True)
+class VtreeInternal:
+    left: "VtreeNode"
+    right: "VtreeNode"
+
+    @property
+    def scope(self) -> FrozenSet[int]:
+        return self.left.scope | self.right.scope
+
+    @property
+    def left_scope(self) -> FrozenSet[int]:
+        return self.left.scope
+
+    @property
+    def right_scope(self) -> FrozenSet[int]:
+        return self.right.scope
+
+
+VtreeNode = Union[VtreeLeaf, VtreeInternal]
+
+
+def vtree_nodes(node: VtreeNode) -> List[VtreeNode]:
+    if isinstance(node, VtreeLeaf):
+        return [node]
+    return [node] + vtree_nodes(node.left) + vtree_nodes(node.right)
+
+
+def random_balanced_vtree(features, seed: int = 0) -> VtreeNode:
+    """Shuffle the features, then split at the midpoint recursively (balanced
+    binary vtree). Any binary vtree yields a structured-decomposable circuit;
+    only the *quality* of the structure changes with the split rule."""
+    feats = list(features)
+    random.Random(seed).shuffle(feats)
+
+    def _build(fs):
+        if len(fs) == 1:
+            return VtreeLeaf(fs[0])
+        mid = len(fs) // 2
+        return VtreeInternal(_build(fs[:mid]), _build(fs[mid:]))
+
+    return _build(feats)
+
+
 # ============================================================
 # Node Classes
 # ============================================================
 class Node(ABC):
     def __init__(self, children=None):
         self.children = children if children else []
+        # Scope = set of feature (channel) indices this node is a density over.
+        # Set by every concrete subclass and used to enforce the properties.
+        self.scope: FrozenSet[int] = frozenset()
 
     @abstractmethod
-    def evaluate(self, x):
+    def evaluate(self, x, cache=None):
         pass
+
+    def _memoize(self, x, cache, compute):
+        """Evaluate `compute` once per node instance per forward pass.
+
+        Vtree circuits are DAGs (sub-circuits are shared across many parents),
+        so a naive recursion recomputes shared nodes exponentially often. The
+        cache is keyed by node identity for one forward pass.
+        """
+        if cache is None:
+            cache = {}
+        key = id(self)
+        if key in cache:
+            return cache[key]
+        out = compute(x, cache)
+        cache[key] = out
+        return out
 
 
 # ======================================================
-# Input Node: returns log-probability
+# Input Node (leaf): a NORMALIZED univariate mixture density
 # ======================================================
 class InputNode(nn.Module, Node):
     """
-    Input node that automatically learns the best-fitting distribution
-    among {Gaussian, Laplace, Student-t}.
+    Leaf unit: a normalized mixture over {Gaussian, Laplace, Student-t} for a
+    single feature (channel) index. All three components share location mu and
+    scale sigma, so the leaf is a proper density that integrates to 1.
+
+    Normalization note: the previous version multiplied the log-density by a
+    learnable `gate`, which breaks Z = 1 and therefore exact marginals. The
+    gate is removed from the math; `self.gate` is kept as a fixed (non-trainable)
+    buffer = 1.0 purely so old checkpoints / diagnostics that reference it still
+    load.
     """
     def __init__(self, feature_idx, mu_init=0.0, sigma_init=1.0, device="cpu"):
         nn.Module.__init__(self)
@@ -49,151 +212,112 @@ class InputNode(nn.Module, Node):
 
         self.feature_idx = feature_idx
         self.device = device
+        self.scope = frozenset({feature_idx})
 
         # Shared location and scale
         self.mu = nn.Parameter(torch.tensor(float(mu_init), dtype=torch.float32, device=device))
         self.log_sigma = nn.Parameter(torch.log(torch.tensor(float(sigma_init), dtype=torch.float32, device=device)))
 
-        # Optional shape parameter for Student-t
-        self.log_nu = nn.Parameter(torch.log(torch.tensor(5.0, dtype=torch.float32, device=device)))  # degrees of freedom
+        # Shape parameter for Student-t
+        self.log_nu = nn.Parameter(torch.log(torch.tensor(5.0, dtype=torch.float32, device=device)))
 
         # Mixture weights over distributions: [Gaussian, Laplace, Student-t]
         self.logits = nn.Parameter(torch.zeros(3, dtype=torch.float32, device=device))
 
-        # Mixture gate
-        self.gate = nn.Parameter(torch.tensor(1.0, device=device))  # learnable
+        # Kept ONLY for back-compat (checkpoints / save_dict / plots). Fixed to
+        # 1.0 and excluded from learnable params; it never scales the density.
+        self.register_buffer("gate", torch.tensor(1.0, device=device))
 
         # Feature name
         self.feature_name = f"feat_{feature_idx}"
 
     def get_learnable_params(self):
-        return [self.mu, self.log_sigma, self.log_nu, self.logits, self.gate]
+        # NOTE: gate intentionally excluded (it must not scale the density).
+        return [self.mu, self.log_sigma, self.log_nu, self.logits]
 
     def _log_gaussian(self, x, mu, sigma):
-        return -0.5 * ((x - mu) / sigma)**2 - torch.log(sigma * (2 * np.pi)**0.5)
+        return log_gaussian_jit(x, mu, sigma)
 
     def _log_laplace(self, x, mu, sigma):
-        b = sigma / np.sqrt(2.0)
-        return -torch.abs(x - mu) / b - torch.log(2 * b)
+        return log_laplace_jit(x, mu, sigma)
 
     def _log_student(self, x, mu, sigma, nu):
-        z = (x - mu) / (sigma + 1e-12)
-        return (
-            torch.lgamma((nu + 1) / 2)
-            - torch.lgamma(nu / 2)
-            - 0.5 * torch.log(nu * np.pi)
-            - torch.log(sigma + 1e-12)
-            - ((nu + 1) / 2) * torch.log1p((z ** 2) / nu)
-        )
-    
-    def fit(self, X):
+        return log_student_jit(x, mu, sigma, nu)
+
+    def fit(self, X, jitter: float = 0.0):
         """
-        Initialize the distribution parameters (mu, sigma, nu, mixture weights)
-        based on the dataset statistics for this feature channel.
+        Robust median/MAD initialization of (mu, sigma) for this channel.
 
         Args:
-            X (torch.Tensor or np.ndarray): shape (B, C, H, W)
+            X: (B, C, H, W) or (B, C) feature tensor / array.
+            jitter: optional symmetry-breaking perturbation of mu by
+                jitter * sigma * N(0,1). Sibling leaves of a mixture start
+                identical otherwise and gradient symmetry keeps them identical
+                forever (the mixture silently collapses to a single component).
         """
-        # Convert to NumPy for easy aggregation
         if isinstance(X, torch.Tensor):
             X = X.detach().cpu().numpy()
 
-        # Select this feature channel
         vals = X[:, self.feature_idx].reshape(-1)
 
-        # Robust initialization: median + MAD
         mu_init = float(np.median(vals))
         mad = float(np.median(np.abs(vals - mu_init)) + 1e-6)
         sigma_init = mad * 1.4826  # consistent with Gaussian std
-
-        # Use moderate ν to start (Student-t)
         nu_init = 5.0
 
-        # Start with uniform mixture over {Gaussian, Laplace, Student-t}
-        logits_init = np.zeros(3, dtype=np.float32)
-
-        # Copy into parameters without breaking the computational graph
         with torch.no_grad():
             self.mu.copy_(torch.tensor(mu_init, dtype=torch.float32, device=self.device))
             self.log_sigma.copy_(torch.log(torch.tensor(sigma_init, dtype=torch.float32, device=self.device)))
             self.log_nu.copy_(torch.log(torch.tensor(nu_init, dtype=torch.float32, device=self.device)))
-            self.logits.copy_(torch.tensor(logits_init, dtype=torch.float32, device=self.device))
+            self.logits.copy_(torch.zeros(3, dtype=torch.float32, device=self.device))
+            if jitter > 0:
+                self.mu.add_(torch.randn((), device=self.device) * jitter * float(sigma_init))
 
-
-    def evaluate(self, X):
+    def evaluate(self, X, cache=None):
         if isinstance(X, np.ndarray):
             X = torch.from_numpy(X).float().to(self.device)
+        return self._memoize(X, cache, self._compute)
+
+    def _compute(self, X, cache):
         vals = X[:, self.feature_idx]
         sigma = F.softplus(self.log_sigma) + 1e-6
-        nu    = F.softplus(self.log_nu) + 1e-3      
-        weights = torch.softmax(self.logits, dim=0)
+        nu = F.softplus(self.log_nu) + 1e-3
 
         log_gauss = self._log_gaussian(vals, self.mu, sigma)
-        log_lapl  = self._log_laplace(vals, self.mu, sigma)
-        log_stud  = self._log_student(vals, self.mu, sigma, nu)
+        log_lapl = self._log_laplace(vals, self.mu, sigma)
+        log_stud = self._log_student(vals, self.mu, sigma, nu)
 
-        # log-sum-exp over distributions
         logpdfs = torch.stack([log_gauss, log_lapl, log_stud], dim=0)
-        log_mix = torch.logsumexp(torch.log(weights).view(-1, *([1]*(logpdfs.ndim-1))) + logpdfs, dim=0)
-        return log_mix * self.gate # scale by gate
+        # log_softmax weights -> the mixture is normalized (a valid density).
+        log_w = torch.log_softmax(self.logits, dim=0).view(-1, *([1] * (logpdfs.ndim - 1)))
+        log_mix = torch.logsumexp(log_w + logpdfs, dim=0)
+        return log_mix  # NO gate scaling: keeps Z = 1.
 
 
 # ======================================================
-# Gate Node: learnable mixture of two children
-# ======================================================
-class GateNode(Node, nn.Module):
-    def __init__(self, a, b, device="cpu"):
-        nn.Module.__init__(self)
-        Node.__init__(self, [a, b])
-        self.alpha = nn.Parameter(torch.tensor(0.0, device=device))
-        self.device = device
-
-    def get_learnable_params(self):
-        return [self.alpha]
-
-    def evaluate(self, x):
-        gate = torch.sigmoid(self.alpha)
-        left, right = self.children
-        llog = left.evaluate(x)
-        rlog = right.evaluate(x)
-        return torch.logaddexp(llog + torch.log(gate + 1e-8),
-                               rlog + torch.log(1 - gate + 1e-8))
-
-
-# ======================================================
-# Residual Node: blend of base and subcircuit
-# ======================================================
-class ResidualNode(Node, nn.Module):
-    def __init__(self, base, sub, device="cpu"):
-        nn.Module.__init__(self)
-        Node.__init__(self, [base, sub])
-        self.beta = nn.Parameter(torch.tensor(0.5, device=device))
-        self.device = device
-
-    def get_learnable_params(self):
-        return [self.beta]
-
-    def evaluate(self, x):
-        b, s = self.children[0].evaluate(x), self.children[1].evaluate(x)
-        mix = torch.sigmoid(self.beta)
-        return torch.logsumexp(torch.stack([
-            b + torch.log(1 - mix + 1e-8),
-            s + torch.log(mix + 1e-8)
-        ]), dim=0)
-
-# ======================================================
-# Sum Node: log-sum-exp over children
+# Sum Node: a mixture. SMOOTHNESS (completeness) is enforced here.
 # ======================================================
 class SumNode(Node, nn.Module):
     def __init__(self, children, weights=None, device="cpu"):
         nn.Module.__init__(self)
         Node.__init__(self, children)
+        if len(children) == 0:
+            raise ValueError("SumNode requires at least one child.")
+
+        # --- Smoothness: all children must share exactly one scope ---
+        scopes = {_scope_of(c) for c in children}
+        scopes.discard(frozenset())  # tolerate scope-less wrappers
+        if len(scopes) > 1:
+            raise ValueError(
+                f"SumNode violates SMOOTHNESS: children have differing scopes {scopes}."
+            )
+        self.scope = next(iter(scopes)) if scopes else frozenset()
+
         n = len(children)
         if weights is None:
             weights = torch.ones(n, device=device) / n
         elif not isinstance(weights, torch.Tensor):
             weights = torch.tensor(weights, dtype=torch.float32, device=device)
-        # store log-weights (trainable)
         log_w = torch.log(weights / weights.sum())
         self.weights = nn.Parameter(log_w, requires_grad=True)
         self.device = device
@@ -201,41 +325,133 @@ class SumNode(Node, nn.Module):
     def get_learnable_params(self):
         return [self.weights]
 
-    def evaluate(self, x):
-        """Compute log(∑_i w_i * p_i) = logsumexp(log w_i + log p_i)."""
-        child_logs = torch.stack([c.evaluate(x) for c in self.children], dim=0)
-        log_w = torch.log_softmax(self.weights, dim=0).view(-1, *([1]*(child_logs.ndim-1)))
+    def evaluate(self, x, cache=None):
+        return self._memoize(x, cache, self._compute)
+
+    def _compute(self, x, cache):
+        """log( sum_i w_i * p_i ) = logsumexp(log w_i + log p_i)."""
+        child_logs = torch.stack([c.evaluate(x, cache) for c in self.children], dim=0)
+        log_w = torch.log_softmax(self.weights, dim=0).view(-1, *([1] * (child_logs.ndim - 1)))
         return torch.logsumexp(log_w + child_logs, dim=0)
 
 
 # ======================================================
-# Product Node: sum of log-probabilities
+# Product Node: a factorization. DECOMPOSABILITY is enforced here.
 # ======================================================
 class ProductNode(Node, nn.Module):
     def __init__(self, children):
         nn.Module.__init__(self)
         Node.__init__(self, children)
+        if len(children) == 0:
+            raise ValueError("ProductNode requires at least one child.")
 
-    def evaluate(self, x):
-        """Compute log(∏_i p_i) = ∑_i log p_i."""
-        child_logs = torch.stack([c.evaluate(x) for c in self.children], dim=0)
+        # --- Decomposability: child scopes must be pairwise disjoint ---
+        union: set = set()
+        for c in children:
+            sc = _scope_of(c)
+            overlap = union & sc
+            if overlap:
+                raise ValueError(
+                    f"ProductNode violates DECOMPOSABILITY: overlapping child scopes {overlap}."
+                )
+            union |= sc
+        self.scope = frozenset(union)
+
+    def evaluate(self, x, cache=None):
+        return self._memoize(x, cache, self._compute)
+
+    def _compute(self, x, cache):
+        """log( prod_i p_i ) = sum_i log p_i  (over disjoint scopes)."""
+        child_logs = torch.stack([c.evaluate(x, cache) for c in self.children], dim=0)
         return torch.sum(child_logs, dim=0)
 
 
 # ======================================================
-# Classifier Node: stack log-likelihoods as class logits
+# Gate / Residual: binary SUM nodes (kept for grammar back-compat).
+# They are convex log-mixtures of two children, so they are valid SUM nodes
+# and must obey smoothness: both children share the same scope.
+# ======================================================
+class GateNode(Node, nn.Module):
+    def __init__(self, a, b, device="cpu"):
+        nn.Module.__init__(self)
+        Node.__init__(self, [a, b])
+        sa, sb = _scope_of(a), _scope_of(b)
+        if sa and sb and sa != sb:
+            raise ValueError(
+                f"GateNode violates SMOOTHNESS: children scopes {sa} != {sb}."
+            )
+        self.scope = sa or sb
+        self.alpha = nn.Parameter(torch.tensor(0.0, device=device))
+        self.device = device
+
+    def get_learnable_params(self):
+        return [self.alpha]
+
+    def evaluate(self, x, cache=None):
+        return self._memoize(x, cache, self._compute)
+
+    def _compute(self, x, cache):
+        gate = torch.sigmoid(self.alpha)
+        left, right = self.children
+        llog = left.evaluate(x, cache)
+        rlog = right.evaluate(x, cache)
+        return torch.logaddexp(llog + torch.log(gate + 1e-8),
+                               rlog + torch.log(1 - gate + 1e-8))
+
+
+class ResidualNode(Node, nn.Module):
+    def __init__(self, base, sub, device="cpu"):
+        nn.Module.__init__(self)
+        Node.__init__(self, [base, sub])
+        sa, sb = _scope_of(base), _scope_of(sub)
+        if sa and sb and sa != sb:
+            raise ValueError(
+                f"ResidualNode violates SMOOTHNESS: children scopes {sa} != {sb}."
+            )
+        self.scope = sa or sb
+        self.beta = nn.Parameter(torch.tensor(0.5, device=device))
+        self.device = device
+
+    def get_learnable_params(self):
+        return [self.beta]
+
+    def evaluate(self, x, cache=None):
+        return self._memoize(x, cache, self._compute)
+
+    def _compute(self, x, cache):
+        b = self.children[0].evaluate(x, cache)
+        s = self.children[1].evaluate(x, cache)
+        mix = torch.sigmoid(self.beta)
+        return torch.logsumexp(torch.stack([
+            b + torch.log(1 - mix + 1e-8),
+            s + torch.log(mix + 1e-8)
+        ]), dim=0)
+
+
+# ======================================================
+# Classifier Node: discriminative head over per-class circuits.
+# ------------------------------------------------------
+# This is NOT a generative circuit node: it stacks the (valid, full-scope)
+# per-class density circuits into class logits = class-conditional
+# log-likelihoods, used for generative classification / segmentation
+# (argmax over classes). Each child remains an exact, normalized PC; the
+# four properties are asserted on the children, not on the stack.
 # ======================================================
 class ClassifierNode(Node, nn.Module):
     def __init__(self, children):
         nn.Module.__init__(self)
         Node.__init__(self, children)
+        scopes = {_scope_of(c) for c in children}
+        scopes.discard(frozenset())
+        # All class circuits should be densities over the SAME full scope.
+        self.scope = next(iter(scopes)) if len(scopes) == 1 else frozenset().union(*scopes) if scopes else frozenset()
 
-    def evaluate(self, x):
-        """Return (B, n_classes, H, W) log-probs."""
-        child_logs = [c.evaluate(x) for c in self.children]
+    def evaluate(self, x, cache=None):
+        """Return (B, n_classes, H, W) [or (B, n_classes)] log-probs."""
+        if cache is None:
+            cache = {}
+        child_logs = [c.evaluate(x, cache) for c in self.children]
         return torch.stack(child_logs, dim=1)
-
-
 
 
 # ============================================================
@@ -281,6 +497,124 @@ class DirectedAcyclicGraph(AbstractGraph):
 
 
 # ============================================================
+# The four property validators
+# ============================================================
+def _compute_scope(node, cache=None, check_smooth=True, check_decomp=True) -> FrozenSet[int]:
+    """Recursively compute a node's scope, optionally asserting smoothness and
+    decomposability. Memoized by id so DAGs are traversed once per node."""
+    if cache is None:
+        cache = {}
+    nid = id(node)
+    if nid in cache:
+        return cache[nid]
+
+    if isinstance(node, InputNode):
+        scope = frozenset({node.feature_idx})
+
+    elif isinstance(node, ProductNode):
+        child_scopes = [_compute_scope(c, cache, check_smooth, check_decomp) for c in node.children]
+        combined: FrozenSet[int] = frozenset()
+        for i, si in enumerate(child_scopes):
+            if check_decomp:
+                for j in range(i + 1, len(child_scopes)):
+                    sj = child_scopes[j]
+                    assert si.isdisjoint(sj), (
+                        f"Decomposability violated: ProductNode children {i},{j} "
+                        f"share feature(s) {set(si & sj)}"
+                    )
+            combined = combined | si
+        scope = combined
+
+    elif isinstance(node, (SumNode, GateNode, ResidualNode, ClassifierNode)):
+        child_scopes = [_compute_scope(c, cache, check_smooth, check_decomp) for c in node.children]
+        if child_scopes:
+            ref = child_scopes[0]
+            # ClassifierNode is discriminative: do not require smoothness on it.
+            if check_smooth and not isinstance(node, ClassifierNode):
+                for i, cs in enumerate(child_scopes[1:], 1):
+                    assert cs == ref, (
+                        f"Smoothness violated: {type(node).__name__} child 0 has scope "
+                        f"{set(ref)} but child {i} has scope {set(cs)}"
+                    )
+            scope = frozenset().union(*child_scopes)
+        else:
+            scope = frozenset()
+    else:
+        # Unknown / wrapper node (e.g. SubPCNet): fall back to its declared scope.
+        scope = _scope_of(node)
+
+    cache[nid] = scope
+    return scope
+
+
+def validate_smoothness(root) -> None:
+    """Property 1: every sum node's children share the same scope."""
+    _compute_scope(root, check_smooth=True, check_decomp=False)
+
+
+def validate_decomposability(root) -> None:
+    """Property 2: every product node's children have disjoint scopes."""
+    _compute_scope(root, check_smooth=False, check_decomp=True)
+
+
+def validate_circuit(root) -> None:
+    """Verify smoothness AND decomposability (the two mandatory properties for
+    exact density + exact marginals). Raises AssertionError on first violation."""
+    _compute_scope(root, check_smooth=True, check_decomp=True)
+
+
+def validate_determinism(root, x, log_zero_threshold: float = -1e8) -> None:
+    """Property 3 (empirical): for every input at most one child of each sum is
+    non-zero. Mixtures of full-support leaves are NOT deterministic and will
+    fail here — that is the correct, expected outcome (determinism is only
+    needed for exact MAP/MPE, which this project does not use)."""
+    def _walk(node, cache):
+        if id(node) in cache:
+            return
+        cache.add(id(node))
+        if isinstance(node, SumNode):
+            outs = torch.stack([c.evaluate(x) for c in node.children], dim=0)
+            nonzero = (outs > log_zero_threshold).reshape(len(node.children), -1).sum(dim=0)
+            assert (nonzero <= 1).all(), (
+                f"Determinism violated: a SumNode has up to {int(nonzero.max())} "
+                f"non-zero children for some input."
+            )
+        for c in getattr(node, "children", []):
+            _walk(c, cache)
+    _walk(root, set())
+
+
+def validate_structured_decomposability(root, vtree: VtreeNode) -> None:
+    """Property 4: every product node splits its scope exactly as `vtree`
+    prescribes. Requires binary product nodes (which the vtree builder makes)."""
+    allowed = {
+        frozenset({n.left_scope, n.right_scope})
+        for n in vtree_nodes(vtree)
+        if isinstance(n, VtreeInternal)
+    }
+    cache: set = set()
+
+    def _check(node):
+        if id(node) in cache:
+            return
+        cache.add(id(node))
+        if isinstance(node, ProductNode):
+            assert len(node.children) == 2, (
+                "Structured decomposability requires binary product nodes; found "
+                f"one with {len(node.children)} children."
+            )
+            split = frozenset({_scope_of(node.children[0]), _scope_of(node.children[1])})
+            assert split in allowed, (
+                f"Structured decomposability violated: product split {split} is not "
+                f"prescribed by the vtree."
+            )
+        for c in getattr(node, "children", []):
+            _check(c)
+
+    _check(root)
+
+
+# ============================================================
 # Probabilistic Circuit
 # ============================================================
 class ProbabilisticCircuit:
@@ -310,13 +644,22 @@ class ProbabilisticCircuit:
     def get_edges(self):
         return [(p, c) for p, cs in self.graph.edges.items() for c in cs]
 
-    # visualization function unchanged ...
+    def validate(self):
+        """Assert the structural properties of the (generative) sub-circuits.
 
-
-# ============================================================
-# PCNet and EvoPCNet (keep as-is but cleaned)
-# ============================================================
-# [Your PCNet implementation cleaned goes here ... same structure but formatted]
+        ClassifierNode is a discriminative head, so smoothness/decomposability
+        are checked on each of its children (the per-class density circuits),
+        and structured decomposability is checked against self.vtree when set.
+        """
+        if self.root is None:
+            raise RuntimeError("Circuit not initialized; call init_network first.")
+        children = self.root.children if isinstance(self.root, ClassifierNode) else [self.root]
+        for c in children:
+            validate_circuit(c)
+            if getattr(self, "vtree", None) is not None:
+                validate_structured_decomposability(c, self.vtree)
+        print_info("PC validation passed: smoothness + decomposability"
+                   + (" + structured decomposability" if getattr(self, "vtree", None) else ""))
 
 
     def visualize(self, direction="LR", layer_sep=2.0, node_sep=5.0, save_path=None):
@@ -348,6 +691,7 @@ class ProbabilisticCircuit:
                 label = "Classifier"
                 colors[node] = "orange"
             else:
+                label = node.__class__.__name__
                 colors[node] = "lightgray"
             G.add_node(node, label=label)
 
@@ -363,7 +707,7 @@ class ProbabilisticCircuit:
         pos = nx.nx_pydot.graphviz_layout(G, prog="dot")
         if direction == "LR":
             pos = {k: (y, -x) for k, (x, y) in pos.items()}
-        
+
         labels = nx.get_node_attributes(G, 'label')
         node_colors = [colors[n] for n in G.nodes]
 
@@ -387,14 +731,38 @@ class ProbabilisticCircuit:
             save_path = os.path.join(save_path, "pc_tree.png")
             plt.savefig(save_path, bbox_inches='tight')
             print_info(f"PC visualization saved to {save_path}")
+
+
 # ============================================================
-# PCNet
+# PCNet — a smooth + decomposable + structured-decomposable circuit
+# built top-down from a single shared vtree over the C feature channels.
 # ============================================================
 class PCNet(ProbabilisticCircuit):
+    """
+    Per-class probabilistic-circuit segmenter.
+
+    For each of the `n_classes` classes we build ONE exact density circuit over
+    all C channel features, using a region graph induced by a single shared
+    vtree. A ClassifierNode stacks the per-class log-densities into
+    (B, n_classes, H, W) class logits; argmax over classes gives the
+    segmentation. Because every class circuit is built from the same vtree:
+
+        * SumNodes mix products of identical scope        -> smoothness
+        * ProductNodes combine disjoint left/right scopes -> decomposability
+        * all products follow the shared vtree split      -> structured decomp.
+        * leaves are normalized mixtures, weights softmax -> Z = 1
+
+    Back-compat hyperparameters:
+        max_branching : sets region width if the *_components args are None.
+        max_depth     : retained for the public signature; it does NOT cap
+                        recursion (capping would drop variables and break
+                        coverage). Depth follows the data dimensionality.
+    """
     def __init__(
         self, input_size=(256, 256), n_classes=2, distribution=None, device="cpu",
-        max_depth=4, max_branching=3,
-        seed=42, cv_module = None
+        max_depth=4, max_branching=3, seed=42, cv_module=None,
+        n_sum_components=None, n_leaf_components=None, n_repetitions=1,
+        leaf_jitter=0.05,
     ):
         super().__init__(n_classes, device)
         self.input_size = input_size
@@ -403,172 +771,159 @@ class PCNet(ProbabilisticCircuit):
         self.max_branching = max_branching
         self.seed = seed
         self.cv_module = cv_module
+        self.n_sum_components = n_sum_components if n_sum_components is not None else max_branching
+        self.n_leaf_components = n_leaf_components if n_leaf_components is not None else max_branching
+        self.n_repetitions = n_repetitions
+        self.leaf_jitter = leaf_jitter
+        self.n_features = None
+        self.vtree = None
         random.seed(self.seed)
 
     # --------------------------------------------------------
-    # Network structure helpers
+    # Structure construction (vtree region graph)
     # --------------------------------------------------------
-    def pairwise(self, nodes):
-        """Group nodes pairwise for ProductNode"""
-        random.shuffle(nodes)
-        pairs = [(nodes[i], nodes[i + 1]) for i in range(0, len(nodes) - 1, 2)]
-        if len(nodes) % 2 == 1:
-            pairs.append((nodes[-1],))
-        return pairs
+    def _build_region(self, vnode: VtreeNode, inputs, rng):
+        """Return a list of circuit nodes all with scope == vnode.scope.
 
-    def prod_layer(self, current_nodes):
-        """Build a ProductNode layer"""
-        next_nodes = []
-        for pair in self.pairwise(current_nodes):
-            if len(pair) == 1:
-                next_nodes.append(pair[0])
-                continue
-            prod = ProductNode(list(pair))
-            self.add_node(prod)
-            for child in pair:
-                self.add_edge(prod, child)
-            next_nodes.append(prod)
-        return next_nodes
-
-    def branchwise(self, nodes):
-        n = len(nodes)
-        if n <= 1:
-            return [(nodes[0],)]  # just one singleton branch
-
-        groups = []
-        max_b = self.max_branching
-        n_groups = max(1, n // random.randint(2, max_b) + random.randint(0, 2))
-
-        for _ in range(n_groups):
-            upper = min(max_b, n)
-            if upper < 2:  # avoid invalid randint range
-                groups.append(tuple(nodes))
-                continue
-            gsize = random.randint(2, upper)
-            group = tuple(random.sample(nodes, gsize))
-            groups.append(group)
-
-        # ensure all nodes appear at least once
-        covered = {x for g in groups for x in g}
-        missing = [x for x in nodes if x not in covered]
-        for m in missing:
-            groups[random.randrange(len(groups))] += (m,)
-
-        return groups
-
-
-    def sum_layer(self, current_nodes):
-        """Build a SumNode layer"""
-        next_nodes = []
-        for branch in self.branchwise(current_nodes):
-            weights = torch.rand(len(branch), device=self.device)
-            weights = weights / weights.sum()
-            node = SumNode(list(branch), weights=weights, device=self.device)
-            self.add_node(node)
-            for child in branch:
-                self.add_node(child)
-                self.add_edge(node, child)
-            next_nodes.append(node)
-        return next_nodes
-    
-    def reduce_to_n(self, nodes, n_target):
+        Leaf region  -> n_leaf_components InputNodes for the single feature.
+        Internal     -> products of (left x right) sub-nodes (disjoint scopes),
+                        mixed by n_sum_components sum nodes (identical scope).
+        Nodes/edges are registered in the graph as they are built.
         """
-        Force reduce a list of nodes to exactly n_target nodes by grouping.
-        """
-        if len(nodes) == n_target:
-            return nodes
-        if len(nodes) < n_target:
-            # Pad by duplicating last node
-            while len(nodes) < n_target:
-                nodes.append(nodes[-1])
-            return nodes
+        if isinstance(vnode, VtreeLeaf):
+            leaves = []
+            for _ in range(self.n_leaf_components):
+                leaf = InputNode(vnode.feature_idx, device=self.device)
+                leaf.fit(inputs, jitter=self.leaf_jitter)
+                self.add_node(leaf)
+                leaves.append(leaf)
+            return leaves
 
-        # Too many: group nodes into n_target groups
-        groups = np.array_split(nodes, n_target)
-        reduced = []
-        for g in groups:
-            if len(g) == 1:
-                reduced.append(g[0])
+        left_nodes = self._build_region(vnode.left, inputs, rng)
+        right_nodes = self._build_region(vnode.right, inputs, rng)
+
+        # Products: one node per (left, right) pair -> disjoint scopes.
+        products = []
+        for l in left_nodes:
+            for r in right_nodes:
+                prod = ProductNode([l, r])
+                self.add_node(prod)
+                self.add_edge(prod, l)
+                self.add_edge(prod, r)
+                products.append(prod)
+
+        # Sums: each mixes the same products -> identical scope (smooth).
+        sums = []
+        for _ in range(self.n_sum_components):
+            s = SumNode(list(products), device=self.device)
+            self.add_node(s)
+            for p in products:
+                self.add_edge(s, p)
+            sums.append(s)
+        return sums
+
+    def _build_class_circuit(self, inputs, rng):
+        """One full-scope density circuit (a single class), possibly a mixture
+        of `n_repetitions` independent region graphs over the shared vtree."""
+        rep_roots = []
+        for _ in range(self.n_repetitions):
+            region = self._build_region(self.vtree, inputs, rng)
+            if len(region) == 1:
+                rep_roots.append(region[0])
             else:
-                weights = torch.rand(len(g), device=self.device)
-                weights = weights / weights.sum()
-                node = SumNode(list(g), weights=weights, device=self.device)
-                self.add_node(node)
-                for child in g:
-                    self.add_edge(node, child)
-                reduced.append(node)
-        return reduced
+                s = SumNode(list(region), device=self.device)
+                self.add_node(s)
+                for c in region:
+                    self.add_edge(s, c)
+                rep_roots.append(s)
+        if len(rep_roots) == 1:
+            return rep_roots[0]
+        root = SumNode(list(rep_roots), device=self.device)
+        self.add_node(root)
+        for c in rep_roots:
+            self.add_edge(root, c)
+        return root
 
+    def build_network(self, inputs):
+        """Build n_classes independent full-scope circuits + a ClassifierNode."""
+        rng = random.Random(self.seed)
+        class_roots = [self._build_class_circuit(inputs, rng) for _ in range(self.n_classes)]
+        root = ClassifierNode(class_roots)
+        self.add_node(root)
+        for c in class_roots:
+            self.add_edge(root, c)
+        return root
 
-    def build_network(self, current_nodes):
-        nodes = current_nodes
-        for depth in range(1, self.max_depth + 1):
-            if depth == self.max_depth:
-                # Force reduce/pad to exactly n_classes
-                nodes = self.reduce_to_n(nodes, self.n_classes)
+    def init_network(self, inputs, labels=None):
+        """Initialize the structured-decomposable PCNet from a feature batch.
 
-                print(f"[DEBUG] Final children = {len(nodes)}, expected = {self.n_classes}")
-                root = ClassifierNode(nodes)
-                self.add_node(root)
-                for child in nodes:
-                    self.add_edge(root, child)
-                return root
+        Args:
+            inputs: (B, C, H, W) feature tensor — C channels are the features.
+            labels: unused (kept for API symmetry; training is per-class
+                    generative, supervised by the loss / metrics downstream).
+        """
+        random.seed(self.seed)
+        torch.manual_seed(self.seed)
 
-            nodes = self.prod_layer(nodes) if depth % 2 == 0 else self.sum_layer(nodes)
-        
+        print_configs("Inputs tensor shape:", tuple(inputs.shape))
+        C = inputs.shape[1]
+        self.n_features = C
 
+        # One shared vtree over all C features -> structured decomposability.
+        self.vtree = random_balanced_vtree(list(range(C)), seed=self.seed)
 
-    def init_network(self, inputs, labels):
-        """Initialize the PCNet structure"""
-        input_nodes = self.set_input_nodes(inputs, labels)
-        root = self.build_network(input_nodes)
+        root = self.build_network(inputs)
         self.set_root(root)
+
+        # Coverage: each class circuit must be a density over ALL features.
+        full = frozenset(range(C))
+        for c in root.children:
+            assert _scope_of(c) == full, (
+                f"Class circuit scope {sorted(_scope_of(c))} != all features 0..{C-1}"
+            )
+
+        # Collect learnable params (leaves + sums + any gate/residual).
         self.params = []
         for n in self.get_nodes():
-            if isinstance(n, SumNode) or isinstance(n, InputNode):
+            if hasattr(n, "get_learnable_params"):
                 self.params += n.get_learnable_params()
+
+        # Fail loudly on any property violation.
+        self.validate()
+
         print_configs(f"Initialized PCNet with {len(self.get_nodes())} nodes, "
                       f"{sum(p.numel() for p in self.params)} trainable parameters")
 
     # --------------------------------------------------------
-    # Training & Prediction
+    # Inference
     # --------------------------------------------------------
-    def set_input_nodes(self, inputs, labels):
-        print_configs("Inputs tensor shape:", inputs.shape)
-        B, C, H, W = inputs.shape
-
-        nodes = []
-        for i in range(C):
-            node = InputNode(i, device=self.device)
-            node.fit(inputs)
-            nodes.append(node)
-            self.add_node(node)
-        return nodes
-    
     def evaluate(self, x):
-        # x should be (C, H, W), convert to (1, C, H, W)
         if self.cv_module is not None:
             x = [self.cv_module.get_output(x_, return_map=True) for x_ in x]
             x = np.stack(x, axis=0)
             x = torch.from_numpy(x).float().to(self.device)
         if x.ndim == 3:
             x = x.unsqueeze(0)
-        out = self.root.evaluate(x)
-        return out
-
+        return self.root.evaluate(x)
 
     def predict(self, inputs):
-
         with torch.no_grad():
             logits = self.evaluate(inputs)
             preds = torch.argmax(logits, dim=1, keepdim=True)
             return preds.cpu().numpy()
-        
+
+    def log_prob(self, x, class_idx=0):
+        """Exact log-density of the per-class circuit (the quantity the marginal
+        machinery of the outlier paper operates on)."""
+        if x.ndim == 3:
+            x = x.unsqueeze(0)
+        return self.root.children[class_idx].evaluate(x)
+
+    # --------------------------------------------------------
+    # Serialization / introspection
+    # --------------------------------------------------------
     def state_dict(self):
-        """
-        Return a unified state_dict collecting parameters from all node modules.
-        This mimics nn.Module.state_dict().
-        """
+        """Return a unified state_dict collecting parameters from all node modules."""
         state = {}
         for node in self.get_nodes():
             if isinstance(node, nn.Module):
@@ -578,10 +933,7 @@ class PCNet(ProbabilisticCircuit):
         return state
 
     def load_state_dict(self, state_dict, strict=False):
-        """
-        Load parameters into the PCNet nodes.
-        Works even if the structure has changed slightly (strict=False).
-        """
+        """Load parameters into the PCNet nodes (tolerant of structure drift)."""
         loaded, missing = 0, 0
         for node in self.get_nodes():
             if isinstance(node, nn.Module):
@@ -594,7 +946,6 @@ class PCNet(ProbabilisticCircuit):
                                 if src.shape == param.shape:
                                     param.copy_(src)
                                 else:
-                                    # partial reuse if possible
                                     min_len = min(param.numel(), src.numel())
                                     param.view(-1)[:min_len].copy_(src.view(-1)[:min_len])
                                     print_debugging(f"⚠️ Resized param {key}: old {tuple(src.shape)} → new {tuple(param.shape)}")
@@ -602,7 +953,6 @@ class PCNet(ProbabilisticCircuit):
                         except Exception:
                             missing += 1
                     elif not strict:
-                        # try fuzzy match by name only (ignoring id)
                         for k, v in state_dict.items():
                             if k.endswith(f".{name}"):
                                 with torch.no_grad():
@@ -615,22 +965,14 @@ class PCNet(ProbabilisticCircuit):
         return {"loaded": loaded, "missing": missing}
 
     def named_parameters(self):
-        """
-        Generator yielding (name, param) for all sub-node parameters.
-        """
         for node in self.get_nodes():
             if isinstance(node, nn.Module):
                 for name, param in node.named_parameters():
                     yield f"{node.__class__.__name__}_{id(node)}.{name}", param
-        
-    def save_dict(self):
-        """
-        Return a compact summary dictionary of the PCNet model.
-        This includes metadata, key stats, and memory usage in KB.
-        """
-        info = {}
 
-        # --- Basic info ---
+    def save_dict(self):
+        """Return a compact summary dictionary of the PCNet model."""
+        info = {}
         info["model_type"] = self.__class__.__name__
         info["device"] = str(self.device)
         info["n_classes"] = self.n_classes
@@ -639,7 +981,6 @@ class PCNet(ProbabilisticCircuit):
         info["max_branching"] = self.max_branching
         info["seed"] = self.seed
 
-        # --- Structure statistics ---
         nodes = list(self.get_nodes())
         edges = list(self.get_edges())
         info["n_nodes"] = len(nodes)
@@ -648,8 +989,6 @@ class PCNet(ProbabilisticCircuit):
         type_counts = Counter([n.__class__.__name__ for n in nodes])
         info["node_types"] = dict(type_counts)
 
-        # --- Parameter summary ---
-        all_params = []
         mus, sigmas, nus, gates = [], [], [], []
         sum_weights = []
         input_feats = []
@@ -660,7 +999,7 @@ class PCNet(ProbabilisticCircuit):
                 mus.append(node.mu.item())
                 sigmas.append(torch.exp(node.log_sigma).item())
                 nus.append(torch.exp(node.log_nu).item())
-                gates.append(torch.sigmoid(node.gate).item())
+                gates.append(float(node.gate.item()))
             elif isinstance(node, SumNode):
                 w = torch.softmax(node.weights, dim=0).detach().cpu().numpy()
                 sum_weights.extend(w.tolist())
@@ -684,24 +1023,15 @@ class PCNet(ProbabilisticCircuit):
 
         info["n_parameters"] = sum(p.numel() for p in getattr(self, "params", []))
         info["input_features"] = input_feats
-
-        # --- Memory usage (KB) ---
-        model_memory_kb = sum(p.numel() * p.element_size() for p in self.params) / 1024
+        model_memory_kb = sum(p.numel() * p.element_size() for p in getattr(self, "params", [])) / 1024
         info["memory_kb"] = model_memory_kb
-
         return info
-    
+
     def __repr__(self):
-        """
-        Return a detailed string representation of the PCNet,
-        including architecture info and hierarchical tree structure.
-        """
         if not hasattr(self, "graph") or not self.root:
             return "<Uninitialized PCNet>"
 
         nodes = list(self.get_nodes())
-
-        # Count node types
         counts = {
             "InputNode": sum(isinstance(n, InputNode) for n in nodes),
             "SumNode": sum(isinstance(n, SumNode) for n in nodes),
@@ -709,21 +1039,18 @@ class PCNet(ProbabilisticCircuit):
             "ClassifierNode": sum(isinstance(n, ClassifierNode) for n in nodes),
         }
 
-        # Count parameters
         total_params = 0
         param_summary = {}
         for n in nodes:
             if isinstance(n, InputNode):
-                p = sum(p.numel() for p in [n.mu, n.log_sigma, n.log_nu, n.logits, n.gate])
+                p = sum(pp.numel() for pp in [n.mu, n.log_sigma, n.log_nu, n.logits])
                 param_summary["InputNode"] = param_summary.get("InputNode", 0) + p
+                total_params += p
             elif isinstance(n, SumNode):
                 p = n.weights.numel()
                 param_summary["SumNode"] = param_summary.get("SumNode", 0) + p
-            total_params += p if "p" in locals() else 0
+                total_params += p
 
-        # ---------------------------------------------------------------------
-        # HEADER SECTION
-        # ---------------------------------------------------------------------
         header = [
             "─────────────────────────────────────────────",
             "🧠  Probabilistic Circuit Network Summary",
@@ -744,19 +1071,13 @@ class PCNet(ProbabilisticCircuit):
         header.append("─────────────────────────────────────────────")
         header.append("📚 Structure:")
         header_text = "\n".join(header)
-         # --- Memory usage (KB) ---
-        model_memory_kb = sum(p.numel() * p.element_size() for p in self.params) / 1024
-        header_text += f"Memory usage: {model_memory_kb:.2f} KB\n"
+        model_memory_kb = sum(p.numel() * p.element_size() for p in getattr(self, "params", [])) / 1024
+        header_text += f"\nMemory usage: {model_memory_kb:.2f} KB\n"
 
-        # ---------------------------------------------------------------------
-        # TREE SECTION
-        # ---------------------------------------------------------------------
         lines = []
 
         def format_node(node, prefix="", is_last=True):
             connector = "└─ " if is_last else "├─ "
-
-            # Node label
             if isinstance(node, ClassifierNode):
                 label = f"ClassifierNode(classes={len(node.children)})"
             elif isinstance(node, SumNode):
@@ -767,30 +1088,17 @@ class PCNet(ProbabilisticCircuit):
                 label = f"InputNode({node.feature_name})"
             else:
                 label = node.__class__.__name__
-
             lines.append(f"{prefix}{connector}{label}")
-
-            # Recurse for children
             if hasattr(node, "children") and node.children:
                 new_prefix = prefix + ("   " if is_last else "│  ")
                 for i, child in enumerate(node.children):
                     format_node(child, new_prefix, i == len(node.children) - 1)
 
         format_node(self.root)
-
         tree_text = "\n".join(lines)
         return f"{header_text}\n{tree_text}\n─────────────────────────────────────────────"
 
-    
     def info(self, show_layers=True, show_params=True, show_counts=True):
-        """
-        Print a structured summary of the PCNet architecture.
-
-        Args:
-            show_layers (bool): show hierarchical layer summary
-            show_params (bool): show learnable parameters per node type
-            show_counts (bool): show node counts per type
-        """
         print("─────────────────────────────────────────────")
         print("🧠  Probabilistic Circuit Network Summary")
         print("─────────────────────────────────────────────")
@@ -819,7 +1127,7 @@ class PCNet(ProbabilisticCircuit):
             param_summary = []
             for n in nodes:
                 if isinstance(n, InputNode):
-                    p = sum(p.numel() for p in [n.mu, n.log_sigma, n.log_nu, n.logits])
+                    p = sum(pp.numel() for pp in [n.mu, n.log_sigma, n.log_nu, n.logits])
                     param_summary.append(("InputNode", p))
                 elif isinstance(n, SumNode):
                     p = n.weights.numel()
@@ -832,8 +1140,7 @@ class PCNet(ProbabilisticCircuit):
             for t, p in by_type.items():
                 print(f"  • {t:<15}: {p}")
             print("─────────────────────────────────────────────")
-         # --- Memory usage (KB) ---
-        model_memory_kb = sum(p.numel() * p.element_size() for p in self.params) / 1024
+        model_memory_kb = sum(p.numel() * p.element_size() for p in getattr(self, "params", [])) / 1024
         print(f"📚 Memory usage: {model_memory_kb:.2f} KB")
         print("─────────────────────────────────────────────")
 
@@ -844,50 +1151,32 @@ class PCNet(ProbabilisticCircuit):
             "branching": self.max_branching,
         }
 
+
 # ============================================================
-# MultiPCNet: multiple subnetworks (experts) + learned selector
-# Plug-and-play for your existing PCNet / Node classes
+# MultiPCNet: multiple sub-circuits (experts) + learned selector
 # ------------------------------------------------------------
-# What you need already defined elsewhere in your codebase:
-#   - Node, InputNode, SumNode, ProductNode, ClassifierNode
-#   - ProbabilisticCircuit, PCNet (with init_network/evaluate/predict, etc.)
-#   - print_configs, print_debugging, print_info utilities (optional)
-# This file adds:
-#   - SelectorNode (soft and hard variants)
-#   - SubPCNet (thin wrapper around PCNet)
-#   - MultiPCNet (K experts + selector as the new root)
+# Each expert is a full PCNet (a valid PC). The soft selector is a smooth
+# mixture over the experts (all share the full scope), so the mixture is
+# itself a valid PC. The hard/gated selectors are for evaluation only.
 # ============================================================
 from typing import List, Literal, Optional, Tuple
-import numpy as np
-import torch
-import torch.nn as nn
-import torch.nn.functional as F
-
-# If your project puts these in a package/module, import from there instead
-# from your_project.pcnet import PCNet, ProbabilisticCircuit, Node, ClassifierNode
 
 
 # ================================
 # Selector nodes
 # ================================
 class SelectorNode(nn.Module, Node):
-    """
-    Soft mixture selector over sub-circuits (experts).
-    Each child must return (B, C, H, W) *log-probabilities* (ClassifierNode output).
-
-    evaluate(x) returns the log-mixture: log sum_i w_i * p_i(x)
-
-    Notes
-    -----
-    - Fully differentiable; recommended for training.
-    - The mixing weights (logits) are input-agnostic (global). If you want
-      input-conditional gating, see InputGatedSelectorNode below.
-    """
+    """Soft mixture selector (a smooth SumNode) over sub-circuits (experts).
+    Each child returns (B, C, H, W) log-probabilities (ClassifierNode output)."""
     def __init__(self, children: List[Node], device: str = "cpu"):
         nn.Module.__init__(self)
         Node.__init__(self, children=children)
         self.device = device
         self.logits = nn.Parameter(torch.zeros(len(children), device=device))
+        # Experts share the full feature scope; record it for the validators.
+        scopes = {_scope_of(c) for c in children}
+        scopes.discard(frozenset())
+        self.scope = next(iter(scopes)) if len(scopes) == 1 else frozenset()
 
     def get_learnable_params(self):
         return [self.logits]
@@ -896,45 +1185,33 @@ class SelectorNode(nn.Module, Node):
     def n_experts(self):
         return len(self.children)
 
-    def evaluate(self, x):
-        # children[i].evaluate(x): (B, C, H, W) in log-space
-        expert_logs = torch.stack([c.evaluate(x) for c in self.children], dim=0)  # (K, B, C, H, W)
-        log_w = torch.log_softmax(self.logits, dim=0).view(-1, 1, 1, 1, 1)        # (K,1,1,1,1)
-        return torch.logsumexp(log_w + expert_logs, dim=0)  # (B,C,H,W)
+    def evaluate(self, x, cache=None):
+        expert_logs = torch.stack([c.evaluate(x) for c in self.children], dim=0)  # (K,B,C,H,W)
+        log_w = torch.log_softmax(self.logits, dim=0).view(-1, 1, 1, 1, 1)
+        return torch.logsumexp(log_w + expert_logs, dim=0)
 
 
 class HardBestSelectorNode(Node):
-    """
-    Non-differentiable selector: picks the expert with the highest average
-    log-likelihood for the current batch. Use for evaluation/inference.
-
-    Warning: Not suitable for gradient-based training.
-    """
+    """Non-differentiable selector: picks the expert with the highest average
+    log-likelihood for the current batch. Use for evaluation/inference only."""
     def __init__(self, children: List[Node]):
         super().__init__(children=children)
 
-    def evaluate(self, x):
-        # Stack expert outputs and pick the best expert per batch
-        # Strategy: average log-prob across classes and spatial dims
-        expert_logs = [c.evaluate(x) for c in self.children]  # list of (B,C,H,W)
+    def evaluate(self, x, cache=None):
+        expert_logs = [c.evaluate(x) for c in self.children]
         stacked = torch.stack(expert_logs, dim=0)             # (K,B,C,H,W)
-        # Compute a score per (K,B)
         scores = stacked.mean(dim=(2, 3, 4))                  # (K,B)
         best_k = scores.argmax(dim=0)                         # (B,)
-        # Gather the chosen expert output per batch item
         B = stacked.size(1)
-        out = []
-        for b in range(B):
-            out.append(stacked[best_k[b], b])                 # (C,H,W)
-        return torch.stack(out, dim=0)                        # (B,C,H,W)
+        out = [stacked[best_k[b], b] for b in range(B)]
+        return torch.stack(out, dim=0)
 
 
 class InputGatedSelectorNode(nn.Module, Node):
-    """
-    Optional: input-dependent gating (tiny MLP over global-pooled inputs).
-    - Provide x_features(x): (B, F) descriptor of the input (you can plug CV module outputs).
-    - Learns p(expert | x) and mixes experts in log-space.
-    """
+    """Input-dependent gating (tiny MLP over a global descriptor of the input).
+    NOTE: input-conditional weights make the mixture a *conditional* circuit;
+    the per-expert densities remain exact, but the overall object is no longer
+    a single normalized joint. Use for discriminative gating only."""
     def __init__(self, children: List[Node], feat_dim: int, hidden: int = 64, device: str = "cpu"):
         nn.Module.__init__(self)
         Node.__init__(self, children=children)
@@ -947,25 +1224,25 @@ class InputGatedSelectorNode(nn.Module, Node):
     def get_learnable_params(self):
         return list(self.mlp.parameters())
 
+    def evaluate(self, x, cache=None):
+        raise NotImplementedError("Use evaluate_with_features(x, x_feat) for the gated selector.")
+
     def evaluate_with_features(self, x, x_feat: torch.Tensor):
-        # x_feat: (B, F)
         expert_logs = torch.stack([c.evaluate(x) for c in self.children], dim=0)  # (K,B,C,H,W)
         B = expert_logs.size(1)
         logits = self.mlp(x_feat)                         # (B, K)
-        log_w = torch.log_softmax(logits, dim=1).transpose(0,1).view(-1,B,1,1,1)  # (K,B,1,1,1)
+        log_w = torch.log_softmax(logits, dim=1).transpose(0, 1).view(-1, B, 1, 1, 1)
         return torch.logsumexp(log_w + expert_logs, dim=0)
 
 
 # ================================
-# SubPCNet: thin wrapper around your PCNet
+# SubPCNet: thin wrapper around PCNet
 # ================================
 class SubPCNet:
-    """
-    Minimal wrapper to reuse your existing PCNet as an expert.
-    Each sub-net owns its own graph, parameters, etc.
-    """
+    """Minimal wrapper to reuse PCNet as an expert. Each sub-net owns its own
+    graph, parameters, etc."""
     def __init__(self, base_pcnet_cls, *,
-                 input_size=(256,256), n_classes=2, device="cpu",
+                 input_size=(256, 256), n_classes=2, device="cpu",
                  max_depth=3, max_branching=3, seed=42, cv_module=None,
                  name: Optional[str] = None):
         self.model = base_pcnet_cls(
@@ -977,17 +1254,17 @@ class SubPCNet:
         self.device = device
         self.n_classes = n_classes
 
-    # Proxy the Node API expected by selector
-    def evaluate(self, x):
+    @property
+    def scope(self):
+        return _scope_of(self.model.root) if getattr(self.model, "root", None) else frozenset()
+
+    def evaluate(self, x, cache=None):
         return self.model.evaluate(x)  # (B,C,H,W) in log-space
 
-    # Lifecycle helpers
     def init_network(self, inputs, labels):
         self.model.init_network(inputs, labels)
 
     def parameters(self):
-        # Return generator over model params (as stored in self.model.params or via named_parameters)
-        # Prefer the explicit param list your PCNet builds
         if hasattr(self.model, "params") and len(getattr(self.model, "params", [])):
             for p in self.model.params:
                 yield p
@@ -1005,30 +1282,25 @@ class SubPCNet:
 # MultiPCNet: K experts + selector root
 # ================================
 class MultiPCNet:
-    """
-    Build K sub-PCNets (experts) and a selector on top.
+    """Build K sub-PCNets (experts) and a selector on top.
 
     selector_mode:
-        - "soft":    SelectorNode with global learned mixture weights (default)
-        - "hard":    HardBestSelectorNode (non-differentiable; use for eval only)
-        - "gated":   InputGatedSelectorNode (needs x_features function)
-
-    Bootstrapping:
-        - Optionally initialize each expert on a bootstrapped subset of the training batch
-          to encourage specialization (set bootstrap=True).
+        - "soft":  SelectorNode (smooth mixture; default, trainable)
+        - "hard":  HardBestSelectorNode (non-differentiable; eval only)
+        - "gated": InputGatedSelectorNode (conditional gating; needs features)
     """
     def __init__(self,
                  base_pcnet_cls,
                  *,
                  n_experts: int = 3,
-                 input_size: Tuple[int,int] = (256,256),
+                 input_size: Tuple[int, int] = (256, 256),
                  n_classes: int = 2,
                  device: str = "cpu",
                  max_depth: int = 3,
                  max_branching: int = 3,
                  cv_module=None,
-                 selector_mode: Literal["soft","hard","gated"] = "soft",
-                 x_feature_fn=None,   # callable: tensor(B,C,H,W)-> tensor(B,F)
+                 selector_mode: Literal["soft", "hard", "gated"] = "soft",
+                 x_feature_fn=None,
                  x_feature_dim: Optional[int] = None,
                  seed: int = 42,
                  bootstrap: bool = False,
@@ -1040,7 +1312,6 @@ class MultiPCNet:
         self.x_feature_fn = x_feature_fn
         self.bootstrap = bootstrap
 
-        # Build experts
         self.experts: List[SubPCNet] = []
         for k in range(n_experts):
             self.experts.append(
@@ -1057,7 +1328,6 @@ class MultiPCNet:
                 )
             )
 
-        # Build selector
         if selector_mode == "soft":
             self.selector = SelectorNode([e for e in self.experts], device=device)
         elif selector_mode == "hard":
@@ -1068,33 +1338,19 @@ class MultiPCNet:
         else:
             raise ValueError(f"Unknown selector_mode: {selector_mode}")
 
-        # Collect trainable parameters
         self.params: List[torch.nn.Parameter] = []
 
-    # -----------------------------
-    # Initialization
-    # -----------------------------
     def init_network(self, inputs: torch.Tensor, labels: torch.Tensor):
-        """
-        Initialize each expert PCNet. You can optionally bootstrap the inputs
-        so each expert sees a slightly different subset.
-
-        inputs: (B, C, H, W)
-        labels: whatever your PCNet.init_network expects (kept for API symmetry)
-        """
         B = inputs.shape[0]
-
         for k, expert in enumerate(self.experts):
             if self.bootstrap and B >= 4:
-                # Sample with replacement ~80% of batch
-                idx = torch.randint(0, B, (max(1, int(0.8*B)),), device=inputs.device)
+                idx = torch.randint(0, B, (max(1, int(0.8 * B)),), device=inputs.device)
                 sub_in = inputs[idx]
                 sub_lb = labels[idx] if isinstance(labels, torch.Tensor) and labels.shape[0] == B else labels
             else:
                 sub_in, sub_lb = inputs, labels
             expert.init_network(sub_in, sub_lb)
 
-        # Pack params from experts and selector
         self.params = []
         for e in self.experts:
             for p in e.parameters():
@@ -1108,15 +1364,10 @@ class MultiPCNet:
         except Exception:
             pass
 
-    # -----------------------------
-    # Forward / evaluate / predict
-    # -----------------------------
     def evaluate(self, x: torch.Tensor) -> torch.Tensor:
-        """Return (B, n_classes, H, W) in log-space."""
         if self.selector_mode == "gated":
-            # Compute features for gating
             with torch.no_grad():
-                x_feat = self.x_feature_fn(x)                    # (B,F)
+                x_feat = self.x_feature_fn(x)
             return self.selector.evaluate_with_features(x, x_feat)
         else:
             return self.selector.evaluate(x)
@@ -1127,13 +1378,8 @@ class MultiPCNet:
             preds = torch.argmax(logits, dim=1, keepdim=True)
             return preds.cpu().numpy()
 
-    # -----------------------------
-    # Training helpers
-    # -----------------------------
     def named_parameters(self):
-        # Yield names that reflect expert indices and selector
         for k, e in enumerate(self.experts):
-            # Prefer the explicit params list to keep consistency with PCNet
             if hasattr(e.model, "params") and len(getattr(e.model, "params", [])):
                 for i, p in enumerate(e.model.params):
                     yield f"experts.{k}.param_{i}", p
@@ -1141,19 +1387,15 @@ class MultiPCNet:
                 for name, p in e.model.named_parameters():
                     yield f"experts.{k}.{name}", p
         if isinstance(self.selector, nn.Module):
-            # Named parameters for selector
             for name, p in self.selector.named_parameters():
                 yield f"selector.{name}", p
 
     def state_dict(self):
         state = {}
-        # Experts
         for k, e in enumerate(self.experts):
-            # Snapshot all parameters from each node/module via PCNet.state_dict()
             sd = e.model.state_dict()
             for key, tensor in sd.items():
                 state[f"experts.{k}.{key}"] = tensor
-        # Selector
         if isinstance(self.selector, nn.Module):
             for name, p in self.selector.named_parameters():
                 state[f"selector.{name}"] = p.detach().clone()
@@ -1161,15 +1403,12 @@ class MultiPCNet:
 
     def load_state_dict(self, state_dict: dict, strict: bool = False):
         loaded, missing = 0, 0
-        # Experts
         for k, e in enumerate(self.experts):
-            # Extract subset for this expert
             prefix = f"experts.{k}."
             sub = {k2[len(prefix):]: v for k2, v in state_dict.items() if k2.startswith(prefix)}
             stats = e.model.load_state_dict(sub, strict=strict)
             loaded += stats.get("loaded", 0)
             missing += stats.get("missing", 0)
-        # Selector
         if isinstance(self.selector, nn.Module):
             for name, p in self.selector.named_parameters():
                 key = f"selector.{name}"
@@ -1180,7 +1419,6 @@ class MultiPCNet:
                             p.copy_(src)
                             loaded += 1
                         else:
-                            # partial copy fallback
                             n = min(src.numel(), p.numel())
                             p.view(-1)[:n].copy_(src.view(-1)[:n])
                             loaded += 1
@@ -1192,9 +1430,6 @@ class MultiPCNet:
             pass
         return {"loaded": loaded, "missing": missing}
 
-    # -----------------------------
-    # Reporting
-    # -----------------------------
     def save_dict(self):
         info = {
             "model_type": "MultiPCNet",
@@ -1216,20 +1451,13 @@ class MultiPCNet:
 # Convenience trainer (optional)
 # ================================
 class MultiPCNetTrainer:
-    """
-    Minimal training loop hook. Plug in your own loss & dataloaders.
-    Assumes outputs are *logits* over classes per pixel (B,C,H,W) and uses
-    pixel-wise cross-entropy by default.
-    """
+    """Minimal training loop hook. Plug in your own loss & dataloaders."""
     def __init__(self, model: MultiPCNet, lr: float = 1e-3, weight_decay: float = 0.0):
         self.model = model
-        # Build optimizer over collected parameters
         params = [p for _, p in model.named_parameters() if p.requires_grad]
         self.opt = torch.optim.Adam(params, lr=lr, weight_decay=weight_decay)
 
     def loss_fn(self, logits: torch.Tensor, targets: torch.Tensor):
-        # logits in log-space; convert to prob via log_softmax? they should already be log-probs.
-        # Targets expected (B,1,H,W) or (B,H,W) with class indices.
         if targets.ndim == 4 and targets.size(1) == 1:
             targets = targets.squeeze(1)
         return F.nll_loss(F.log_softmax(logits, dim=1), targets)
@@ -1252,42 +1480,3 @@ class MultiPCNetTrainer:
         pred = logits.argmax(dim=1)
         acc = (pred == y_).float().mean().item()
         return acc
-
-
-# ================================
-# Example wiring (usage)
-# ================================
-"""
-from your_pcnet_impl import PCNet
-
-# Build
-mnet = MultiPCNet(
-    base_pcnet_cls=PCNet,
-    n_experts=3,
-    input_size=(256,256),
-    n_classes=2,
-    device="cpu",
-    max_depth=4,
-    max_branching=3,
-    selector_mode="soft",  # or "hard" / "gated"
-    bootstrap=True,
-)
-
-# Initialize (pass a representative batch for InputNode fitting)
-mnet.init_network(train_inputs, train_labels)
-
-# Train with your loop or the convenience trainer
-trainer = MultiPCNetTrainer(mnet, lr=1e-3)
-for x, y in train_loader:
-    loss = trainer.step(x, y)
-
-# Inference
-with torch.no_grad():
-    out = mnet.evaluate(x)      # (B,C,H,W) log-probs
-    pred = mnet.predict(x)      # numpy labels
-
-# Introspection
-print(mnet.save_dict())
-"""
-
-
